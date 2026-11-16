@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { config, demoMode } from './config.js';
 import * as sarvam from './sarvam.js';
 import { attachLiveRelay } from './live.js';
+import { createGate } from './auth.js';
 import { detectClarification, isUnintelligible, looksTruncated } from './clarify.js';
 import { features, heuristicScores, blend, provisionalLevel, finalLevel } from './scoring.js';
 import { JUDGE_SYSTEM, judgeUser, INTENT_SYSTEM, REPLY_SYSTEM } from './prompts.js';
@@ -14,6 +15,8 @@ import { QUESTIONS, variantFor } from '../shared/assessment.js';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
 const DEVANAGARI = /[ऀ-ॿ]/;
+
+const gate = createGate(config.appPassword);
 
 const readBody = async (req, limit = 8 * 1024 * 1024) => {
   const chunks = []; let n = 0;
@@ -124,6 +127,7 @@ async function serveStatic(res, pathname) {
 export const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   try {
+    if (await gate.handle(req, res, url)) return; // /login, /healthz, or not signed in
     if (req.method === 'GET' && url.pathname === '/api/config') {
       return send(res, 200, { demo: demoMode(), realtime: !demoMode() && config.sarvam.realtime.enabled });
     }
@@ -138,8 +142,9 @@ export const server = createServer(async (req, res) => {
   }
 });
 
-attachLiveRelay(server, { enabled: () => !demoMode() && config.sarvam.realtime.enabled });
+attachLiveRelay(server, { enabled: () => !demoMode() && config.sarvam.realtime.enabled, authorize: gate.check });
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  server.listen(config.port, () => console.log(`AI English Coach on http://localhost:${config.port}${demoMode() ? '  (demo mode: no SARVAM_API_KEY)' : ''}`));
+  server.listen(config.port, () => console.log(`AI English Coach on http://localhost:${config.port}` +
+    `${demoMode() ? '  (demo mode: no SARVAM_API_KEY)' : ''}${gate.enabled ? '  (password required)' : ''}`));
 }

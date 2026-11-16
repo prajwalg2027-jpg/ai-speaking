@@ -1,0 +1,19 @@
+# Render Blueprint: one web service. Deploy with the button in README.md, or
+# Render dashboard → New → Blueprint → pick this repo.
+services:
+  - type: web
+    name: ai-speaking
+    runtime: node
+    region: singapore        # closest Render region to Sarvam (India) → lower speech latency
+    plan: free               # free sleeps after 15 min idle (first visit then takes ~1 min); "starter" stays awake
+    branch: main
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: SARVAM_API_KEY  # entered in the dashboard at deploy time; never committed
+        sync: false
+      - key: APP_PASSWORD    # visitors must enter this to use the app (protects your Sarvam credits)
+        sync: false

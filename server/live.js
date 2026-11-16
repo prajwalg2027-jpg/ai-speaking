@@ -48,11 +48,15 @@ export function upstreamUrl({ silenceMs = 1200 } = {}) {
 }
 
 /** Attach the relay to an http.Server at /api/live. */
-export function attachLiveRelay(server, { enabled = () => true } = {}) {
+export function attachLiveRelay(server, { enabled = () => true, authorize = () => true } = {}) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
 
   server.on('upgrade', (req, socket, head) => {
     if (new URL(req.url, 'http://x').pathname !== '/api/live') return socket.destroy();
+    if (!authorize(req)) {
+      socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+      return;
+    }
     wss.handleUpgrade(req, socket, head, (client) => relay(client, enabled()));
   });
   return wss;

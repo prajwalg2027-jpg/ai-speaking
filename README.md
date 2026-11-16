@@ -34,11 +34,25 @@ REST calls. The Realtime socket uses `https-proxy-agent` (an optional dependency
 automatically. If your proxy blocks WebSocket upgrades, the app falls back to REST on
 its own.
 
+## Deploy (shareable https link)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/prajwalg2027-jpg/ai-speaking)
+
+1. Click the button above, sign in to Render, and connect GitHub so Render can see this repo.
+2. When prompted, fill in **`SARVAM_API_KEY`** (your key) and **`APP_PASSWORD`** (what visitors type to get in).
+3. Click **Apply**. After the build (about 2 min) you get `https://ai-speaking-xxxx.onrender.com`. Share that and the password.
+
+What the blueprint (`render.yaml`) sets up:
+- **Region and hosting:** Singapore (close to Sarvam), HTTPS, and WebSockets for live captions.
+- **Health check:** `/healthz`.
+- **Free plan:** the service sleeps after 15 minutes without visitors, and the next visit takes about a minute to wake it. Switch to the Starter plan to keep it always on.
+- **Password gate:** turns on whenever `APP_PASSWORD` is set. Visitors see a login page, and every API call and the live-speech socket require the sign-in cookie, so nobody can spend your Sarvam credits without the password. Change the password in Render to sign everyone out.
+
 ## Layout
 ```
 shared/assessment.js          question bank: 4 questions × level variants, Hindi fallbacks
 server/index.js               static + /api/turn, /api/tts, /api/final; evaluateTurn()
 server/live.js                /api/live: browser ⇄ Sarvam Realtime STT relay (key stays server-side)
+server/auth.js                optional password gate (APP_PASSWORD) for public deployments
 server/sarvam.js              Sarvam REST client: Saaras v4, Bulbul v4 Flash (cached), chat (JSON mode), translate
 server/clarify.js             "didn't understand" detection (EN / Hinglish / Devanagari)
 server/scoring.js             deterministic speech features + final level rules
@@ -48,4 +62,5 @@ public/live.js                Realtime client: utterances → answers, captions,
 public/audio.js               mic, energy VAD (fallback), WAV encoding, TTS playback
 public/pcm.js                 streaming resampler → 16 kHz PCM16
 test/mock-sarvam-realtime.js  protocol-accurate stand-in for Sarvam Realtime (tests / offline dev)
+render.yaml                   Render blueprint (one-click deploy)
 ```

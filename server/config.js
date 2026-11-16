@@ -13,6 +13,8 @@ const env = (k, d) => process.env[k] || d;
 
 export const config = {
   port: Number(env('PORT', 3000)),
+  // Set on public deployments: visitors must enter this password (protects your Sarvam credits).
+  appPassword: env('APP_PASSWORD', ''),
   sarvam: {
     apiKey: env('SARVAM_API_KEY', ''),
     baseUrl: env('SARVAM_BASE_URL', 'https://api.sarvam.ai'),
