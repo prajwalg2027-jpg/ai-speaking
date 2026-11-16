@@ -1,4 +1,4 @@
-// Thin Sarvam AI client: STT (Saarika), STT-translate (Saaras), TTS (Bulbul), chat (Sarvam-M).
+// Thin Sarvam AI client: STT + translate (Saaras v4), TTS (Bulbul v4 Flash), chat (Sarvam-30B).
 import { createHash } from 'node:crypto';
 import { config } from './config.js';
 
@@ -32,21 +32,21 @@ const wavForm = (wav, fields) => {
   return fd;
 };
 
-/** Saarika: transcript in the spoken language, plus detected language_code. */
-export async function transcribe(wav, languageCode = 'unknown') {
-  const r = await call('/speech-to-text', {
-    body: wavForm(wav, { model: S.sttModel, language_code: languageCode }),
-    timeout: S.timeouts.stt,
-  });
+function sttFields(mode) {
+  const f = { model: S.sttModel, mode };
+  if (S.sttLanguage) f.language_code = S.sttLanguage;
+  return f;
+}
+
+/** Saaras v4, codemix mode: English stays Latin, Hindi stays Devanagari. */
+export async function transcribe(wav) {
+  const r = await call('/speech-to-text', { body: wavForm(wav, sttFields(S.sttMode)), timeout: S.timeouts.stt });
   return { transcript: r.transcript ?? '', languageCode: r.language_code ?? null };
 }
 
-/** Saaras: English translation of whatever was said (used for Hindi answers). */
+/** Saaras v4, translate mode: English meaning of whatever was said (replaces legacy /speech-to-text-translate). */
 export async function transcribeToEnglish(wav) {
-  const r = await call('/speech-to-text-translate', {
-    body: wavForm(wav, { model: S.sttTranslateModel }),
-    timeout: S.timeouts.stt,
-  });
+  const r = await call('/speech-to-text', { body: wavForm(wav, sttFields('translate')), timeout: S.timeouts.stt });
   return { transcript: r.transcript ?? '', languageCode: r.language_code ?? null };
 }
 
@@ -64,8 +64,8 @@ export async function speak(text, { lang = 'en-IN', pace = 1.0 } = {}) {
       speaker: S.ttsSpeaker,
       model: S.ttsModel,
       pace,
-      speech_sample_rate: 22050,
-      enable_preprocessing: true,
+      speech_sample_rate: S.ttsSampleRate,
+      output_audio_codec: 'wav',
     },
     timeout: S.timeouts.tts,
   }).then((r) => r.audios?.[0]);
@@ -74,12 +74,16 @@ export async function speak(text, { lang = 'en-IN', pace = 1.0 } = {}) {
   return p;
 }
 
-/** Sarvam-M chat completion (OpenAI-compatible). Strips any <think> block. */
-export async function chat(messages, { temperature = 0.2, maxTokens = 600 } = {}) {
+/**
+ * Sarvam-30B chat completion (OpenAI-compatible). reasoning_effort and max_tokens are always set
+ * explicitly because Sarvam has changed their defaults; reasoning tokens share the max_tokens budget.
+ */
+export async function chat(messages, { temperature = 0.2, maxTokens = 600, reasoningEffort = S.llmReasoningEffort } = {}) {
   const r = await call('/v1/chat/completions', {
-    json: { model: S.llmModel, messages, temperature, max_tokens: maxTokens },
+    json: { model: S.llmModel, messages, temperature, max_tokens: maxTokens + 1024, reasoning_effort: reasoningEffort },
     timeout: S.timeouts.llm,
   });
+  // Reasoning may arrive in a separate field or inline as <think>…</think>; we only want the answer.
   const text = r.choices?.[0]?.message?.content ?? '';
   return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 }

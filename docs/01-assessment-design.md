@@ -24,7 +24,7 @@ need language understanding and come from the LLM.
 | **Response language** | The STT language ID (`language_code`) plus the share of Devanagari characters in the transcript | Did they choose, or need, to answer in Hindi? This is the strongest L1 signal. |
 | **Comprehension** | Did the answer actually respond to the question? (LLM relevance check) | Understanding a spoken English prompt is a skill in its own right, separate from speaking. |
 | **Fluency** | Words per minute over speech time, the share of the turn spent in pauses, filler rate (`um`, `uh`, `matlab`, `like`) | L2 is slow and halting, L3+ is smooth. |
-| **Pronunciation / intelligibility** | Read-aloud word accuracy: the STT transcript compared with the reference sentence by word-level edit distance | Can a machine (a proxy for a listener) understand them? We **don't** penalise an Indian accent. Saarika is trained on Indian English, so accented but clear speech still transcribes well. |
+| **Pronunciation / intelligibility** | Read-aloud word accuracy: the STT transcript compared with the reference sentence by word-level edit distance | Can a machine (a proxy for a listener) understand them? We **don't** penalise an Indian accent. Saaras v4 is trained on Indian English, so accented but clear speech still transcribes well. |
 | **Vocabulary range** | Unique words, average word length, share of words outside the top-2k frequency list, judged by the LLM | Separates L3 from L4. |
 | **Grammar** | LLM rubric: verb agreement, tense, articles, sentence completeness | Separates L2 from L3. |
 | **Discourse / coherence** | LLM rubric: connectives (*however, which means, on the other hand*), a stated position with reasons, staying on topic | Separates L3 from L4. |
@@ -105,7 +105,7 @@ fluency, pronunciation, coherence**. Scores come from two places:
 1. **Deterministic features** (`server/scoring.js`): Devanagari ratio, WPM, filler rate,
    read-aloud accuracy, lexical diversity. These are cheap and reproducible, and they
    still work if the LLM fails.
-2. **LLM judge** (Sarvam-M, `server/prompts.js`): a rubric prompt that returns strict
+2. **LLM judge** (Sarvam-30B, `server/prompts.js`): a rubric prompt that returns strict
    JSON with a per-dimension score and a short reason.
 
 The final level is computed **in code, not by the LLM**: a weighted blend of the

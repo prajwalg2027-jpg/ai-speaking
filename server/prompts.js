@@ -1,4 +1,4 @@
-// Prompts for Sarvam-M.
+// Prompts for the Sarvam LLM (sarvam-30b by default).
 
 export const JUDGE_SYSTEM = `You are an expert English speaking examiner for Indian learners.
 You score ONE spoken answer (given as an automatic transcript) on six dimensions, each 0-4:

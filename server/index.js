@@ -39,8 +39,8 @@ async function handleTurn(req, res, url) {
   } else {
     const wav = await readBody(req);
     ({ transcript, languageCode } = await sarvam.transcribe(wav));
-    // Hindi / mixed answer: also get the English meaning so the bot can understand it.
-    if (languageCode && !languageCode.startsWith('en') && transcript) {
+    // Hindi / mixed answer (Devanagari in the codemix transcript): also get the English meaning.
+    if (transcript && (/[\u0900-\u097F]/.test(transcript) || (languageCode && !languageCode.startsWith('en')))) {
       englishMeaning = (await sarvam.transcribeToEnglish(wav).catch(() => null))?.transcript ?? null;
     }
   }
@@ -55,7 +55,7 @@ async function handleTurn(req, res, url) {
   if (!intent && !demoMode() && transcript.split(/\s+/).length <= 4 && question.kind !== 'vocab') {
     // Ambiguous short reply: ask the LLM (skip for vocab, where 1-2 word answers are normal).
     intent = (await sarvam.chatJSON([{ role: 'system', content: INTENT_SYSTEM },
-      { role: 'user', content: `Tutor asked: ${variant.say}\nLearner replied: ${transcript}` }], { temperature: 0 }).catch(() => null))?.intent;
+      { role: 'user', content: `Tutor asked: ${variant.say}\nLearner replied: ${transcript}` }], { temperature: 0, reasoningEffort: 'none' }).catch(() => null))?.intent;
     if (intent === 'answer' || intent === 'off_topic') intent = null;
   }
   if (intent) return send(res, 200, { action: 'clarify', intent, transcript });
@@ -69,7 +69,7 @@ async function handleTurn(req, res, url) {
       sarvam.chatJSON([{ role: 'system', content: JUDGE_SYSTEM },
         { role: 'user', content: judgeUser({ question: variant.say, transcript, englishMeaning, features: f, kind: question.kind, reference: question.kind === 'read' ? variant.screen : null }) }]).catch((e) => (console.warn(e.message), null)),
       question.id === 'q1_intro'
-        ? sarvam.chat([{ role: 'system', content: REPLY_SYSTEM }, { role: 'user', content: englishMeaning || transcript }], { temperature: 0.6, maxTokens: 60 }).catch(() => null)
+        ? sarvam.chat([{ role: 'system', content: REPLY_SYSTEM }, { role: 'user', content: englishMeaning || transcript }], { temperature: 0.6, maxTokens: 60, reasoningEffort: 'none' }).catch(() => null)
         : null,
     ]);
   }

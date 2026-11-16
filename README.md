@@ -8,7 +8,7 @@ voice-only placement test**. It places you into one of four speaking levels:
 | Little or no English | Knows words, not fluent | Comfortable, some errors | Precise, complex, idiomatic |
 
 The speech, voice and language AI is powered by **[Sarvam AI](https://www.sarvam.ai)**:
-Saarika (speech-to-text), Saaras (speech-to-English), Bulbul (voice) and Sarvam-M (LLM).
+Saaras v4 (speech-to-text and speech-to-English), Bulbul v4 Flash (voice) and Sarvam-30B (LLM).
 
 ## Design docs
 - **[docs/01-assessment-design.md](docs/01-assessment-design.md)**: how to measure
@@ -31,9 +31,9 @@ browser's built-in speech (works best in Chrome).
 ```
 shared/assessment.js   question bank: 4 questions × level variants, Hindi fallbacks
 server/index.js        static + /api/turn, /api/tts, /api/final
-server/sarvam.js       Sarvam client (STT, STT-translate, TTS w/ cache, chat + JSON)
+server/sarvam.js       Sarvam client (Saaras v4 STT/translate, Bulbul v4 TTS w/ cache, chat + JSON)
 server/clarify.js      "didn't understand" detection (EN / Hinglish / Devanagari)
 server/scoring.js      deterministic speech features + final level rules
-server/prompts.js      Sarvam-M rubric / intent / reply prompts
+server/prompts.js      Sarvam-30B rubric / intent / reply prompts
 public/                orb UI, mic capture + VAD + WAV encoding, conversation state machine
 ```

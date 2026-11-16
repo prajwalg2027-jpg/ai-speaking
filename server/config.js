@@ -16,11 +16,18 @@ export const config = {
   sarvam: {
     apiKey: env('SARVAM_API_KEY', ''),
     baseUrl: env('SARVAM_BASE_URL', 'https://api.sarvam.ai'),
-    sttModel: env('SARVAM_STT_MODEL', 'saarika:v2.5'),
-    sttTranslateModel: env('SARVAM_STT_TRANSLATE_MODEL', 'saaras:v2.5'),
-    ttsModel: env('SARVAM_TTS_MODEL', 'bulbul:v2'),
-    ttsSpeaker: env('SARVAM_TTS_SPEAKER', 'anushka'),
-    llmModel: env('SARVAM_LLM_MODEL', 'sarvam-m'),
+    // Saaras v4 on /speech-to-text, with a `mode`. 'codemix' keeps English words in Latin script and
+    // Hindi words in Devanagari: exactly the signal the placement test needs.
+    sttModel: env('SARVAM_STT_MODEL', 'saaras:v4'),
+    sttMode: env('SARVAM_STT_MODE', 'codemix'),
+    sttLanguage: env('SARVAM_STT_LANGUAGE', ''), // empty = let the API auto-detect
+    ttsModel: env('SARVAM_TTS_MODEL', 'bulbul:v4-flash'),
+    // v4-flash voice IDs are <persona>_<lang>_<use case>; v2/v3 short names (e.g. "anushka") return 400.
+    ttsSpeaker: env('SARVAM_TTS_SPEAKER', 'ishita_enhi_companion'),
+    ttsSampleRate: Number(env('SARVAM_TTS_SAMPLE_RATE', 24000)),
+    llmModel: env('SARVAM_LLM_MODEL', 'sarvam-30b'),
+    // Reasoning tokens count against max_tokens; keep it low for fast, structured judging.
+    llmReasoningEffort: env('SARVAM_LLM_REASONING_EFFORT', 'low'),
     timeouts: { stt: 10_000, tts: 8_000, llm: 15_000 },
   },
 };
