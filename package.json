@@ -1,0 +1,13 @@
+{
+  "name": "ai-english-coach",
+  "version": "0.1.0",
+  "description": "Voice-first AI English learning app with an adaptive speaking placement test, powered by Sarvam AI.",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test test/*.test.js"
+  }
+}

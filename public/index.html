@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Sakhi · English Coach</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="app" data-state="idle">
+    <header class="top">
+      <span class="brand">Sakhi</span>
+      <span class="progress" id="progress" aria-live="polite"></span>
+    </header>
+
+    <section class="stage">
+      <div class="orb-wrap">
+        <button class="orb" id="orb" aria-label="Start talking"><span class="orb-core"></span></button>
+      </div>
+      <p class="bot-line" id="botLine" aria-live="polite">Tap the bubble to start</p>
+      <div class="card" id="card" hidden></div>
+      <p class="you-line" id="youLine" aria-live="polite"></p>
+      <p class="hint" id="hint"></p>
+    </section>
+
+    <section class="result" id="result" hidden></section>
+
+    <footer class="chips" id="chips" hidden>
+      <button data-act="repeat">🔁 Repeat</button>
+      <button data-act="in_hindi">अ Hindi mein</button>
+      <button data-act="done">✓ Done speaking</button>
+      <button data-act="skip">Skip →</button>
+    </footer>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
