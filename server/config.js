@@ -25,9 +25,20 @@ export const config = {
     // v4-flash voice IDs are <persona>_<lang>_<use case>; v2/v3 short names (e.g. "anushka") return 400.
     ttsSpeaker: env('SARVAM_TTS_SPEAKER', 'ishita_enhi_companion'),
     ttsSampleRate: Number(env('SARVAM_TTS_SAMPLE_RATE', 24000)),
-    llmModel: env('SARVAM_LLM_MODEL', 'sarvam-30b'),
-    // Reasoning tokens count against max_tokens; keep it low for fast, structured judging.
+    // Verified against the live API (Nov 2026): /v1/chat/completions accepts sarvam-105b and
+    // sarvam-105b-conversations; sarvam-m and sarvam-30b return 400, as does reasoning_effort "none".
+    llmModel: env('SARVAM_LLM_MODEL', 'sarvam-105b'),
+    llmReplyModel: env('SARVAM_LLM_REPLY_MODEL', 'sarvam-105b-conversations'),
+    // Reasoning tokens count against max_tokens. "low" is the lowest value every model accepts.
     llmReasoningEffort: env('SARVAM_LLM_REASONING_EFFORT', 'low'),
+    translateModel: env('SARVAM_TRANSLATE_MODEL', 'mayura:v1'),
+    // Realtime STT (WebSocket, server-side VAD). 'auto' = try it, fall back to REST if it can't connect.
+    realtime: {
+      enabled: env('SARVAM_REALTIME', 'auto') !== 'off',
+      url: env('SARVAM_REALTIME_URL', 'wss://api.sarvam.ai/speech-to-text-realtime/ws'),
+      model: env('SARVAM_REALTIME_MODEL', 'saaras:v4'),
+      streamType: env('SARVAM_REALTIME_STREAM_TYPE', 'balanced'), // fast | balanced
+    },
     timeouts: { stt: 10_000, tts: 8_000, llm: 15_000 },
   },
 };

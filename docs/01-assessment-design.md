@@ -105,7 +105,7 @@ fluency, pronunciation, coherence**. Scores come from two places:
 1. **Deterministic features** (`server/scoring.js`): Devanagari ratio, WPM, filler rate,
    read-aloud accuracy, lexical diversity. These are cheap and reproducible, and they
    still work if the LLM fails.
-2. **LLM judge** (Sarvam-30B, `server/prompts.js`): a rubric prompt that returns strict
+2. **LLM judge** (Sarvam-105B, `server/prompts.js`): a rubric prompt that returns strict
    JSON with a per-dimension score and a short reason.
 
 The final level is computed **in code, not by the LLM**: a weighted blend of the

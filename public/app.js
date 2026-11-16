@@ -1,6 +1,7 @@
 // Placement conversation: a small state machine over the shared question bank.
 import { QUESTIONS, ACKS, PHRASES, LEVELS, variantFor } from '/shared/assessment.js';
 import { Voice } from '/audio.js';
+import { LiveSTT } from '/live.js';
 
 const $ = (id) => document.getElementById(id);
 const app = document.querySelector('.app');
@@ -18,6 +19,7 @@ const ui = {
 
 const voice = new Voice((lvl) => document.documentElement.style.setProperty('--lvl', lvl.toFixed(3)));
 let demo = false;
+let live = null; // LiveSTT when Sarvam realtime is available, else null (REST fallback)
 let chipAction = null; // set by chip taps, consumed by the turn loop
 
 // ---------- speaking ----------
@@ -42,6 +44,16 @@ function speakBrowser(text, lang, pace) {
 // ---------- listening ----------
 async function listen(silenceMs) {
   ui.state('listening'); ui.hint('Listening…');
+  if (live?.alive) {
+    const r = await live.listen({ silenceMs, onNudge: () => ui.hint(PHRASES.nudge), onPartial: (t) => ui.you(t) });
+    if (r.reason !== 'live_failed') { ui.hint(''); return r; }
+    console.warn('Realtime STT dropped; falling back to REST for the rest of the session');
+    live = null; voice.localBargeIn = true;
+  }
+  return listenRest(silenceMs);
+}
+
+async function listenRest(silenceMs) {
   let rec = null, demoText = '';
   if (demo && (window.SpeechRecognition || window.webkitSpeechRecognition)) {
     rec = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
@@ -59,8 +71,11 @@ async function submitTurn(qIndex, level, rec, prior) {
   ui.state('thinking'); ui.hint('…');
   const qs = new URLSearchParams({ q: qIndex, level, speechSec: rec.speechSec.toFixed(2) });
   if (prior) qs.set('prior', prior);
-  if (demo) qs.set('transcript', rec.demoText || '');
-  const res = await fetch(`/api/turn?${qs}`, { method: 'POST', body: demo ? null : rec.wav });
+  // Realtime and demo answers are already transcribed; REST answers upload the WAV for Saaras.
+  const text = rec.live ? { transcript: rec.transcript, languageCode: rec.language } : demo ? { transcript: rec.demoText || '' } : null;
+  const res = await fetch(`/api/turn?${qs}`, text
+    ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(text) }
+    : { method: 'POST', headers: { 'content-type': 'audio/wav' }, body: rec.wav });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
   return res.json();
 }
@@ -77,6 +92,7 @@ async function askQuestion(qIndex, level) {
 
   for (;;) {
     chipAction = null;
+    live?.beginPrompt();
     await say(prompt.text, prompt);
     // A chip tapped while the bot was talking skips straight to handling it.
     const rec = chipAction ? { reason: 'manual' } : await listen(q.silenceMs);
@@ -175,20 +191,33 @@ const escapeHtml = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;
 $('chips').addEventListener('click', (e) => {
   const act = e.target.closest('button')?.dataset.act;
   if (!act) return;
-  if (act === 'done') return voice.stopListening?.();
+  if (act === 'done') return voice.stopListening?.(false); // wait for the final transcript
   chipAction = act;
   voice.stopPlayback?.(); speechSynthesis?.cancel();
-  voice.stopListening?.();
+  voice.stopListening?.(true);
 });
 
 let started = false;
 $('orb').addEventListener('click', async () => {
-  if (started) return voice.stopListening?.(); // tapping the orb while listening = done speaking
+  if (started) return voice.stopListening?.(false); // tapping the orb while listening = done speaking
   started = true;
   try {
-    demo = (await fetch('/api/config').then((r) => r.json())).demo;
+    const cfg = await fetch('/api/config').then((r) => r.json());
+    demo = cfg.demo;
     await voice.init();
     if (demo) ui.hint('Demo mode: browser speech (add SARVAM_API_KEY for Sarvam)');
+    if (cfg.realtime) {
+      const candidate = new LiveSTT(voice);
+      if (await candidate.connect()) {
+        live = candidate;
+        voice.localBargeIn = false;
+        live.onBargeIn = () => { voice.stopPlayback?.(); speechSynthesis?.cancel(); };
+        document.documentElement.dataset.stt = 'realtime';
+      } else {
+        console.info(`Realtime STT unavailable (${candidate.reason}); using REST speech-to-text`);
+        document.documentElement.dataset.stt = 'rest';
+      }
+    }
     await run();
   } catch (e) {
     console.error(e);

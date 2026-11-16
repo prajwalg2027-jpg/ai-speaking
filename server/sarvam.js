@@ -1,4 +1,5 @@
-// Thin Sarvam AI client: STT + translate (Saaras v4), TTS (Bulbul v4 Flash), chat (Sarvam-30B).
+// Thin Sarvam AI client: STT (Saaras v4), TTS (Bulbul v4 Flash), chat (Sarvam-105B), text translate (Mayura).
+// Realtime STT lives in live.js.
 import { createHash } from 'node:crypto';
 import { config } from './config.js';
 
@@ -60,7 +61,7 @@ export async function speak(text, { lang = 'en-IN', pace = 1.0 } = {}) {
   const p = call('/text-to-speech', {
     json: {
       text,
-      target_language_code: lang,
+      language_code: lang,
       speaker: S.ttsSpeaker,
       model: S.ttsModel,
       pace,
@@ -75,12 +76,17 @@ export async function speak(text, { lang = 'en-IN', pace = 1.0 } = {}) {
 }
 
 /**
- * Sarvam-30B chat completion (OpenAI-compatible). reasoning_effort and max_tokens are always set
- * explicitly because Sarvam has changed their defaults; reasoning tokens share the max_tokens budget.
+ * Chat completion (OpenAI-compatible). reasoning_effort and max_tokens are always set explicitly
+ * because Sarvam has changed their defaults; reasoning tokens share the max_tokens budget.
  */
-export async function chat(messages, { temperature = 0.2, maxTokens = 600, reasoningEffort = S.llmReasoningEffort } = {}) {
+export async function chat(messages, { temperature = 0.2, maxTokens = 600, model = S.llmModel, json = false } = {}) {
   const r = await call('/v1/chat/completions', {
-    json: { model: S.llmModel, messages, temperature, max_tokens: maxTokens + 1024, reasoning_effort: reasoningEffort },
+    json: {
+      model, messages, temperature,
+      max_tokens: maxTokens + 1024,
+      reasoning_effort: S.llmReasoningEffort,
+      ...(json ? { response_format: { type: 'json_object' } } : {}),
+    },
     timeout: S.timeouts.llm,
   });
   // Reasoning may arrive in a separate field or inline as <think>…</think>; we only want the answer.
@@ -88,14 +94,23 @@ export async function chat(messages, { temperature = 0.2, maxTokens = 600, reaso
   return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 }
 
-/** Chat expecting JSON; retries once on parse failure, returns null if still bad. */
+/** Chat expecting JSON (JSON mode); retries once on parse failure, returns null if still bad. */
 export async function chatJSON(messages, opts) {
   for (let i = 0; i < 2; i++) {
-    const raw = await chat(i ? [...messages, { role: 'user', content: 'Reply with ONLY the JSON object.' }] : messages, opts);
+    const raw = await chat(i ? [...messages, { role: 'user', content: 'Reply with ONLY the JSON object.' }] : messages, { ...opts, json: true });
     const m = raw.match(/\{[\s\S]*\}/);
     if (m) {
       try { return JSON.parse(m[0]); } catch { /* retry */ }
     }
   }
   return null;
+}
+
+/** Mayura: translate (code-mixed) text to English. Used for Hindi answers in live mode. */
+export async function translateToEnglish(text) {
+  const r = await call('/translate', {
+    json: { input: text.slice(0, 1000), source_language_code: 'auto', target_language_code: 'en-IN', model: S.translateModel },
+    timeout: S.timeouts.stt,
+  });
+  return r.translated_text ?? null;
 }

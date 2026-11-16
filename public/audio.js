@@ -18,6 +18,11 @@ export class Voice {
     this.proc.connect(this.ctx.destination);
     this.proc.onaudioprocess = (e) => this._frame(e.inputBuffer.getChannelData(0));
     this.noiseFloor = 0.01;
+    this.tap = null; // per-frame mic consumer (realtime streaming)
+    this.metering = false; // drive the orb from the mic level
+    this.localBargeIn = true; // false when realtime VAD handles barge-in
+    this.playing = false;
+    this.lastLoudAt = -Infinity;
     this.botAnalyser = this.ctx.createAnalyser();
     this.botAnalyser.fftSize = 512;
     this.botAnalyser.connect(this.ctx.destination);
@@ -28,10 +33,22 @@ export class Voice {
     for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
     const rms = Math.sqrt(sum / buf.length);
     const ms = (buf.length / this.ctx.sampleRate) * 1000;
+    // Continuous noise-floor estimate: drops quickly in quiet, rises very slowly, and is capped, so a user
+    // who starts talking the instant the mic opens is never mistaken for background noise.
+    const nf = this.noiseFloor;
+    this.noiseFloor = Math.min(0.015, rms < nf ? nf * 0.8 + rms * 0.2 : nf * 0.999 + rms * 0.001);
+    if (rms > this.threshold * 2) this.lastLoudAt = performance.now();
+    if (this.metering) this.onLevel(Math.min(1, rms / (this.threshold * 6)), 'user');
+    this.tap?.(buf);
     this._frameHook?.(rms, ms, buf);
   }
 
   get threshold() { return Math.max(0.012, this.noiseFloor * 3); }
+
+  isPlaying() { return this.playing || (typeof speechSynthesis !== 'undefined' && speechSynthesis.speaking); }
+
+  /** Has the user been clearly louder than the noise floor in the last 400 ms? (barge-in check) */
+  userIsLoud() { return performance.now() - this.lastLoudAt < 400; }
 
   /**
    * Record one answer. Resolves with { wav, speechSec, durationSec, reason }.
@@ -41,7 +58,7 @@ export class Voice {
   listen({ silenceMs = 1200, maxMs = 45_000, nudgeMs = 6000, giveUpMs = 12_000, onNudge } = {}) {
     return new Promise((resolve) => {
       const chunks = [];
-      let t = 0, calib = [], spoke = false, lastVoice = 0, speechMs = 0, nudged = false;
+      let t = 0, spoke = false, lastVoice = 0, speechMs = 0, nudged = false;
       const finish = (reason) => {
         this._frameHook = null; this.stopListening = null; this.onLevel(0, 'user');
         resolve({ wav: encodeWav(chunks, this.ctx.sampleRate, 16000), speechSec: speechMs / 1000, durationSec: t / 1000, reason: spoke ? reason : 'no_speech' });
@@ -50,10 +67,8 @@ export class Voice {
       this._frameHook = (rms, ms, buf) => {
         t += ms;
         chunks.push(new Float32Array(buf));
-        if (t < 500) { calib.push(rms); return; }
-        if (calib.length) { this.noiseFloor = calib.reduce((a, b) => a + b, 0) / calib.length; calib = []; }
         const voiced = rms > this.threshold;
-        this.onLevel(Math.min(1, rms / (this.threshold * 6)), 'user');
+        if (!this.metering) this.onLevel(Math.min(1, rms / (this.threshold * 6)), 'user');
         if (voiced) { spoke = true; lastVoice = t; speechMs += ms; }
         if (spoke && t - lastVoice > silenceMs) return finish('silence');
         if (!spoke && !nudged && t > nudgeMs) { nudged = true; onNudge?.(); }
@@ -79,10 +94,16 @@ export class Voice {
         this.onLevel(Math.min(1, Math.sqrt(s / data.length) * 4), 'bot');
         raf = requestAnimationFrame(tick);
       };
-      // Barge-in: sustained loud mic input (well above speech threshold, to resist echo) stops playback.
-      this._frameHook = (rms, ms) => { loud = rms > this.threshold * 4 ? loud + ms : 0; if (loud > 300) node.stop(); };
+      // Local barge-in (REST mode): sustained loud mic input, well above the speech threshold to resist
+      // echo, stops playback. In realtime mode Sarvam's VAD drives barge-in instead (see live.js).
+      if (this.localBargeIn) this._frameHook = (rms, ms) => { loud = rms > this.threshold * 4 ? loud + ms : 0; if (loud > 300) node.stop(); };
       this.stopPlayback = () => { try { node.stop(); } catch {} };
-      node.onended = () => { cancelAnimationFrame(raf); this._frameHook = null; this.onLevel(0, 'bot'); resolve(); };
+      node.onended = () => {
+        cancelAnimationFrame(raf); this.playing = false; this.stopPlayback = null;
+        if (this.localBargeIn) this._frameHook = null;
+        this.onLevel(0, 'bot'); resolve();
+      };
+      this.playing = true;
       node.start(); tick();
     });
   }
