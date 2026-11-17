@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+  <div class="split">
   <main class="app" data-state="idle">
     <header class="top">
       <span class="brand">Sakhi</span>
@@ -32,6 +33,9 @@
       <button data-act="skip">Skip →</button>
     </footer>
   </main>
+  <aside class="logs" id="logs" aria-label="Live logs"></aside>
+  </div>
+  <button type="button" class="logs-open" id="logsOpen" hidden>Show logs</button>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

@@ -65,6 +65,12 @@ test('relay opens Sarvam realtime with the right query and key, and maps events'
   assert.equal(final.language, 'en-IN');
   assert.ok(Math.abs(final.speechSec - 1.2) < 0.15, `speechSec ${final.speechSec}`);
   assert.deepEqual(conn.configUpdates, [{ event: 'config.update', silence_duration_ms: 800 }]);
+  // The relay narrates what it does for the browser's log panel, without exposing the key.
+  const logs = c.events.filter((e) => e.type === 'log').map((e) => e.msg);
+  assert.ok(logs.includes('Connecting to Sarvam Realtime'));
+  assert.ok(logs.includes('Sent config.update'));
+  assert.ok(logs.includes('Sarvam applied config.update'));
+  assert.match(c.events.find((e) => e.msg === 'Connecting to Sarvam Realtime').data.url, /model=saaras%3Av4/);
   c.ws.close();
 });
 
@@ -85,5 +91,6 @@ test('rejected upstream → browser gets "unavailable" and the socket closes (RE
   const c = connect();
   const e = await c.waitFor('unavailable');
   assert.match(e.reason, /403/);
+  assert.ok(c.events.some((x) => x.type === 'log' && /rejected the connection: HTTP 403/.test(x.msg)), 'rejection is logged with its status');
   assert.equal(await c.closed, 4001);
 });

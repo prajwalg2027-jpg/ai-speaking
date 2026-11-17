@@ -10,7 +10,8 @@
 //   browser → relay: binary PCM16 frames; JSON {type:"config", silenceMs}, {type:"finish"}
 //   relay → browser: {type:"ready"}, {type:"speech_start", idx}, {type:"partial", idx, text},
 //                    {type:"speech_end", idx}, {type:"final", idx, text, language, languageConfidence, speechSec},
-//                    {type:"unavailable", reason} (then close: browser falls back to REST)
+//                    {type:"unavailable", reason} (then close: browser falls back to REST),
+//                    {type:"log", msg, data} (what the relay itself is doing, for the browser's log panel)
 
 import WebSocket, { WebSocketServer } from 'ws';
 import { config } from './config.js';
@@ -72,7 +73,12 @@ async function relay(client, enabled) {
   let silenceMs = 1200;
   let ready = false;
   let closed = false;
-  const upstream = new WebSocket(upstreamUrl({ silenceMs }), {
+  const note = (msg, data) => toClient({ type: 'log', msg, data });
+  const url = upstreamUrl({ silenceMs });
+  const opened = Date.now();
+  // The URL carries only settings; the key goes in a header and is never sent to the browser.
+  note('Connecting to Sarvam Realtime', { url });
+  const upstream = new WebSocket(url, {
     agent: (await getProxyAgent(S.realtime.url)) || undefined,
     headers: { 'api-subscription-key': S.apiKey },
     handshakeTimeout: 5000,
@@ -80,19 +86,36 @@ async function relay(client, enabled) {
   const toSarvam = (msg) => upstream.readyState === WebSocket.OPEN && upstream.send(JSON.stringify(msg));
 
   upstream.on('unexpected-response', (_req, res) => {
-    res.resume();
-    console.warn(`[live] Sarvam realtime rejected the connection: HTTP ${res.statusCode}`);
-    unavailable(`HTTP ${res.statusCode}`);
+    // Keep the start of the body: Sarvam's JSON error explains a rejection (bad model, key, quota…).
+    let body = '';
+    res.on('data', (c) => { if (body.length < 600) body += c; });
+    res.on('end', () => {
+      const detail = body.trim().slice(0, 600);
+      console.warn(`[live] Sarvam realtime rejected the connection: HTTP ${res.statusCode} ${detail}`);
+      note(`Sarvam rejected the connection: HTTP ${res.statusCode}`, { body: detail || '(empty)', afterMs: Date.now() - opened });
+      unavailable(`HTTP ${res.statusCode}${detail ? `: ${detail}` : ''}`);
+    });
   });
-  upstream.on('error', (e) => { if (!ready) unavailable(e.message); else console.warn('[live] upstream error', e.message); });
+  upstream.on('upgrade', () => note('WebSocket accepted by Sarvam', { afterMs: Date.now() - opened }));
+  upstream.on('error', (e) => {
+    note('Upstream socket error', { message: e.message });
+    if (!ready) unavailable(e.message); else console.warn('[live] upstream error', e.message);
+  });
   upstream.on('close', (code, reason) => {
     if (closed) return;
+    note('Sarvam closed the stream', { code, reason: String(reason) });
     if (!ready) return unavailable(`closed ${code} ${reason}`);
     toClient({ type: 'closed', code, reason: String(reason) });
     client.close();
   });
 
   const ping = setInterval(() => toSarvam({ event: 'ping' }), 20_000);
+  let sentBytes = 0, reportedBytes = 0;
+  const stats = setInterval(() => {
+    if (sentBytes === reportedBytes) return;
+    note('Streaming mic audio to Sarvam', { totalKB: Math.round(sentBytes / 1024), audioSec: +(sentBytes / 2 / SAMPLE_RATE).toFixed(1) });
+    reportedBytes = sentBytes;
+  }, 10_000);
 
   upstream.on('message', (raw) => {
     let e;
@@ -115,15 +138,20 @@ async function relay(client, enabled) {
         });
       case 'error':
         console.warn('[live] Sarvam error', e.code, e.message);
-        return toClient({ type: 'error', code: e.code, fatal: !!e.is_fatal, message: e.message });
+        return toClient({ type: 'error', code: e.code, fatal: !!e.is_fatal, message: e.message, status: e.status_code ?? null });
+      case 'config.updated':
+        return note('Sarvam applied config.update', { applied: e.applied });
+      case 'session.end':
+        return note('Sarvam ended the session', { utterances: e.total_utterances, audioSec: e.audio_duration_s, sessionSec: e.total_duration_s });
       default:
-        return; // config.updated, pong, session.end: nothing to forward
+        return; // pong
     }
   });
 
   client.on('message', (data, isBinary) => {
     if (isBinary) {
       // Raw PCM16 from the browser → base64 audio_input.
+      sentBytes += data.length;
       return toSarvam({ event: 'audio_input', audio: Buffer.from(data).toString('base64') });
     }
     let m;
@@ -132,16 +160,19 @@ async function relay(client, enabled) {
       silenceMs = Math.max(300, Math.min(5000, Math.round(m.silenceMs)));
       // VAD knobs apply immediately (no reconnect needed).
       toSarvam({ event: 'config.update', silence_duration_ms: silenceMs });
+      note('Sent config.update', { silence_duration_ms: silenceMs });
     } else if (m.type === 'finish') {
       // "Done speaking": endpointing=vad has no flush, so push enough silence to end the turn now.
       const pad = Buffer.alloc(Math.ceil(((silenceMs + 400) / 1000) * SAMPLE_RATE) * 2);
       for (let o = 0; o < pad.length; o += 6400) toSarvam({ event: 'audio_input', audio: pad.subarray(o, o + 6400).toString('base64') });
+      note(`Pushed ${silenceMs + 400} ms of silence so Sarvam ends the turn now`);
     }
   });
 
   client.on('close', () => {
     closed = true;
     clearInterval(ping);
+    clearInterval(stats);
     if (upstream.readyState === WebSocket.OPEN) { toSarvam({ event: 'end' }); upstream.close(); }
     else upstream.terminate();
   });

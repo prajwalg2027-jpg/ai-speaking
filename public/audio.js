@@ -1,4 +1,5 @@
 // Mic capture + energy VAD + 16 kHz WAV encoding + TTS playback, all driving an "orb level".
+import { log } from '/log.js';
 
 export class Voice {
   constructor(onLevel) {
@@ -26,6 +27,11 @@ export class Voice {
     this.botAnalyser = this.ctx.createAnalyser();
     this.botAnalyser.fftSize = 512;
     this.botAnalyser.connect(this.ctx.destination);
+    const st = this.stream.getAudioTracks()[0]?.getSettings?.() || {};
+    log('mic', 'Microphone on', {
+      sampleRate: this.ctx.sampleRate, echoCancellation: st.echoCancellation, noiseSuppression: st.noiseSuppression,
+      autoGainControl: st.autoGainControl, channelCount: st.channelCount,
+    });
   }
 
   _frame(buf) {
@@ -59,9 +65,12 @@ export class Voice {
     return new Promise((resolve) => {
       const chunks = [];
       let t = 0, spoke = false, lastVoice = 0, speechMs = 0, nudged = false;
+      log('mic', `Listening with the browser's speech detector: turn ends after ${silenceMs} ms of silence`, { noiseFloor: +this.noiseFloor.toFixed(4), threshold: +this.threshold.toFixed(4) });
       const finish = (reason) => {
         this._frameHook = null; this.stopListening = null; this.onLevel(0, 'user');
-        resolve({ wav: encodeWav(chunks, this.ctx.sampleRate, 16000), speechSec: speechMs / 1000, durationSec: t / 1000, reason: spoke ? reason : 'no_speech' });
+        const wav = encodeWav(chunks, this.ctx.sampleRate, 16000);
+        log('mic', `Recording finished (${spoke ? reason : 'no speech'})`, { speechSec: +(speechMs / 1000).toFixed(2), recordedSec: +(t / 1000).toFixed(2), wavKB: +(wav.size / 1024).toFixed(1) });
+        resolve({ wav, speechSec: speechMs / 1000, durationSec: t / 1000, reason: spoke ? reason : 'no_speech' });
       };
       this.stopListening = () => finish('manual');
       this._frameHook = (rms, ms, buf) => {
@@ -69,10 +78,13 @@ export class Voice {
         chunks.push(new Float32Array(buf));
         const voiced = rms > this.threshold;
         if (!this.metering) this.onLevel(Math.min(1, rms / (this.threshold * 6)), 'user');
-        if (voiced) { spoke = true; lastVoice = t; speechMs += ms; }
+        if (voiced) {
+          if (!spoke) log('mic', 'Speech detected', { level: +rms.toFixed(4), threshold: +this.threshold.toFixed(4) });
+          spoke = true; lastVoice = t; speechMs += ms;
+        }
         if (spoke && t - lastVoice > silenceMs) return finish('silence');
-        if (!spoke && !nudged && t > nudgeMs) { nudged = true; onNudge?.(); }
-        if (!spoke && t > giveUpMs) return finish('no_speech');
+        if (!spoke && !nudged && t > nudgeMs) { nudged = true; log('app', `No speech for ${nudgeMs / 1000} s: showing a nudge`); onNudge?.(); }
+        if (!spoke && t > giveUpMs) { log('app', `No speech for ${giveUpMs / 1000} s`); return finish('no_speech'); }
         if (t > maxMs) finish('max');
       };
     });
@@ -96,14 +108,23 @@ export class Voice {
       };
       // Local barge-in (REST mode): sustained loud mic input, well above the speech threshold to resist
       // echo, stops playback. In realtime mode Sarvam's VAD drives barge-in instead (see live.js).
-      if (this.localBargeIn) this._frameHook = (rms, ms) => { loud = rms > this.threshold * 4 ? loud + ms : 0; if (loud > 300) node.stop(); };
-      this.stopPlayback = () => { try { node.stop(); } catch {} };
+      let stoppedBy = null;
+      if (this.localBargeIn) this._frameHook = (rms, ms) => {
+        loud = rms > this.threshold * 4 ? loud + ms : 0;
+        if (loud > 300 && !stoppedBy) { stoppedBy = 'barge-in (mic loud for 300 ms)'; node.stop(); }
+      };
+      this.stopPlayback = () => { stoppedBy ||= 'stopped by app'; try { node.stop(); } catch {} };
+      const started = this.ctx.currentTime;
       node.onended = () => {
         cancelAnimationFrame(raf); this.playing = false; this.stopPlayback = null;
         if (this.localBargeIn) this._frameHook = null;
+        const played = this.ctx.currentTime - started;
+        if (stoppedBy) log('tts', `Prompt cut short after ${played.toFixed(1)} of ${buffer.duration.toFixed(1)} s: ${stoppedBy}`);
+        else log('tts', `Prompt finished playing (${buffer.duration.toFixed(1)} s)`);
         this.onLevel(0, 'bot'); resolve();
       };
       this.playing = true;
+      log('tts', `Playing prompt audio (${buffer.duration.toFixed(1)} s, ${buffer.sampleRate} Hz)`);
       node.start(); tick();
     });
   }
