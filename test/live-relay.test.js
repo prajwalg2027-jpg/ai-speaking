@@ -4,9 +4,10 @@ import WebSocket from 'ws';
 import { startMockRealtime } from './mock-sarvam-realtime.js';
 
 let mock, server, base;
+const queued = []; // texts the stand-in returns next (default: an English sentence)
 
 before(async () => {
-  mock = await startMockRealtime({ transcribe: async () => 'My name is Priya and I teach.', requireKey: 'test-key' });
+  mock = await startMockRealtime({ transcribe: async () => queued.shift() ?? 'My name is Priya and I teach.', requireKey: 'test-key' });
   // config.js reads env at import time, so set it before importing the server.
   process.env.SARVAM_API_KEY = 'test-key';
   process.env.SARVAM_REALTIME_URL = mock.url;
@@ -116,6 +117,34 @@ test('the app path ignores lab-style options and passthrough', async () => {
   c.ws.send(JSON.stringify({ type: 'sarvam', event: { event: 'end' } }));
   await new Promise((r) => setTimeout(r, 200));
   assert.ok(!c.events.some((e) => e.type === 'sarvam'), 'no raw events on the app path');
+  c.ws.close();
+});
+
+test('language: config.update re-arms detection; invalid languages are not forwarded', async () => {
+  const c = connect();
+  await c.waitFor('ready');
+  const finals = [];
+  c.ws.on('message', (m) => { const e = JSON.parse(m); if (e.type === 'final') finals.push(e); });
+  const speak = async (text) => {
+    queued.push(text);
+    const n = finals.length;
+    await stream(c.ws, Buffer.concat([tone(0.6), silence(0.6)]));
+    while (finals.length === n) await new Promise((r) => setTimeout(r, 20));
+    return finals.at(-1);
+  };
+  c.ws.send(JSON.stringify({ type: 'config', silenceMs: 300, language: 'auto' }));
+  assert.equal((await speak('मैं घर पे रहता हूँ')).language, 'hi-IN');
+  // Without a re-arm, Sarvam keeps the first language: the English answer is still labelled Hindi.
+  assert.equal((await speak('I work in an office')).language, 'hi-IN');
+  // The app re-arms after every final and at every question: detection starts fresh.
+  c.ws.send(JSON.stringify({ type: 'config', language: 'auto' }));
+  assert.equal((await speak('I love my work')).language, 'en-IN');
+  c.ws.send(JSON.stringify({ type: 'config', language: 'xx-YY' }));
+  await new Promise((r) => setTimeout(r, 100));
+  const updates = mock.state.connections.at(-1).configUpdates;
+  assert.deepEqual(updates[0], { event: 'config.update', silence_duration_ms: 300, language_code: 'auto' });
+  assert.ok(updates.every((u) => u.language_code !== 'xx-YY'), 'invalid language not sent to Sarvam');
+  assert.ok(c.events.some((e) => e.msg === 'Ignored an invalid language'));
   c.ws.close();
 });
 

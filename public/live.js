@@ -171,8 +171,11 @@ export class LiveSTT {
    * Collect one answer. Resolves { transcript, language, speechSec, reason }.
    * reason: 'silence' | 'manual' | 'max' | 'no_speech' | 'live_failed' (connection dropped mid-answer).
    */
-  listen({ silenceMs = 1200, graceMs = 700, maxMs = 45_000, nudgeMs = 6000, giveUpMs = 12_000, onNudge, onPartial } = {}) {
-    this._send({ type: 'config', silenceMs });
+  listen({ silenceMs = 1200, language = 'auto', graceMs = 700, maxMs = 45_000, nudgeMs = 6000, giveUpMs = 12_000, onNudge, onPartial } = {}) {
+    // Set this answer's language. 'auto' re-arms detection, which Sarvam otherwise keeps from the first
+    // answer for the whole session (a learner who answered Q1 in Hindi would stay "Hindi").
+    this._send({ type: 'config', silenceMs, language });
+    log('live', language === 'auto' ? 'Language: detect again for this answer' : `Language: fixed to ${language} for this answer`);
     this.voice.metering = true;
     log('live', `Listening: Sarvam ends the turn after ${silenceMs} ms of silence, then ${graceMs} ms grace`);
     this._startStreaming(this.bargeInPrerollMs ?? PREROLL_AFTER_PROMPT);
@@ -205,6 +208,9 @@ export class LiveSTT {
         onPartial: (text) => onPartial?.(text),
         onSpeechEnd: () => { safety = setTimeout(() => finish('silence'), 5000); }, // final should follow quickly
         onFinal: () => {
+          // Learners switch language mid-answer (a Hindi sentence, a pause, then English): re-detect for
+          // the next stretch of speech too. Applies at the next utterance boundary, never mid-utterance.
+          if (language === 'auto') this._send({ type: 'config', language: 'auto' });
           clearTimeout(grace); clearTimeout(safety);
           if (finishing) return finish(finishing);
           if (!this.inUtterance) {

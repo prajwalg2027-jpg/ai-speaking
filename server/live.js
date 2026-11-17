@@ -209,11 +209,20 @@ async function relay(client, enabled, { lab = false, params = {}, rejected = [] 
     let m;
     try { m = JSON.parse(data); } catch { return; }
     if (lab && m.type === 'sarvam' && LAB_EVENTS.has(m.event?.event)) return toSarvam(m.event);
-    if (m.type === 'config' && Number.isFinite(m.silenceMs)) {
-      silenceMs = Math.max(300, Math.min(5000, Math.round(m.silenceMs)));
-      // VAD knobs apply immediately (no reconnect needed).
-      toSarvam({ event: 'config.update', silence_duration_ms: silenceMs });
-      note('Sent config.update', { silence_duration_ms: silenceMs });
+    if (m.type === 'config') {
+      // One config.update per request. silence_duration_ms applies immediately; language_code applies at
+      // the next utterance boundary and re-arms language detection (Sarvam otherwise sticks to the first
+      // language it detected for the whole session).
+      const update = {};
+      if (Number.isFinite(m.silenceMs)) update.silence_duration_ms = silenceMs = Math.max(300, Math.min(5000, Math.round(m.silenceMs)));
+      if (m.language != null) {
+        const lang = REALTIME_OPTIONS.language_code(String(m.language));
+        if (lang) update.language_code = lang; else note('Ignored an invalid language', { language: m.language });
+      }
+      if (Object.keys(update).length) {
+        toSarvam({ event: 'config.update', ...update });
+        note('Sent config.update', update);
+      }
     } else if (m.type === 'finish') {
       // "Done speaking": endpointing=vad has no flush, so push enough silence to end the turn now.
       const pad = Buffer.alloc(Math.ceil(((silenceMs + 400) / 1000) * SAMPLE_RATE) * 2);

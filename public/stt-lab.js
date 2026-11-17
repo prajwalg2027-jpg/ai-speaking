@@ -34,7 +34,7 @@ const REST_FIELDS = [
   ['keyterms', 'Key terms (comma-separated, v4 only)', 'text', {}],
 ];
 const PRESETS = {
-  'Live · app today (v4, codemix)': { path: 'live', trimmed: false, speed: '1', p: { model: 'saaras:v4', language_code: 'auto', mode: 'codemix', stream_type: 'balanced', endpointing: 'vad', silence_duration_ms: '1200', return_timestamps: 'true', encoding: 'linear16', sample_rate: '16000' } },
+  'Live · app today (v4, codemix)': { path: 'live', trimmed: false, speed: '1', redetect: true, p: { model: 'saaras:v4', language_code: 'auto', mode: 'codemix', stream_type: 'balanced', endpointing: 'vad', silence_duration_ms: '1200', return_timestamps: 'true', encoding: 'linear16', sample_rate: '16000' } },
   'Live · v3-realtime, fast': { path: 'live', trimmed: false, speed: '1', p: { model: 'saaras:v3-realtime', language_code: 'auto', mode: 'codemix', stream_type: 'fast', endpointing: 'vad', silence_duration_ms: '1200', encoding: 'linear16', sample_rate: '16000' } },
   'Live · trimmed audio (v4)': { path: 'live', trimmed: true, speed: '1', p: { model: 'saaras:v4', language_code: 'auto', mode: 'codemix', endpointing: 'vad', silence_duration_ms: '1200', encoding: 'linear16', sample_rate: '16000' } },
   'Send at once · v4 codemix, trimmed': { path: 'rest', trimmed: true, split: true, p: { model: 'saaras:v4', mode: 'codemix' } },
@@ -206,7 +206,7 @@ $('add').addEventListener('click', () => addCard($('addPreset').value));
 
 function addCard(presetName, overrides = {}) {
   const pr = structuredClone(PRESETS[presetName]);
-  const card = { id: nextId++, name: presetName, path: pr.path, trimmed: pr.trimmed, split: pr.split ?? true, speed: pr.speed ?? '1', p: pr.p, ...overrides };
+  const card = { id: nextId++, name: presetName, path: pr.path, trimmed: pr.trimmed, split: pr.split ?? true, speed: pr.speed ?? '1', redetect: pr.redetect ?? false, p: pr.p, ...overrides };
   cards.push(card);
   renderCard(card);
 }
@@ -222,7 +222,8 @@ function renderCard(card) {
       <label class="f">Path<select data-k="path"><option value="live">Live (stream over WebSocket)</option><option value="rest">Send at once (upload)</option></select></label>
       <label class="c"><input type="checkbox" data-k="trimmed"> Use trimmed audio</label>
       ${card.path === 'live'
-        ? `<label class="f">Send speed<select data-k="speed"><option value="1">1× (real time)</option><option value="2">2×</option><option value="4">4×</option><option value="0">As fast as possible</option></select></label>`
+        ? `<label class="f">Send speed<select data-k="speed"><option value="1">1× (real time)</option><option value="2">2×</option><option value="4">4×</option><option value="0">As fast as possible</option></select></label>
+           <label class="c"><input type="checkbox" data-k="redetect"> Re-detect language after each utterance (as the app does)</label>`
         : `<label class="c"><input type="checkbox" data-k="split"> Split audio over 28 s at pauses</label>`}
     </div>
     <details open><summary>Sarvam settings</summary><div class="grid" style="margin-top:8px">
@@ -234,7 +235,8 @@ function renderCard(card) {
     <div class="result" hidden></div>`;
   el.querySelector('[data-k=path]').value = card.path;
   el.querySelector('[data-k=trimmed]').checked = card.trimmed;
-  if (card.path === 'live') el.querySelector('[data-k=speed]').value = card.speed; else el.querySelector('[data-k=split]').checked = card.split;
+  if (card.path === 'live') { el.querySelector('[data-k=speed]').value = card.speed; el.querySelector('[data-k=redetect]').checked = card.redetect; }
+  else el.querySelector('[data-k=split]').checked = card.split;
   for (const inp of el.querySelectorAll('[data-p]')) inp.value = card.p[inp.dataset.p] ?? '';
   el.oninput = (e) => {
     const t = e.target;
@@ -242,7 +244,7 @@ function renderCard(card) {
     if (t.dataset.k) card[t.dataset.k] = t.type === 'checkbox' ? t.checked : t.value;
     if (t.dataset.p) card.p[t.dataset.p] = t.value;
   };
-  el.querySelector('[data-a=dup]').onclick = () => addCard(Object.keys(PRESETS)[0], { name: `${card.name} (copy)`, path: card.path, trimmed: card.trimmed, split: card.split, speed: card.speed, p: { ...card.p } });
+  el.querySelector('[data-a=dup]').onclick = () => addCard(Object.keys(PRESETS)[0], { name: `${card.name} (copy)`, path: card.path, trimmed: card.trimmed, split: card.split, speed: card.speed, redetect: card.redetect, p: { ...card.p } });
   el.querySelector('[data-a=del]').onclick = () => { cards = cards.filter((c) => c !== card); el.remove(); };
   if (!card.el) { card.el = el; $('cards').append(el); }
 }
@@ -340,7 +342,11 @@ async function runLive(card, audio) {
       r.events.push({ at, ...ev, ...(ev.audio ? { audio: '…' } : {}) });
       if (ev.event === 'session.begin') r.config = ev.config;
       if (ev.event === 'transcript.partial') { r.partials++; r.firstPartialMs ??= at; }
-      if (ev.event === 'transcript.final') { r.finals.push(ev); r.lastFinalAt = performance.now(); }
+      if (ev.event === 'transcript.final') {
+        r.finals.push(ev); r.lastFinalAt = performance.now();
+        // Without this, Sarvam keeps the first detected language for the rest of the session.
+        if (card.redetect) ws.send(JSON.stringify({ type: 'sarvam', event: { event: 'config.update', language_code: p.language_code || 'auto' } }));
+      }
       if (ev.event === 'error') r.errors.push(`${ev.code}: ${ev.message}`);
       if (ev.event === 'session.end') { r.sessionEnd = ev; clearTimeout(timer); resolve(); ws.close(); }
     };
@@ -363,7 +369,8 @@ async function runLive(card, audio) {
   const sentSec = bytes.length / bps / rate;
   return {
     transcript: r.finals.map((f) => f.text).join(' ').trim(), language: r.finals.at(-1)?.language, confidence: r.finals.at(-1)?.language_confidence,
-    utterances: r.finals.length, partials: r.partials, firstPartialMs: r.firstPartialMs,
+    utterances: r.finals.length, perUtterance: r.finals.map((f) => ({ text: f.text, language: f.language, confidence: f.language_confidence })),
+    partials: r.partials, firstPartialMs: r.firstPartialMs,
     waitAfterLastWordMs: r.lastFinalAt && lastSpeechAt ? Math.round(r.lastFinalAt - lastSpeechAt) : null, speed,
     sentSec, billedSec: r.sessionEnd?.audio_duration_s ?? sentSec, billedFromSarvam: r.sessionEnd?.audio_duration_s != null,
     sarvamConfig: r.config, errors: r.errors, notes: r.notes, raw: r.events,
@@ -377,7 +384,7 @@ function showResult(card) {
     ['Accuracy', r.accuracy != null ? `${Math.round(r.accuracy * 100)}%` : '–'],
     ['Language', `${r.language ?? '–'}${r.confidence != null ? ` (${Number(r.confidence).toFixed(2)})` : ''}`],
     ['Wait after last word', r.waitAfterLastWordMs != null ? `${(r.waitAfterLastWordMs / 1000).toFixed(2)} s${card.path === 'live' && r.speed !== 1 ? ` (at ${r.speed || 'max'}× speed: not realistic)` : card.path === 'rest' ? ` (${$('eot').value} ms on-device wait + ${r.processingMs} ms)` : ''}` : '–'],
-    ...(card.path === 'live' ? [['First partial', r.firstPartialMs != null ? `${r.firstPartialMs} ms after streaming began` : 'none'], ['Utterances', r.utterances]] : [['Requests', r.requests]]),
+    ...(card.path === 'live' ? [['First partial', r.firstPartialMs != null ? `${r.firstPartialMs} ms after streaming began` : 'none'], ['Utterances', r.perUtterance.map((u) => `${u.language ?? '?'}: ${u.text}`).join(' ‖ ') || r.utterances]] : [['Requests', r.requests]]),
     ['Audio sent', `${r.sentSec.toFixed(1)} s`],
     ['Billed', `${Number(r.billedSec).toFixed(1)} s${r.billedFromSarvam ? ' (reported by Sarvam)' : ''} · ₹${(r.billedSec * RUPEES_PER_SEC).toFixed(3)}`],
   ];

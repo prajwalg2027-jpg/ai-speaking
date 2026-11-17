@@ -46,14 +46,14 @@ async function say(text, { lang = 'en-IN', pace = 1 } = {}) {
 }
 
 // ---------- listening ----------
-async function listen(silenceMs) {
+async function listen(silenceMs, language = 'auto') {
   ui.state('listening'); ui.hint('Listening…');
   if (!(await live.ensureConnected())) {
     log('error', 'Could not reconnect to Sarvam Realtime', live.reason);
     ui.hint('');
     return { reason: 'live_failed', transcript: '', speechSec: 0 };
   }
-  const r = await live.listen({ silenceMs, onNudge: () => ui.hint(PHRASES.nudge), onPartial: (t) => ui.you(t) });
+  const r = await live.listen({ silenceMs, language, onNudge: () => ui.hint(PHRASES.nudge), onPartial: (t) => ui.you(t) });
   ui.hint('');
   return r;
 }
@@ -117,7 +117,7 @@ async function askQuestion(qIndex, level) {
     live.beginPrompt();
     await say(prompt.text, prompt);
     // A chip tapped while the bot was talking skips straight to handling it.
-    const rec = chipAction ? { reason: 'manual' } : await listen(q.silenceMs);
+    const rec = chipAction ? { reason: 'manual' } : await listen(q.silenceMs, q.language);
     let intent = chipAction; chipAction = null;
 
     let r = null;

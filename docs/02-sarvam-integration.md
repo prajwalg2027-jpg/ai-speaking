@@ -67,6 +67,11 @@ gets `ready` and starts streaming mic audio. Audio is resampled to 16 kHz PCM16 
 browser and sent as binary frames. The server wraps each frame as
 `{event:"audio_input", audio:<base64>}`.
 
+**Language detection per answer.** With `language_code=auto`, Sarvam keeps the first language it detects
+for the whole session. The app sends `config.update {language_code}` at every question (`auto`, or `en-IN`
+for read-aloud) and `{language_code: "auto"}` after every final transcript, so each stretch of speech is
+detected afresh. It applies at the next utterance boundary, never mid-utterance.
+
 **Per-question tuning without reconnecting.** Before each answer the browser sends
 `{type:"config", silenceMs}`, and the relay forwards it as
 `{event:"config.update", silence_duration_ms}`, which applies immediately. Q4 gets

@@ -34,6 +34,9 @@ export function startMockRealtime({ transcribe = async () => 'hello world', port
 
     let t = 0; // samples received
     let idx = 0, inSpeech = false, silent = 0, utter = [], startSample = 0, lastPartialAt = 0;
+    // Like Sarvam: with language_code=auto, the first detected language sticks for the session until a
+    // config.update sets language_code again ("re-arms auto-LID and resets the sticky language").
+    let sticky = null;
     const finalize = async (endSample) => {
       inSpeech = false;
       const my = idx++;
@@ -41,7 +44,7 @@ export function startMockRealtime({ transcribe = async () => 'hello world', port
       const text = await transcribe(Buffer.concat(utter), cfg);
       send({
         event: 'transcript.final', utterance_idx: my, text,
-        ...(cfg.language_code === 'auto' ? { language: /[\u0900-\u097F]/.test(text) ? 'hi-IN' : 'en-IN', language_confidence: 0.95 } : {}),
+        ...(cfg.language_code === 'auto' ? { language: (sticky ??= /[\u0900-\u097F]/.test(text) ? 'hi-IN' : 'en-IN'), language_confidence: 0.95 } : {}),
         ...(cfg.return_timestamps ? { start_s: startSample / RATE, end_s: endSample / RATE } : {}),
       });
     };
@@ -52,6 +55,7 @@ export function startMockRealtime({ transcribe = async () => 'hello world', port
         conn.configUpdates.push(m);
         const applied = Object.keys(m).filter((k) => k !== 'event');
         for (const k of applied) cfg[k] = m[k];
+        if ('language_code' in m) sticky = null;
         return send({ event: 'config.updated', applied });
       }
       if (m.event === 'end') {

@@ -61,6 +61,9 @@ export const QUESTIONS = [
     id: 'q3_read',
     kind: 'read',
     silenceMs: 1300,
+    // Read-aloud is always English, so speech-to-text doesn't need to guess the language.
+    // Other questions use 'auto' (answers may be in English, Hindi or both).
+    language: 'en-IN',
     variants: {
       1: { say: 'Please read this sentence out loud.', hindi: 'स्क्रीन पर लिखा वाक्य ज़ोर से पढ़िए।', simple: 'Read this, please.', screen: 'My name is Ravi. I like tea.' },
       2: { say: 'Please read this sentence out loud.', hindi: 'स्क्रीन पर लिखा वाक्य ज़ोर से पढ़िए।', simple: 'Read this, please.', screen: 'Every morning I take the bus to work, and it is always crowded.' },

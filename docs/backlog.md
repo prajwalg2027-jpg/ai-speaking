@@ -16,10 +16,11 @@ test set · Hearing · Turn-taking · Speaking · Understanding and replies · A
 - **Hide the live log panel by default** before real learners use the app (keep it for testing).
 
 ## Hearing
-- **Language detection is sticky in live mode.** After the first answer Sarvam keeps transcribing in
-  that language until told to re-detect. Fix: send `config.update {language_code: "auto"}` at each
-  new question (applies at the next utterance boundary). Risk today: a learner who answers Q1 in Hindi
-  and Q2 in English may be transcribed as Hindi.
+- ~~Language detection is sticky in live mode~~ **Fixed:** the app re-arms detection at every question and
+  after every final transcript (`config.update {language_code}`); read-aloud is fixed to `en-IN`. The STT
+  lab's "Re-detect language after each utterance" switch shows the before and after on real Sarvam.
+- **Context for speech-to-text** (next): live `prompt` (a context hint for final transcripts) and `keyterms`
+  (names and places the learner mentioned), never the expected answer.
 - **Mic processing on vs off**: run `/mic-test.html` on Android phones in 2–3 environments; decide
   the default (`?ns=0&agc=0` in the app URL already switches noise suppression and auto volume off).
 - **Replace the deprecated ScriptProcessor** mic capture: AudioWorklet (web) or AudioRecord (native),
