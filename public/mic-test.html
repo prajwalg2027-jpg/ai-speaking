@@ -13,6 +13,7 @@
       padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
     .lab h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
     .lab p { margin: 0; color: var(--muted); font-size: 14.5px; line-height: 1.5; }
+    .steps { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 6px; font-size: 15px; line-height: 1.45; }
     .setup { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
     .setup label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
     .setup select, .setup input[type=text] { font: inherit; font-size: 15px; padding: 9px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
@@ -45,7 +46,12 @@
 <body>
   <main class="lab">
     <h1>Mic test: phone audio processing on vs off</h1>
-    <p>Read each sentence once per take, at your normal distance from the phone. Takes marked <b style="color:var(--on)">ON</b> use the phone's noise suppression and auto volume; <b style="color:var(--off)">OFF</b> turns both off (echo cancellation stays on in both, as in the app). The order alternates so practice doesn't favour one side. Accuracy is what matters: it's how much of the sentence Sarvam heard correctly.</p>
+    <ol class="steps">
+      <li>Pick where you are.</li>
+      <li>Each sentence has two record buttons: <b style="color:var(--on)">processing ON</b> (the phone's noise suppression and auto volume) and <b style="color:var(--off)">processing OFF</b>. Tap one, read the sentence at your normal distance from the phone, then tap <b>Stop</b>. Do the same with the other button.</li>
+      <li>When you're done, tap <b>Copy results</b> at the bottom and paste them to Claude.</li>
+    </ol>
+    <p>Echo cancellation stays on in both, as in the app. The order alternates so practice doesn't favour one side. Accuracy is what matters: how much of the sentence Sarvam heard correctly.</p>
     <div class="setup">
       <label>Where are you?
         <select id="env">

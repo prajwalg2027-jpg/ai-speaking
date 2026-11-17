@@ -11,9 +11,9 @@ const SENTENCES = [
   { text: 'My sister is a nurse in Chennai.', note: 'Say this one softly, almost whispering' },
 ];
 const MODES = {
-  on: { label: 'ON', constraints: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } },
-  off: { label: 'OFF', constraints: { echoCancellation: true, noiseSuppression: false, autoGainControl: false } },
-  raw: { label: 'RAW', constraints: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } },
+  on: { label: 'ON', button: 'Record · processing ON', constraints: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } },
+  off: { label: 'OFF', button: 'Record · processing OFF', constraints: { echoCancellation: true, noiseSuppression: false, autoGainControl: false } },
+  raw: { label: 'RAW', button: 'Record · raw mic', constraints: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } },
 };
 const MAX_SEC = 25; // Sarvam's REST transcription accepts up to 30 s
 
@@ -39,7 +39,7 @@ function render() {
       const take = document.createElement('div');
       take.className = 'take';
       take.innerHTML = `<span class="tag ${m}">${MODES[m].label}</span>
-        <div class="row"><button type="button" class="go">Record</button><div class="meter"><b></b></div><span class="t"></span></div>
+        <div class="row"><button type="button" class="go">${MODES[m].button}</button><div class="meter"><b></b></div><span class="t"></span></div>
         <div class="res"></div>`;
       take.querySelector('.go').addEventListener('click', () => toggle(take, i, m));
       el.querySelector('.takes').append(take);
@@ -77,7 +77,7 @@ async function toggle(take, i, mode) {
     if (sec > MAX_SEC) stop();
   };
   src.connect(proc); proc.connect(ctx.destination);
-  btn.textContent = 'Stop'; btn.classList.add('rec');
+  btn.textContent = '■ Stop'; btn.classList.add('rec');
   active = { take, i, mode, stream, src, proc, chunks, applied, rate: ctx.sampleRate };
 }
 
@@ -86,7 +86,7 @@ async function stop() {
   active = null;
   a.proc.disconnect(); a.src.disconnect(); a.stream.getTracks().forEach((t) => t.stop());
   const btn = a.take.querySelector('.go');
-  btn.textContent = 'Record again'; btn.classList.remove('rec');
+  btn.textContent = `${MODES[a.mode].button} again`; btn.classList.remove('rec');
   a.take.querySelector('.meter b').style.width = '0';
   const res = a.take.querySelector('.res');
   res.textContent = 'Transcribing…';

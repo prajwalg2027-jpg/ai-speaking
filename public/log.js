@@ -94,6 +94,7 @@ export function initLogPanel(root) {
       <span class="logs-count" id="logsCount">0 events</span>
       <input id="logsFilter" type="search" placeholder="Filter (e.g. llm, error, v4)" aria-label="Filter logs">
       <div class="logs-actions">
+        <a href="/mic-test.html" target="_blank" rel="noopener">Mic test</a>
         <button type="button" id="logsCopy">Copy</button>
         <button type="button" id="logsClear">Clear</button>
         <button type="button" id="logsHide">Hide</button>
