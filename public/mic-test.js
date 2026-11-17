@@ -124,7 +124,7 @@ async function stop() {
     snrDb: +(speechDb - noiseDb).toFixed(1), peakDb: +db(peak).toFixed(1), clippedPct: +((clipped / all.length) * 100).toFixed(2),
     requested: MODES[a.mode].constraints,
     applied: { echoCancellation: a.applied.echoCancellation, noiseSuppression: a.applied.noiseSuppression, autoGainControl: a.applied.autoGainControl },
-    sttMs: r.ms,
+    sttMs: r.ms, compared: r.compared,
   };
   const prev = results.findIndex((x) => x.sentence === row.sentence && x.mode === row.mode);
   if (prev >= 0) results.splice(prev, 1);
@@ -133,6 +133,7 @@ async function stop() {
   const mismatch = ['noiseSuppression', 'autoGainControl', 'echoCancellation'].filter((k) => row.applied[k] !== undefined && row.applied[k] !== row.requested[k]);
   res.innerHTML = `<div><span class="acc">${pct(row.accuracy)} accurate</span> · <span class="tx">“${escapeHtml(row.transcript || '(nothing heard)')}”</span></div>
     <div class="m">speech ${row.speechDb} dB · noise ${row.noiseDb} dB · SNR ${row.snrDb} dB · clipped ${row.clippedPct}% · ${row.seconds} s</div>
+    ${row.accuracy < 1 && r.compared ? `<div class="m">compared: expected “${escapeHtml(r.compared.expected)}” · heard “${escapeHtml(r.compared.heard)}”</div>` : ''}
     ${mismatch.length ? `<div class="m" style="color:var(--warn)">Phone ignored: ${mismatch.join(', ')} (requested ${mismatch.map((k) => row.requested[k]).join('/')})</div>` : ''}
     <div class="row"><button type="button" class="play">▶ Play</button></div>`;
   const url = URL.createObjectURL(wav);

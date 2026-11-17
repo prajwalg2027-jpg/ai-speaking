@@ -1,15 +1,21 @@
 // Deterministic speaking features + final level computation.
 // The LLM judge is one input; the level decision itself is made here, in code.
 
+import { normalizeForCompare } from './normalize.js';
+
 const FILLERS = /\b(um+|uh+|erm|hmm+|like|matlab|basically|you know|wo|woh|toh)\b/gi;
 const DEVANAGARI = /[ऀ-ॿ]/g;
 const COMPLEX_MARKERS = /\b(although|however|whereas|nevertheless|moreover|therefore|consequently|on the other hand|in contrast|which means|arguably|paradoxically|i would argue|to some extent|it depends|not only)\b/gi;
 
-export const words = (t) => (t || '').toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}'\s-]/gu, ' ').split(/\s+/).filter(Boolean);
+// \p{M} keeps Devanagari vowel signs inside words.
+export const words = (t) => (t || '').toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{M}\p{N}'\s-]/gu, ' ').split(/\s+/).filter(Boolean);
 
-/** Word-level edit distance accuracy (0..1) between reference and hypothesis. */
+/**
+ * Word-level edit distance accuracy (0..1) between reference and hypothesis. Both are normalised first
+ * (numbers, currency, contractions, spelling), so "₹250" matches "two hundred and fifty rupees".
+ */
 export function readAccuracy(reference, hypothesis) {
-  const r = words(reference), h = words(hypothesis);
+  const r = normalizeForCompare(reference), h = normalizeForCompare(hypothesis);
   if (!r.length) return 0;
   const d = Array.from({ length: r.length + 1 }, (_, i) => [i, ...Array(h.length).fill(0)]);
   for (let j = 1; j <= h.length; j++) d[0][j] = j;
@@ -19,10 +25,22 @@ export function readAccuracy(reference, hypothesis) {
   return Math.max(0, 1 - d[r.length][h.length] / r.length);
 }
 
-/** Did the transcript contain each expected item (string or list of acceptable strings)? */
+/**
+ * Did the transcript contain each expected item (string or list of acceptable strings)? Compared on
+ * normalised words; each expected word may match the start of a heard word ("finish" ~ "finished"),
+ * but not the middle ("time" doesn't match "sometimes").
+ */
 export function vocabHits(transcript, expect = []) {
-  const t = (transcript || '').toLowerCase();
-  return expect.map((e) => (Array.isArray(e) ? e : [e]).some((x) => t.includes(x.toLowerCase())));
+  const heard = normalizeForCompare(transcript);
+  const has = (option) => {
+    const want = normalizeForCompare(option);
+    if (!want.length) return false;
+    for (let i = 0; i + want.length <= heard.length; i++) {
+      if (want.every((w, k) => heard[i + k].startsWith(w))) return true;
+    }
+    return false;
+  };
+  return expect.map((e) => (Array.isArray(e) ? e : [e]).some(has));
 }
 
 export function features(transcript, { speechSec = 0, kind, reference, expect } = {}) {

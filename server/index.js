@@ -8,6 +8,7 @@ import * as sarvam from './sarvam.js';
 import { attachLiveRelay } from './live.js';
 import { detectClarification, isUnintelligible, looksTruncated } from './clarify.js';
 import { features, heuristicScores, blend, provisionalLevel, finalLevel, readAccuracy } from './scoring.js';
+import { normalizeForCompare } from './normalize.js';
 import { JUDGE_SYSTEM, judgeUser, INTENT_SYSTEM, REPLY_SYSTEM } from './prompts.js';
 import { QUESTIONS, variantFor } from '../shared/assessment.js';
 
@@ -143,7 +144,12 @@ async function handleLabTranscribe(req, res, url) {
   const wav = await readBody(req, 2 * 1024 * 1024);
   const s = performance.now();
   const r = await sarvam.transcribe(wav);
-  send(res, 200, { ...r, ms: Math.round(performance.now() - s), accuracy: expect ? +readAccuracy(expect, r.transcript).toFixed(3) : null, model: config.sarvam.sttModel, mode: config.sarvam.sttMode });
+  send(res, 200, {
+    ...r, ms: Math.round(performance.now() - s), model: config.sarvam.sttModel, mode: config.sarvam.sttMode,
+    accuracy: expect ? +readAccuracy(expect, r.transcript).toFixed(3) : null,
+    // What was actually compared, after normalising numbers, contractions and spelling.
+    compared: expect ? { expected: normalizeForCompare(expect).join(' '), heard: normalizeForCompare(r.transcript).join(' ') } : null,
+  });
 }
 
 async function handleFinal(req, res) {
