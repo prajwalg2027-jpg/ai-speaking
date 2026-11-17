@@ -136,20 +136,51 @@ async function handleTTS(req, res) {
   send(res, 200, { audio, trace: { model: S.ttsModel, speaker: S.ttsSpeaker, lang, pace, chars: text.length, cached, ms: Math.round(performance.now() - s), kb: audio ? Math.round((audio.length * 3) / 4 / 1024) : 0 } });
 }
 
-// ---- /api/lab/transcribe (mic test page) --------------------------------------
-// Body: 16 kHz WAV (max 30 s, Sarvam's REST limit). Query: expect (the sentence the tester read).
+// ---- STT lab: /api/lab/transcribe and /api/lab/compare ------------------------
+// Every option of Sarvam's REST speech-to-text (sarvamai SDK 1.1.19). Blank = Sarvam's default.
+const REST_LANGS = ['unknown', 'en-IN', 'hi-IN', 'bn-IN', 'kn-IN', 'ml-IN', 'mr-IN', 'od-IN', 'pa-IN', 'ta-IN', 'te-IN', 'gu-IN',
+  'as-IN', 'ur-IN', 'ne-IN', 'kok-IN', 'ks-IN', 'sd-IN', 'sa-IN', 'sat-IN', 'mni-IN', 'brx-IN', 'mai-IN', 'doi-IN'];
+const REST_OPTIONS = {
+  model: (v) => (['saaras:v4', 'saaras:v3'].includes(v) ? v : null),
+  mode: (v) => (['transcribe', 'translate', 'verbatim', 'translit', 'codemix'].includes(v) ? v : null),
+  language_code: (v) => (REST_LANGS.includes(v) ? v : null),
+  with_timestamps: (v) => (['true', 'false'].includes(v) ? v : null),
+  keyterms: (v) => { // JSON array of up to 50 terms, 64 characters each (saaras:v4 only)
+    try { const a = JSON.parse(v); return Array.isArray(a) && a.length <= 50 && a.every((t) => typeof t === 'string' && t.length <= 64) ? JSON.stringify(a) : null; } catch { return null; }
+  },
+};
+
+// Body: 16 kHz WAV (max 30 s, Sarvam's REST limit). Query: expect (the sentence the tester read) + REST options.
 async function handleLabTranscribe(req, res, url) {
   if (!ready()) return send(res, 503, { error: 'Server has no SARVAM_API_KEY' });
   const expect = url.searchParams.get('expect') || '';
+  const options = {}, rejected = [];
+  for (const [k, check] of Object.entries(REST_OPTIONS)) {
+    const v = url.searchParams.get(k);
+    if (v == null || v === '') continue;
+    const ok = check(v);
+    if (ok == null) rejected.push(k); else options[k] = ok;
+  }
+  if (rejected.length) return send(res, 400, { error: `invalid values for: ${rejected.join(', ')}` });
   const wav = await readBody(req, 2 * 1024 * 1024);
   const s = performance.now();
-  const r = await sarvam.transcribe(wav);
+  let r;
+  try { r = await sarvam.transcribe(wav, options); }
+  catch (e) { return send(res, 502, { error: e.message, ms: Math.round(performance.now() - s) }); }
   send(res, 200, {
-    ...r, ms: Math.round(performance.now() - s), model: config.sarvam.sttModel, mode: config.sarvam.sttMode,
+    ...r, ms: Math.round(performance.now() - s), model: options.model || config.sarvam.sttModel, mode: options.mode || config.sarvam.sttMode, options,
+    audioSec: +((wav.length - 44) / 32000).toFixed(2),
     accuracy: expect ? +readAccuracy(expect, r.transcript).toFixed(3) : null,
     // What was actually compared, after normalising numbers, contractions and spelling.
     compared: expect ? { expected: normalizeForCompare(expect).join(' '), heard: normalizeForCompare(r.transcript).join(' ') } : null,
   });
+}
+
+// Body: JSON {expected, heard}. Scores a transcript (e.g. from a live run) the same way.
+async function handleLabCompare(req, res) {
+  const { expected = '', heard = '' } = JSON.parse((await readBody(req, 64 * 1024)).toString() || '{}');
+  send(res, 200, { accuracy: expected ? +readAccuracy(expected, heard).toFixed(3) : null,
+    compared: { expected: normalizeForCompare(expected).join(' '), heard: normalizeForCompare(heard).join(' ') } });
 }
 
 async function handleFinal(req, res) {
@@ -179,6 +210,7 @@ export const server = createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/tts') return await handleTTS(req, res);
     if (req.method === 'POST' && url.pathname === '/api/final') return await handleFinal(req, res);
     if (req.method === 'POST' && url.pathname === '/api/lab/transcribe') return await handleLabTranscribe(req, res, url);
+    if (req.method === 'POST' && url.pathname === '/api/lab/compare') return await handleLabCompare(req, res);
     if (req.method === 'GET') return await serveStatic(res, url.pathname);
     send(res, 404, { error: 'not found' });
   } catch (e) {

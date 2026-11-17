@@ -29,6 +29,13 @@ test set · Hearing · Turn-taking · Speaking · Understanding and replies · A
   (count, longest, share of time paused) from the mic signal instead of counting filler words.
 - If a REST fallback ever returns: uploads are limited to 30 s; split long answers at pauses.
 
+- **Send at once vs live (cost)**: compare on real recordings in `/stt-lab.html`. Sending trimmed audio in one
+  upload bills fewer seconds but the learner waits for upload and transcription after they stop, there are
+  no live captions, and the phone must detect the end of the turn itself. A middle option: stream live but
+  skip long silences on the phone (lab preset "Live · trimmed audio"), ending turns with `endpointing=manual`.
+- Not in the STT lab yet: Sarvam's Batch API (async jobs, for audio over 30 s) and the legacy
+  `/speech-to-text/ws` streaming endpoint; the `linear32` encoding (its exact format isn't documented).
+
 ## Turn-taking
 - Barge-in thresholds (4× noise floor, 300 ms) were tuned on test clips only; check on real phones
   with the speaker on, where echo cancellation varies by device.

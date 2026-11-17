@@ -33,7 +33,43 @@ async function getProxyAgent(url) {
   return proxyAgent;
 }
 
-export function upstreamUrl({ silenceMs = 1200 } = {}) {
+// Every option of Sarvam's realtime endpoint (sarvamai SDK 1.1.19), with the values it allows.
+// The STT lab can set any of them; the app uses the defaults in upstreamUrl().
+const LANGS = ['auto', 'en-IN', 'hi-IN', 'bn-IN', 'kn-IN', 'ml-IN', 'mr-IN', 'or-IN', 'pa-IN', 'ta-IN', 'te-IN', 'gu-IN', 'as-IN',
+  'ur-IN', 'ne-IN', 'kok-IN', 'ks-IN', 'sd-IN', 'sa-IN', 'sat-IN', 'mni-IN', 'brx-IN', 'mai-IN', 'doi-IN'];
+const num = (min, max) => (v) => { const n = Number(v); return Number.isFinite(n) && n >= min && n <= max ? String(n) : null; };
+const oneOf = (list) => (v) => (list.includes(v) ? v : null);
+const text = (max) => (v) => (typeof v === 'string' && v.length <= max ? v : null);
+export const REALTIME_OPTIONS = {
+  model: oneOf(['saaras:v4', 'saaras:v3-realtime']),
+  language_code: oneOf(LANGS),
+  mode: oneOf(['transcribe', 'translate', 'verbatim', 'translit', 'codemix']),
+  stream_type: oneOf(['fast', 'balanced', 'simulated']),
+  endpointing: oneOf(['vad', 'manual']),
+  encoding: oneOf(['linear16', 'mulaw', 'alaw']),
+  sample_rate: oneOf(['16000', '8000']),
+  return_timestamps: oneOf(['true', 'false']),
+  threshold: num(0, 1),
+  silence_duration_ms: num(0, 10000),
+  min_speech_duration_ms: num(0, 10000),
+  prefix_padding_ms: num(0, 10000),
+  prompt: text(2000),
+  keyterms: text(4000),
+};
+
+/** Keep only known options with allowed values. Returns { params, rejected }. */
+export function sanitizeRealtimeOptions(input = {}) {
+  const params = {}, rejected = [];
+  for (const [k, v] of Object.entries(input)) {
+    if (v === '' || v == null) continue; // blank = Sarvam's default
+    const check = REALTIME_OPTIONS[k];
+    const ok = check ? check(String(v)) : null;
+    if (ok == null) rejected.push(k); else params[k] = ok;
+  }
+  return { params, rejected };
+}
+
+export function upstreamUrl({ silenceMs = 1200, ...overrides } = {}) {
   const qs = new URLSearchParams({
     model: S.realtime.model,
     language_code: 'auto', // adaptive language ID; finals then carry `language` + `language_confidence`
@@ -44,22 +80,33 @@ export function upstreamUrl({ silenceMs = 1200 } = {}) {
     silence_duration_ms: String(silenceMs),
     stream_type: S.realtime.streamType,
     return_timestamps: 'true', // start_s / end_s on finals → speaking time for words-per-minute
+    ...overrides,
   });
   return `${S.realtime.url}?${qs}`;
 }
 
-/** Attach the relay to an http.Server at /api/live. */
+/**
+ * Attach the relay to an http.Server: /api/live for the app (fixed settings), /api/lab/live for the
+ * STT lab (any realtime option, passed as query parameters, plus raw Sarvam events both ways).
+ */
 export function attachLiveRelay(server, { enabled = () => true } = {}) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
 
   server.on('upgrade', (req, socket, head) => {
-    if (new URL(req.url, 'http://x').pathname !== '/api/live') return socket.destroy();
+    const u = new URL(req.url, 'http://x');
+    if (u.pathname === '/api/lab/live') {
+      const { params, rejected } = sanitizeRealtimeOptions(Object.fromEntries(u.searchParams));
+      return wss.handleUpgrade(req, socket, head, (client) => relay(client, enabled(), { lab: true, params, rejected }));
+    }
+    if (u.pathname !== '/api/live') return socket.destroy();
     wss.handleUpgrade(req, socket, head, (client) => relay(client, enabled()));
   });
   return wss;
 }
 
-async function relay(client, enabled) {
+const LAB_EVENTS = new Set(['speech_start', 'speech_end', 'flush', 'end', 'config.update', 'ping']);
+
+async function relay(client, enabled, { lab = false, params = {}, rejected = [] } = {}) {
   const toClient = (msg) => client.readyState === WebSocket.OPEN && client.send(JSON.stringify(msg));
   let failed = false;
   const unavailable = (reason) => {
@@ -74,7 +121,8 @@ async function relay(client, enabled) {
   let ready = false;
   let closed = false;
   const note = (msg, data) => toClient({ type: 'log', msg, data });
-  const url = upstreamUrl({ silenceMs });
+  if (rejected.length) note('Ignored options with invalid values', { rejected });
+  const url = upstreamUrl({ silenceMs, ...params });
   const opened = Date.now();
   // The URL carries only settings; the key goes in a header and is never sent to the browser.
   note('Connecting to Sarvam Realtime', { url });
@@ -122,6 +170,7 @@ async function relay(client, enabled) {
   upstream.on('message', (raw) => {
     let e;
     try { e = JSON.parse(raw); } catch { return; }
+    if (lab) toClient({ type: 'sarvam', event: e }); // the lab sees every raw event
     switch (e.event) {
       case 'session.begin':
         ready = true;
@@ -159,6 +208,7 @@ async function relay(client, enabled) {
     }
     let m;
     try { m = JSON.parse(data); } catch { return; }
+    if (lab && m.type === 'sarvam' && LAB_EVENTS.has(m.event?.event)) return toSarvam(m.event);
     if (m.type === 'config' && Number.isFinite(m.silenceMs)) {
       silenceMs = Math.max(300, Math.min(5000, Math.round(m.silenceMs)));
       // VAD knobs apply immediately (no reconnect needed).

@@ -37,7 +37,7 @@ export const config = {
       model: env('SARVAM_REALTIME_MODEL', 'saaras:v4'),
       streamType: env('SARVAM_REALTIME_STREAM_TYPE', 'balanced'), // fast | balanced
     },
-    timeouts: { stt: 10_000, tts: 8_000, llm: 15_000 },
+    timeouts: { stt: 20_000, tts: 8_000, llm: 15_000 },
   },
 };
 

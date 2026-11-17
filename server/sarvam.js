@@ -33,16 +33,16 @@ const wavForm = (wav, fields) => {
   return fd;
 };
 
-function sttFields(mode) {
+function sttFields(mode, overrides = {}) {
   const f = { model: S.sttModel, mode };
   if (S.sttLanguage) f.language_code = S.sttLanguage;
-  return f;
+  return { ...f, ...overrides };
 }
 
 /** Saaras v4 REST, codemix mode (mic test page only; the app uses Realtime STT). Max 30 s of audio. */
-export async function transcribe(wav) {
-  const r = await call('/speech-to-text', { body: wavForm(wav, sttFields(S.sttMode)), timeout: S.timeouts.stt });
-  return { transcript: r.transcript ?? '', languageCode: r.language_code ?? null, languageProbability: r.language_probability ?? null, requestId: r.request_id ?? null };
+export async function transcribe(wav, overrides = {}) {
+  const r = await call('/speech-to-text', { body: wavForm(wav, sttFields(S.sttMode, overrides)), timeout: S.timeouts.stt });
+  return { transcript: r.transcript ?? '', languageCode: r.language_code ?? null, languageProbability: r.language_probability ?? null, requestId: r.request_id ?? null, timestamps: r.timestamps ?? null };
 }
 
 

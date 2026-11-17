@@ -86,6 +86,39 @@ test('"finish" forces the end of a turn without waiting for real silence', async
   c.ws.close();
 });
 
+test('lab relay: any valid realtime option reaches Sarvam, invalid ones are dropped and reported', async () => {
+  const ws = new WebSocket(`${base.replace('/api/live', '/api/lab/live')}?model=saaras:v3-realtime&mode=verbatim&threshold=0.5&stream_type=warp&bogus=1&language_code=hi-IN`);
+  const events = [];
+  ws.on('message', (m) => events.push(JSON.parse(m)));
+  await new Promise((r) => ws.on('open', r));
+  await new Promise((r) => setTimeout(r, 300));
+  const q = mock.state.connections.at(-1).query;
+  assert.equal(q.model, 'saaras:v3-realtime');
+  assert.equal(q.mode, 'verbatim');
+  assert.equal(q.threshold, '0.5');
+  assert.equal(q.language_code, 'hi-IN');
+  assert.equal(q.stream_type, 'balanced', 'invalid value replaced by the default');
+  assert.ok(!('bogus' in q));
+  assert.deepEqual(events.find((e) => e.msg === 'Ignored options with invalid values').data.rejected.sort(), ['bogus', 'stream_type']);
+  assert.ok(events.some((e) => e.type === 'sarvam' && e.event.event === 'session.begin'), 'raw Sarvam events reach the lab');
+  // Only Sarvam's own control events pass through; 'end' finalises and closes the session.
+  ws.send(JSON.stringify({ type: 'sarvam', event: { event: 'audio_input', audio: 'AAAA' } }));
+  ws.send(JSON.stringify({ type: 'sarvam', event: { event: 'end' } }));
+  await new Promise((r) => ws.on('close', r));
+  assert.ok(events.some((e) => e.type === 'sarvam' && e.event.event === 'session.end'));
+  assert.equal(mock.state.connections.at(-1).audioBytes, 0, 'JSON audio_input is not passed through');
+});
+
+test('the app path ignores lab-style options and passthrough', async () => {
+  const c = connect();
+  await c.waitFor('ready');
+  assert.equal(mock.state.connections.at(-1).query.model, 'saaras:v4');
+  c.ws.send(JSON.stringify({ type: 'sarvam', event: { event: 'end' } }));
+  await new Promise((r) => setTimeout(r, 200));
+  assert.ok(!c.events.some((e) => e.type === 'sarvam'), 'no raw events on the app path');
+  c.ws.close();
+});
+
 test('rejected upstream → browser gets "unavailable" and the socket closes (the app shows an error)', async () => {
   mock.state.rejectNext = true;
   const c = connect();

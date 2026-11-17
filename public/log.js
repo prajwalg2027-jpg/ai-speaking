@@ -95,6 +95,7 @@ export function initLogPanel(root) {
       <input id="logsFilter" type="search" placeholder="Filter (e.g. llm, error, v4)" aria-label="Filter logs">
       <div class="logs-actions">
         <a href="/mic-test.html" target="_blank" rel="noopener">Mic test</a>
+        <a href="/stt-lab.html" target="_blank" rel="noopener">STT lab</a>
         <button type="button" id="logsCopy">Copy</button>
         <button type="button" id="logsClear">Clear</button>
         <button type="button" id="logsHide">Hide</button>

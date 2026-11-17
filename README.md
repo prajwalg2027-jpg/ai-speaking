@@ -29,6 +29,9 @@ npm test
 Node ≥ 20. The only runtime dependency is `ws`, for the Realtime WebSocket. A Sarvam key is
 required: without one the app explains what's missing (there is no demo or fallback mode).
 
+**STT lab:** open `/stt-lab.html` to run one recording through many Sarvam speech-to-text configurations
+in parallel (live streaming or one upload, every model/mode/language/VAD option, pause trimming, cost).
+
 **Mic test:** open `/mic-test.html` to compare the phone's noise suppression and auto volume on vs
 off (see `docs/backlog.md` for how to open it on an Android phone).
 

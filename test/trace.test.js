@@ -55,6 +55,23 @@ test('mic test endpoint transcribes and scores against the expected sentence', a
   assert.equal(r.mode, 'codemix');
 });
 
+test('lab transcribe accepts every REST option and rejects invalid values', async () => {
+  const ok = await fetch(`${base}/api/lab/transcribe?model=saaras:v3&mode=verbatim&language_code=hi-IN&with_timestamps=true&keyterms=${encodeURIComponent('["Sarvam","Pune"]')}`, { method: 'POST', headers: { 'content-type': 'audio/wav' }, body: Buffer.alloc(32044) });
+  const j = await ok.json();
+  assert.equal(ok.status, 200);
+  assert.deepEqual(j.options, { model: 'saaras:v3', mode: 'verbatim', language_code: 'hi-IN', with_timestamps: 'true', keyterms: '["Sarvam","Pune"]' });
+  assert.equal(j.audioSec, 1);
+  const bad = await fetch(`${base}/api/lab/transcribe?model=saarika:v1&mode=loud`, { method: 'POST', headers: { 'content-type': 'audio/wav' }, body: Buffer.alloc(100) });
+  assert.equal(bad.status, 400);
+  assert.match((await bad.json()).error, /model, mode/);
+});
+
+test('lab compare scores any transcript the same way as read-aloud', async () => {
+  const r = await (await fetch(`${base}/api/lab/compare`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ expected: 'I paid two hundred and fifty rupees', heard: 'I paid ₹250' }) })).json();
+  assert.equal(r.accuracy, 1);
+  assert.equal(r.compared.heard, 'i paid 250 rupees');
+});
+
 test('voice responses report cache hits', async () => {
   const say = () => fetch(`${base}/api/tts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'Hello there' }) }).then((r) => r.json());
   assert.equal((await say()).trace.cached, false);
