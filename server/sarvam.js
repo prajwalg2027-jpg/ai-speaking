@@ -1,4 +1,4 @@
-// Thin Sarvam AI client: STT (Saaras v4), TTS (Bulbul v4 Flash), chat (Sarvam-105B), text translate (Mayura).
+// Thin Sarvam AI client: TTS (Bulbul v4 Flash), chat (Sarvam-105B), and REST STT for the mic test page.
 // Realtime STT lives in live.js.
 import { createHash } from 'node:crypto';
 import { config } from './config.js';
@@ -39,17 +39,12 @@ function sttFields(mode) {
   return f;
 }
 
-/** Saaras v4, codemix mode: English stays Latin, Hindi stays Devanagari. */
+/** Saaras v4 REST, codemix mode (mic test page only; the app uses Realtime STT). Max 30 s of audio. */
 export async function transcribe(wav) {
   const r = await call('/speech-to-text', { body: wavForm(wav, sttFields(S.sttMode)), timeout: S.timeouts.stt });
   return { transcript: r.transcript ?? '', languageCode: r.language_code ?? null, languageProbability: r.language_probability ?? null, requestId: r.request_id ?? null };
 }
 
-/** Saaras v4, translate mode: English meaning of whatever was said (replaces legacy /speech-to-text-translate). */
-export async function transcribeToEnglish(wav) {
-  const r = await call('/speech-to-text', { body: wavForm(wav, sttFields('translate')), timeout: S.timeouts.stt });
-  return { transcript: r.transcript ?? '', languageCode: r.language_code ?? null, requestId: r.request_id ?? null };
-}
 
 // Scripted prompts are synthesised once and cached by content hash.
 const ttsCache = new Map();
@@ -112,11 +107,3 @@ export async function chatJSON(messages, opts) {
   return null;
 }
 
-/** Mayura: translate (code-mixed) text to English. Used for Hindi answers in live mode. */
-export async function translateToEnglish(text) {
-  const r = await call('/translate', {
-    json: { input: text.slice(0, 1000), source_language_code: 'auto', target_language_code: 'en-IN', model: S.translateModel },
-    timeout: S.timeouts.stt,
-  });
-  return r.translated_text ?? null;
-}

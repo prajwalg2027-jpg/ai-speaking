@@ -86,7 +86,7 @@ test('"finish" forces the end of a turn without waiting for real silence', async
   c.ws.close();
 });
 
-test('rejected upstream → browser gets "unavailable" and the socket closes (REST fallback)', async () => {
+test('rejected upstream → browser gets "unavailable" and the socket closes (the app shows an error)', async () => {
   mock.state.rejectNext = true;
   const c = connect();
   const e = await c.waitFor('unavailable');

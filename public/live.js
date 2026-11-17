@@ -1,14 +1,22 @@
-// Realtime STT client: streams the mic to our /api/live relay (→ Sarvam saaras:v4 realtime, server VAD)
+// Realtime speech-to-text: streams the mic to our /api/live relay (→ Sarvam saaras:v4 realtime, server VAD)
 // and turns Sarvam's utterance events into "answers" for the placement conversation.
+//
+// Streaming rules (Sarvam bills every second of audio it receives):
+// - Audio is streamed only while we're listening for an answer. While Sakhi talks or the server is
+//   scoring, mic audio is kept in a short pre-roll buffer instead of being sent.
+// - When listening starts, the end of that buffer is sent first, so the start of an answer isn't lost:
+//   after a barge-in, everything since the learner started talking (up to 2 s); otherwise 250 ms.
+// - Barge-in is detected locally from the mic level (audio.js), because nothing is streamed during prompts.
 //
 // Turn rules:
 // - An answer can span several utterances (a learner pauses mid-thought). After each final transcript we
 //   wait a short grace period; if VAD reports new speech, we keep collecting.
-// - While the bot is talking, a VAD speech_start counts only if the local mic is loud too (barge-in).
-//   Otherwise it's treated as echo of the bot's own voice and that utterance is ignored.
-// - Utterances that start while the bot is silent (between prompt and listen, or while "thinking") count.
 import { createResampler } from '/pcm.js';
 import { log, logPartial } from '/log.js';
+
+const RATE = 16000;
+const PREROLL_MS = 2000;         // kept while not streaming
+const PREROLL_AFTER_PROMPT = 250; // sent when listening starts after a prompt finished normally
 
 export class LiveSTT {
   constructor(voice) {
@@ -16,7 +24,9 @@ export class LiveSTT {
     this.ws = null;
     this.alive = false;
     this.listener = null;
-    this.onBargeIn = null;
+    this.streaming = false;
+    this.bargeInPrerollMs = null; // set by the app when the learner interrupted the last prompt
+    this.ring = []; this.ringSamples = 0;
     this.beginPrompt();
   }
 
@@ -40,35 +50,75 @@ export class LiveSTT {
         if (e.type === 'log') return log('relay', e.msg, e.data);
         if (e.type === 'ready') {
           log('live', 'Sarvam Realtime session started', { requestId: e.requestId, ...e.config });
-          this.alive = true; this._startStreaming(); settle(true);
-        } else if (e.type === 'unavailable') settle(false, e.reason);
-        else this._event(e);
+          this.alive = true; this._startTap(); settle(true);
+        } else if (e.type === 'unavailable') {
+          log('error', 'Sarvam Realtime unavailable', e.reason);
+          settle(false, e.reason);
+        } else this._event(e);
       };
       ws.onclose = (ev) => {
+        if (this.ws !== ws) return; // an older socket closing after a reconnect
         const wasAlive = this.alive;
         this.alive = false;
-        this._stopStreaming();
+        this.streaming = false;
+        this.voice.tap = null;
         if (wasAlive) {
-          log('error', `Live connection closed (code ${ev.code}${ev.reason ? `, ${ev.reason}` : ''})`);
+          log('error', `Live connection closed (code ${ev.code}${ev.reason ? `, ${ev.reason}` : ''}). It reopens at the next answer.`);
           this.listener?.onFail();
         }
-        settle(false, 'closed');
+        settle(false, `closed (code ${ev.code})`);
       };
       this.ws = ws;
     });
   }
 
-  _send(obj) { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(typeof obj === 'string' || obj instanceof ArrayBuffer ? obj : JSON.stringify(obj)); }
+  /** Reconnect if Sarvam closed the session (e.g. after a long idle period). */
+  async ensureConnected() {
+    if (this.alive) return true;
+    log('live', 'Reconnecting to Sarvam Realtime');
+    return this.connect();
+  }
 
-  _startStreaming() {
-    const resample = createResampler(this.voice.ctx.sampleRate, 16000);
+  _send(obj) {
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    this.ws.send(obj instanceof ArrayBuffer ? obj : JSON.stringify(obj));
+  }
+
+  _startTap() {
+    const resample = createResampler(this.voice.ctx.sampleRate, RATE);
+    this.ring = []; this.ringSamples = 0; this.streaming = false;
     this.voice.tap = (buf) => {
       const pcm = resample(buf);
-      if (pcm.length) this._send(pcm.buffer);
+      if (!pcm.length) return;
+      if (this.streaming) return this._send(pcm.buffer);
+      // Not listening: keep the last PREROLL_MS of audio, send nothing (nothing billed).
+      this.ring.push(pcm); this.ringSamples += pcm.length;
+      while (this.ring.length > 1 && this.ringSamples - this.ring[0].length >= (RATE * PREROLL_MS) / 1000) {
+        this.ringSamples -= this.ring.shift().length;
+      }
     };
-    log('mic', `Streaming mic to Sarvam: ${this.voice.ctx.sampleRate} Hz → 16 kHz PCM16`);
+    log('mic', `Mic → 16 kHz PCM16 (${this.voice.ctx.sampleRate} Hz input). Streaming only while listening for an answer.`);
   }
-  _stopStreaming() { this.voice.tap = null; }
+
+  _startStreaming(prerollMs) {
+    // Send the newest `prerollMs` of buffered audio, oldest first, then stream live.
+    let need = Math.round((RATE * prerollMs) / 1000), parts = [];
+    for (let i = this.ring.length - 1; i >= 0 && need > 0; i--) {
+      const c = this.ring[i];
+      parts.unshift(c.length <= need ? c : c.subarray(c.length - need));
+      need -= c.length;
+    }
+    for (const p of parts) this._send(p.slice().buffer);
+    this.ring = []; this.ringSamples = 0;
+    this.streaming = true;
+    log('live', `Streaming to Sarvam (sent ${prerollMs} ms of pre-roll${prerollMs !== PREROLL_AFTER_PROMPT ? ' covering the start of the interruption' : ''})`);
+  }
+
+  _stopStreaming() {
+    if (!this.streaming) return;
+    this.streaming = false;
+    log('live', 'Paused streaming until the next answer (Sakhi talking or scoring: not billed)');
+  }
 
   /** Call before each bot prompt: forget utterances from the previous exchange. */
   beginPrompt() {
@@ -83,20 +133,13 @@ export class LiveSTT {
   _event(e) {
     const accepted = this.accepted.has(e.idx);
     switch (e.type) {
-      case 'speech_start': {
-        let accept = !!this.listener || !this.voice.isPlaying();
-        if (accept) log('live', `VAD: speech started (utterance ${e.idx})`);
-        else if (this.voice.userIsLoud()) {
-          accept = true;
-          log('live', `VAD: speech started during the prompt and the mic is loud: barge-in, stopping the prompt (utterance ${e.idx})`);
-          this.onBargeIn?.();
-        }
-        if (!accept) return log('live', `VAD: speech during the prompt but the mic is quiet: treated as echo, ignored (utterance ${e.idx})`);
+      case 'speech_start':
+        if (!this.listener) return log('live', `VAD: speech started outside an answer window, ignored (utterance ${e.idx})`);
+        log('live', `VAD: speech started (utterance ${e.idx})`);
         this.accepted.add(e.idx);
         this.inUtterance = true;
         this._utterStart = performance.now();
-        return this.listener?.onSpeechStart();
-      }
+        return this.listener.onSpeechStart();
       case 'partial':
         if (accepted) { logPartial(e.text); this.listener?.onPartial([...this.pending, e.text].join(' ')); }
         return;
@@ -125,13 +168,15 @@ export class LiveSTT {
   }
 
   /**
-   * Collect one answer. Resolves { transcript, language, speechSec, reason, live: true }.
-   * reason: 'silence' | 'manual' | 'max' | 'no_speech' | 'live_failed' (caller should fall back to REST).
+   * Collect one answer. Resolves { transcript, language, speechSec, reason }.
+   * reason: 'silence' | 'manual' | 'max' | 'no_speech' | 'live_failed' (connection dropped mid-answer).
    */
   listen({ silenceMs = 1200, graceMs = 700, maxMs = 45_000, nudgeMs = 6000, giveUpMs = 12_000, onNudge, onPartial } = {}) {
     this._send({ type: 'config', silenceMs });
     this.voice.metering = true;
     log('live', `Listening: Sarvam ends the turn after ${silenceMs} ms of silence, then ${graceMs} ms grace`);
+    this._startStreaming(this.bargeInPrerollMs ?? PREROLL_AFTER_PROMPT);
+    this.bargeInPrerollMs = null;
     return new Promise((resolve) => {
       const t0 = performance.now();
       let done = false, nudged = false, grace = null, safety = null, finishing = false;
@@ -140,12 +185,11 @@ export class LiveSTT {
         done = true;
         clearInterval(tick); clearTimeout(grace); clearTimeout(safety);
         this.listener = null; this.voice.stopListening = null; this.voice.metering = false; this.voice.onLevel(0, 'user');
+        this._stopStreaming();
         const spoke = this.accepted.size > 0;
-        log('live', `Answer complete (${reason === 'live_failed' || spoke ? reason : 'no speech'})`, { transcript: this.pending.join(' ').trim(), utterances: this.accepted.size, speechSec: +this.speechSec.toFixed(2) });
-        resolve({
-          transcript: this.pending.join(' ').trim(), language: this.language, languageConfidence: this.languageConfidence,
-          speechSec: this.speechSec, reason: reason === 'live_failed' || spoke ? reason : 'no_speech', live: true,
-        });
+        const why = reason === 'live_failed' || spoke ? reason : 'no_speech';
+        log('live', `Answer complete (${why})`, { transcript: this.pending.join(' ').trim(), utterances: this.accepted.size, speechSec: +this.speechSec.toFixed(2) });
+        resolve({ transcript: this.pending.join(' ').trim(), language: this.language, languageConfidence: this.languageConfidence, speechSec: this.speechSec, reason: why });
       };
       const requestFinal = (reason) => { // push silence so server VAD closes the utterance now
         log('live', reason === 'max' ? 'Answer hit the 45 s cap: asking Sarvam to finish' : 'Done tapped mid-sentence: asking Sarvam to finish the utterance');
@@ -170,9 +214,6 @@ export class LiveSTT {
         },
         onFail: () => finish('live_failed'),
       };
-      // Barge-in utterance may already be complete before listen() began.
-      if (this.pending.length && !this.inUtterance) this.listener.onFinal();
-      if (this.pending.length) onPartial?.(this.pending.join(' '));
 
       // "Done speaking" / orb tap. immediate=true (skip, repeat…) doesn't wait for the transcript.
       this.voice.stopListening = (immediate = false) => {
@@ -189,5 +230,5 @@ export class LiveSTT {
     });
   }
 
-  close() { this._stopStreaming(); try { this.ws?.close(); } catch {} }
+  close() { this.voice.tap = null; try { this.ws?.close(); } catch {} }
 }

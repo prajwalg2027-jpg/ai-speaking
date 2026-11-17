@@ -11,9 +11,7 @@
 | Job | Sarvam model | Endpoint | Why |
 |---|---|---|---|
 | **Live speech → text** (primary) | **Saaras v4** `saaras:v4`, `mode=codemix`, `language_code=auto` | `wss://api.sarvam.ai/speech-to-text-realtime/ws` | Sarvam's Realtime STT for voice agents. **Server-side VAD** decides when the user has finished, **partial transcripts** drive live captions, and `vad.speech_start` drives barge-in. Audio streams while the user speaks, so there's no upload step at the end. Details in §2.1. |
-| Speech → text (fallback) | **Saaras v4**, `mode=codemix` | `POST /speech-to-text` | Used automatically when the Realtime socket can't open. The `language_code` field is omitted, so the API auto-detects and returns `language_code` + `language_probability`. ✅ Tested: English → `en-IN` (0.99). Hinglish → `"मेरा नाम Raju है। मैं shop में काम करता हूँ and I like cricket."` (`hi-IN`). |
 | **Why codemix matters** | | | It writes English words in Latin script and Hindi words in Devanagari, so the transcript *itself* shows how much of the answer was English. That's the core signal for the placement test. |
-| Hindi answer → English meaning | **Saaras v4** `mode=translate` (REST path) · **Mayura** `mayura:v1` text translate (live path) | `POST /speech-to-text` · `POST /translate` | Lets the bot understand a beginner. Replaces the legacy `/speech-to-text-translate`. ✅ Both tested: *"My name is Raju. I work in a shop and I like cricket."* |
 | Text → speech (the bot's voice) | **Bulbul v4 Flash** `bulbul:v4-flash` | `POST /text-to-speech` | Field names: `text`, **`language_code`** (not `target_language_code`), `speaker`, `pace` (0.5–2.0), `speech_sample_rate`, `output_audio_codec: "wav"`. Voice: **`ishita_enhi_companion`** (female, English + Hindi). ✅ It's in the SDK's voice catalog and synthesises both languages. Old short names like `anushka` are rejected. |
 | Scoring / intent | **Sarvam-105B** `sarvam-105b` | `POST /v1/chat/completions` | ✅ Tested: `sarvam-m` and `sarvam-30b` now return **400**. v1 accepts only `sarvam-105b` and `sarvam-105b-conversations`. Uses `reasoning_effort: "low"` (✅ about 0.4 s). `"none"` returns **400** on Sarvam models. `response_format: {type: "json_object"}` guarantees parseable rubric output. |
 | Spoken acknowledgments | **Sarvam-105B Conversations** `sarvam-105b-conversations` | same | The variant Sarvam tuned for real-time dialogue and voice agents. ✅ e.g. *"Lovely, Priya. Walking with friends sounds wonderful."* |
@@ -24,9 +22,9 @@ talks to `/api/*` and `/api/live`, never to Sarvam directly.
 ### What changed in the November 2026 refresh
 | Before | Now | Why |
 |---|---|---|
-| Client energy VAD + upload WAV after each answer | **Realtime STT** over WebSocket with server VAD, partials and barge-in. REST is the automatic fallback. | Sarvam's recommended path for voice agents. The legacy `/speech-to-text/ws` is superseded. |
+| Client energy VAD + upload WAV after each answer | **Realtime STT** over WebSocket with server VAD and partials. The only speech path since the Hearing pass. | Sarvam's recommended path for voice agents. The legacy `/speech-to-text/ws` is superseded. |
 | `saarika:v2.5` + `language_code=unknown` | `saaras:v4` + `mode=codemix` | Saarika v2.x is superseded. One model with modes now covers transcribe, translate and code-mix. |
-| `/speech-to-text-translate` (`saaras:v2.5`) | `/speech-to-text` `mode=translate`, or `/translate` (Mayura) for text | The old endpoint is legacy. |
+| Translating Hindi answers to English | No translation: Sarvam-105B reads Hindi and code-mixed text directly | Tested: it classified Hindi "please repeat" requests correctly and replied to a Hinglish answer in 0.4 s. Translation added 1–2.5 s for beginners. |
 | `bulbul:v2`, `anushka`, `target_language_code`, 22050 Hz | `bulbul:v4-flash`, `ishita_enhi_companion`, `language_code`, 24 kHz | v2 is legacy. Bulbul v3 reached end of life for voice agents on 10 Nov 2026. v4 Flash rejects the old voice names. |
 | `sarvam-m` | `sarvam-105b` / `sarvam-105b-conversations`, `reasoning_effort: low`, JSON mode | sarvam-m (and sarvam-30b) return 400. |
 
@@ -41,13 +39,13 @@ talks to `/api/*` and `/api/live`, never to Sarvam directly.
  │  • captions from partials       │            │   {type:"config"} → config.update             codemix)
  │  • barge-in on speech_start     │            │   {type:"finish"} → silence push
  │                                 │  JSON      │ /api/turn {transcript,languageCode}
- │                                 │ ─────────► │   ↳ Devanagari? → /translate ──────────────────► Mayura
  │                                 │            │   clarify.detect() → (short & ambiguous) ───────► sarvam-105b
  │                                 │            │   features() + rubric judge (JSON mode) ────────► sarvam-105b
  │ next prompt audio ◄─────────────│ ◄───────── │   + acknowledgment (Q1) ────────────────────────► sarvam-105b-conversations
  │                                 │            │ /api/tts (cached by text/voice/pace) ───────────► bulbul:v4-flash
  └─────────────────────────────────┘            └─────────────────────────────────────────┘
-   Fallback (socket can't open / drops): client energy VAD → WAV → /api/turn → Saaras v4 REST
+   Mic audio streams only while listening for an answer (pre-roll covers the start); nothing is streamed
+   while Sakhi talks or the server scores. If Sarvam closes the session, the next answer reconnects.
 ```
 
 ### Making it feel instant
@@ -79,22 +77,29 @@ browser and sent as binary frames. The server wraps each frame as
 collecting. Speaking time for words-per-minute comes from `end_s - start_s`
 (`return_timestamps=true`).
 
-**Echo vs. barge-in.** The mic keeps streaming while the bot talks.
-- While the bot is playing, a `vad.speech_start` counts **only if the local mic level
-  is also clearly above the noise floor**. Then it's a real barge-in: playback stops,
-  and that utterance becomes the answer.
-- Otherwise it's echo of the bot's own voice, and that utterance is ignored.
-- Utterances that start while the bot is silent always count.
+**Streaming only while listening (cost).** Sarvam bills every second of audio it
+receives. The browser streams only while it is listening for an answer. While Sakhi
+talks or the server scores, mic audio goes into a 2 s buffer instead. In a test session,
+Sarvam received 27 s of audio over 65 s. The relay sends a keepalive `ping` after 5 s
+without audio so Sarvam doesn't close the session. If it closes anyway (code 1008,
+inactivity), the client reconnects before the next answer.
+
+**Barge-in (local).** Because nothing is streamed during prompts, interruptions are
+detected from the mic level: the learner well above the noise floor for 300 ms while
+Sakhi plays. Echo cancellation keeps Sakhi's own voice out. The detector also notes
+when the learner's speech started, and streaming begins by sending the buffer from
+that point (+250 ms), so the first word isn't lost. Tested: detected 607 ms after the
+learner started talking; 857 ms of buffer sent; the full answer was transcribed. After
+a prompt that ends normally, 250 ms of buffer is sent.
 
 **"Done speaking" button.** With `endpointing=vad`, Sarvam has no `flush` (that's for
 manual mode), so the relay pushes `silence_duration_ms` + 400 ms of silence, which
 makes VAD close the turn immediately.
 
-**Fallback.** These all make the browser switch to the REST path for the rest of the
-session, with no user-visible error:
-- The socket can't open (HTTP error, close code `1003`/`4000`, or a 6 s timeout).
-- The socket drops mid-session.
-- Sarvam sends a fatal `error`.
+**No fallback.** There is one speech path. If Sarvam can't be reached at the start,
+the app says so and the learner can tap to retry. If the connection drops mid-answer,
+Sakhi says she didn't hear it and the next answer reconnects. Every failure is logged in
+the live log panel.
 
 **Testing.** `test/mock-sarvam-realtime.js` is a stand-in that speaks the SDK's protocol
 (query params, `session.begin`, VAD events, partials, timestamped finals,
@@ -107,21 +112,13 @@ transcribed each utterance with real Saaras v4. Results: correct transcripts, th
 clarification ladder, the read-aloud ceiling probe, **barge-in in 0.2 s**, and a
 final placement of Level 3 for a Level-3 speaker.
 
-The same run against real Sarvam (where this sandbox blocks the socket) fell back to
-REST automatically and produced the same placement.
-
-> **Before production:** run once from a normal network, where WebSockets reach
-> Sarvam, and check the server log shows no `[live] … rejected` line.
+Live mode has also been confirmed working against Sarvam's real Realtime server.
 
 ### End-of-turn detection
 - **Realtime (primary):** Sarvam's server VAD, `silence_duration_ms` per question
   (1.2–1.8 s), plus the 700 ms grace period above.
-- **REST fallback:** client energy VAD with a **continuous noise-floor estimate**. It
-  drops fast in quiet, rises very slowly, and is capped. An earlier version measured
-  the first 500 ms of each answer as "noise", so someone who answered instantly was
-  never heard. The browser test caught that, and it's fixed.
-- Both paths: a 45 s cap per answer, a **Done speaking** button, and nudges at 6 s and
-  12 s of silence.
+- A 45 s cap per answer, a **Done speaking** button, and nudges at 6 s and 12 s of
+  silence.
 
 ## 3. Handling misunderstanding and unclear communication
 
@@ -170,9 +167,8 @@ request matters more than the assessment purity.
 
 ```ini
 SARVAM_API_KEY=...
-SARVAM_STT_MODEL=saaras:v4            # REST fallback
+SARVAM_STT_MODEL=saaras:v4            # mic test page (REST)
 SARVAM_STT_MODE=codemix
-SARVAM_REALTIME=auto                  # auto (try, fall back to REST) | off
 SARVAM_REALTIME_MODEL=saaras:v4       # or saaras:v3-realtime
 SARVAM_REALTIME_STREAM_TYPE=balanced  # fast = lower-latency partials
 SARVAM_TTS_MODEL=bulbul:v4-flash
@@ -180,7 +176,6 @@ SARVAM_TTS_SPEAKER=ishita_enhi_companion
 SARVAM_LLM_MODEL=sarvam-105b
 SARVAM_LLM_REPLY_MODEL=sarvam-105b-conversations
 SARVAM_LLM_REASONING_EFFORT=low       # "none" is rejected by Sarvam models
-SARVAM_TRANSLATE_MODEL=mayura:v1
 ```
 
 LLM settings: `temperature: 0.2` + JSON mode for judging (consistent, parseable).
@@ -188,10 +183,9 @@ LLM settings: `temperature: 0.2` + JSON mode for judging (consistent, parseable)
 then falls back to feature-only scoring.
 
 ## 5. Failure and degradation
-- **Realtime socket unavailable** → REST STT, automatically (see §2.1).
-- **Sarvam unavailable or no key** → the app runs in **demo mode**: browser Web Speech
-  API for STT and TTS, plus heuristic scoring only. The UX stays testable without a key.
-- **Timeouts:** STT 10 s, TTS 8 s, LLM 15 s, with a single retry on 5xx or 429 and
-  backoff.
-- **Every turn is logged** (transcript, features, LLM scores, chosen route) so the
-  thresholds can be calibrated against human-rated samples later.
+- **No fallbacks.** No key: the server reports it and the app explains. Sarvam
+  unreachable: the app says so and offers a retry. Voice (TTS) fails: the question
+  stays on screen as text and the conversation continues.
+- **Timeouts:** TTS 8 s, LLM 15 s, with a single retry on 5xx or 429 and backoff.
+- **Logging:** the live log panel shows every step, including server traces. Nothing
+  is stored on the server.

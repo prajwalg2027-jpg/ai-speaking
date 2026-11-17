@@ -3,17 +3,16 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { config, demoMode } from './config.js';
+import { config, ready } from './config.js';
 import * as sarvam from './sarvam.js';
 import { attachLiveRelay } from './live.js';
 import { detectClarification, isUnintelligible, looksTruncated } from './clarify.js';
-import { features, heuristicScores, blend, provisionalLevel, finalLevel } from './scoring.js';
+import { features, heuristicScores, blend, provisionalLevel, finalLevel, readAccuracy } from './scoring.js';
 import { JUDGE_SYSTEM, judgeUser, INTENT_SYSTEM, REPLY_SYSTEM } from './prompts.js';
 import { QUESTIONS, variantFor } from '../shared/assessment.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
-const DEVANAGARI = /[ऀ-ॿ]/;
 
 /** Per-request trace returned to the browser so its log panel can show what the server did. */
 function makeTrace() {
@@ -44,9 +43,9 @@ const send = (res, status, data) => { res.writeHead(status, { 'content-type': 'a
 
 /**
  * Evaluate one answer. Transport-independent: called with a transcript that came from
- * REST STT (WAV upload), Realtime STT (already transcribed in the browser session), or demo mode.
+ * Realtime STT (already transcribed in the browser session); Sarvam-105B reads Hindi directly, so there's no translation step.
  */
-export async function evaluateTurn({ qIndex, level, transcript, languageCode = null, englishMeaning = null, speechSec = 0, prior = '' }, trace = makeTrace()) {
+export async function evaluateTurn({ qIndex, level, transcript, languageCode = null, speechSec = 0, prior = '' }, trace = makeTrace()) {
   const question = QUESTIONS[qIndex];
   if (!question) throw Object.assign(new Error('bad question index'), { status: 400 });
   const variant = variantFor(question, level);
@@ -64,16 +63,10 @@ export async function evaluateTurn({ qIndex, level, transcript, languageCode = n
     return done({ action: 'cut_off', transcript });
   }
 
-  // 2. Hindi / code-mixed answer: get the English meaning (if the transport didn't already).
-  if (!englishMeaning && !demoMode() && DEVANAGARI.test(transcript)) {
-    englishMeaning = await trace.time('translate', () => sarvam.translateToEnglish(transcript),
-      (t) => ({ model: config.sarvam.translateModel, english: t })).catch(() => null);
-  }
-
-  // 3. Is the user asking us to clarify?
-  let intent = detectClarification(englishMeaning || transcript) || detectClarification(transcript);
+  // 2. Is the user asking us to clarify?
+  let intent = detectClarification(transcript);
   if (intent) trace.add('clarify', { intent, by: 'keyword match' });
-  else if (!demoMode() && transcript.split(/\s+/).length <= 4 && question.kind !== 'vocab') {
+  else if (transcript.split(/\s+/).length <= 4 && question.kind !== 'vocab') {
     // Ambiguous short reply: ask the LLM (skip for vocab, where 1-2 word answers are normal).
     const meta = {};
     intent = (await trace.time('intent', () => sarvam.chatJSON([{ role: 'system', content: INTENT_SYSTEM },
@@ -85,28 +78,25 @@ export async function evaluateTurn({ qIndex, level, transcript, languageCode = n
   }
   if (intent) return done({ action: 'clarify', intent, transcript });
 
-  // 4. Score it (LLM judge + acknowledgment in parallel).
+  // 3. Score it (LLM judge + acknowledgment in parallel).
   const f = features(transcript, { speechSec, kind: question.kind, reference: variant.screen, expect: variant.expect });
   const heur = heuristicScores(f, question.kind);
   trace.add('features', f);
   trace.add('heuristic', heur);
-  let llm = null, ack = null;
-  if (!demoMode()) {
-    const jm = {}, am = {};
-    [llm, ack] = await Promise.all([
-      trace.time('judge', () => sarvam.chatJSON([{ role: 'system', content: JUDGE_SYSTEM },
-        { role: 'user', content: judgeUser({ question: variant.say, transcript, englishMeaning, features: f, kind: question.kind, reference: question.kind === 'read' ? variant.screen : null }) }], { meta: jm }),
-      (r) => ({ model: jm.model, scores: r, finish: jm.finish, usage: jm.usage })).catch(() => null),
-      question.id === 'q1_intro'
-        ? trace.time('reply', () => sarvam.chat([{ role: 'system', content: REPLY_SYSTEM }, { role: 'user', content: englishMeaning || transcript }],
-          { temperature: 0.6, maxTokens: 60, model: config.sarvam.llmReplyModel, meta: am }),
-        (r) => ({ model: am.model, text: r, usage: am.usage })).catch(() => null)
-        : null,
-    ]);
-  }
+  const jm = {}, am = {};
+  const [llm, ack] = await Promise.all([
+    trace.time('judge', () => sarvam.chatJSON([{ role: 'system', content: JUDGE_SYSTEM },
+      { role: 'user', content: judgeUser({ question: variant.say, transcript, features: f, kind: question.kind, reference: question.kind === 'read' ? variant.screen : null }) }], { meta: jm }),
+    (r) => ({ model: jm.model, scores: r, finish: jm.finish, usage: jm.usage })).catch(() => null),
+    question.id === 'q1_intro'
+      ? trace.time('reply', () => sarvam.chat([{ role: 'system', content: REPLY_SYSTEM }, { role: 'user', content: transcript }],
+        { temperature: 0.6, maxTokens: 60, model: config.sarvam.llmReplyModel, meta: am }),
+      (r) => ({ model: am.model, text: r, usage: am.usage })).catch(() => null)
+      : null,
+  ]);
   const scores = blend(llm, heur);
   trace.add('scores', { blend: llm ? '60% LLM + 40% features' : 'features only', ...Object.fromEntries(Object.entries(scores).map(([k, v]) => [k, +v.toFixed(2)])) });
-  const out = { action: 'scored', transcript, englishMeaning, languageCode, features: f, scores, llmNote: llm?.note ?? null, ack };
+  const out = { action: 'scored', transcript, languageCode, features: f, scores, llmNote: llm?.note ?? null, ack };
   if (question.id === 'q1_intro') {
     out.provisionalLevel = provisionalLevel(f, scores);
     trace.add('level', { provisionalLevel: out.provisionalLevel, note: 'picks the versions of Q2–Q4' });
@@ -116,45 +106,44 @@ export async function evaluateTurn({ qIndex, level, transcript, languageCode = n
 
 // ---- /api/turn ------------------------------------------------------------
 // Query: q (question index), level (variant level), speechSec, prior (text to prepend after a cut-off).
-// Body: audio/wav (REST STT path) or JSON {transcript, languageCode} (Realtime and demo paths).
+// Body: JSON {transcript, languageCode} from Realtime STT.
 async function handleTurn(req, res, url) {
+  if (!ready()) return send(res, 503, { error: 'Server has no SARVAM_API_KEY' });
+  if (!(req.headers['content-type'] || '').startsWith('application/json')) return send(res, 415, { error: 'expected a JSON transcript' });
+  const trace = makeTrace();
+  const j = JSON.parse((await readBody(req, 64 * 1024)).toString() || '{}');
   const args = {
     qIndex: Number(url.searchParams.get('q')),
     level: Number(url.searchParams.get('level') || 2),
     speechSec: Number(url.searchParams.get('speechSec') || 0),
     prior: url.searchParams.get('prior') || '',
+    transcript: String(j.transcript || ''),
+    languageCode: j.languageCode || null,
   };
-  const trace = makeTrace();
-  const body = await readBody(req);
-  if ((req.headers['content-type'] || '').startsWith('application/json')) {
-    const j = JSON.parse(body.toString() || '{}');
-    args.transcript = String(j.transcript || '');
-    args.languageCode = j.languageCode || null;
-    trace.add('input', { via: demoMode() ? 'browser speech (demo)' : 'transcript from Realtime STT', languageCode: args.languageCode });
-  } else {
-    if (demoMode()) return send(res, 400, { error: 'demo mode expects a JSON transcript' });
-    trace.add('input', { via: 'WAV upload (REST STT)', kb: +(body.length / 1024).toFixed(1) });
-    const S = config.sarvam;
-    ({ transcript: args.transcript, languageCode: args.languageCode } = await trace.time('stt', () => sarvam.transcribe(body),
-      (r) => ({ model: S.sttModel, mode: S.sttMode, transcript: r.transcript, language: r.languageCode, confidence: r.languageProbability, requestId: r.requestId })));
-    // Hindi / mixed answer: Saaras translate mode on the same audio gives the English meaning.
-    if (args.transcript && DEVANAGARI.test(args.transcript)) {
-      args.englishMeaning = (await trace.time('stt-translate', () => sarvam.transcribeToEnglish(body),
-        (r) => ({ model: S.sttModel, mode: 'translate', english: r.transcript, requestId: r.requestId })).catch(() => null))?.transcript ?? null;
-    }
-  }
+  trace.add('input', { via: 'transcript from Realtime STT', languageCode: args.languageCode });
   send(res, 200, await evaluateTurn(args, trace));
 }
 
 async function handleTTS(req, res) {
   const { text, lang = 'en-IN', pace = 1 } = JSON.parse((await readBody(req, 64 * 1024)).toString() || '{}');
-  if (demoMode()) return send(res, 200, { demo: true });
+  if (!ready()) return send(res, 503, { error: 'Server has no SARVAM_API_KEY' });
   if (!text || text.length > 2500) return send(res, 400, { error: 'text required (max 2500 chars)' });
   const cached = sarvam.isSpeechCached(text, { lang, pace });
   const s = performance.now();
   const audio = await sarvam.speak(text, { lang, pace });
   const S = config.sarvam;
   send(res, 200, { audio, trace: { model: S.ttsModel, speaker: S.ttsSpeaker, lang, pace, chars: text.length, cached, ms: Math.round(performance.now() - s), kb: audio ? Math.round((audio.length * 3) / 4 / 1024) : 0 } });
+}
+
+// ---- /api/lab/transcribe (mic test page) --------------------------------------
+// Body: 16 kHz WAV (max 30 s, Sarvam's REST limit). Query: expect (the sentence the tester read).
+async function handleLabTranscribe(req, res, url) {
+  if (!ready()) return send(res, 503, { error: 'Server has no SARVAM_API_KEY' });
+  const expect = url.searchParams.get('expect') || '';
+  const wav = await readBody(req, 2 * 1024 * 1024);
+  const s = performance.now();
+  const r = await sarvam.transcribe(wav);
+  send(res, 200, { ...r, ms: Math.round(performance.now() - s), accuracy: expect ? +readAccuracy(expect, r.transcript).toFixed(3) : null, model: config.sarvam.sttModel, mode: config.sarvam.sttMode });
 }
 
 async function handleFinal(req, res) {
@@ -178,11 +167,12 @@ export const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   try {
     if (req.method === 'GET' && url.pathname === '/api/config') {
-      return send(res, 200, { demo: demoMode(), realtime: !demoMode() && config.sarvam.realtime.enabled });
+      return send(res, 200, ready() ? { ready: true } : { ready: false, reason: 'SARVAM_API_KEY is not set on the server' });
     }
     if (req.method === 'POST' && url.pathname === '/api/turn') return await handleTurn(req, res, url);
     if (req.method === 'POST' && url.pathname === '/api/tts') return await handleTTS(req, res);
     if (req.method === 'POST' && url.pathname === '/api/final') return await handleFinal(req, res);
+    if (req.method === 'POST' && url.pathname === '/api/lab/transcribe') return await handleLabTranscribe(req, res, url);
     if (req.method === 'GET') return await serveStatic(res, url.pathname);
     send(res, 404, { error: 'not found' });
   } catch (e) {
@@ -191,8 +181,8 @@ export const server = createServer(async (req, res) => {
   }
 });
 
-attachLiveRelay(server, { enabled: () => !demoMode() && config.sarvam.realtime.enabled });
+attachLiveRelay(server, { enabled: ready });
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  server.listen(config.port, () => console.log(`AI English Coach on http://localhost:${config.port}${demoMode() ? '  (demo mode: no SARVAM_API_KEY)' : ''}`));
+  server.listen(config.port, () => console.log(`AI English Coach on http://localhost:${config.port}${ready() ? '' : '  (not ready: SARVAM_API_KEY is not set)'}`));
 }

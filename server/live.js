@@ -68,7 +68,7 @@ async function relay(client, enabled) {
     toClient({ type: 'unavailable', reason });
     client.close(4001, 'unavailable');
   };
-  if (!enabled) return unavailable('realtime disabled');
+  if (!enabled) return unavailable('server has no SARVAM_API_KEY');
 
   let silenceMs = 1200;
   let ready = false;
@@ -109,11 +109,13 @@ async function relay(client, enabled) {
     client.close();
   });
 
-  const ping = setInterval(() => toSarvam({ event: 'ping' }), 20_000);
-  let sentBytes = 0, reportedBytes = 0;
+  // The browser streams only while listening, so there are quiet gaps (prompts, scoring). Ping during
+  // gaps so Sarvam doesn't close the session for inactivity.
+  let sentBytes = 0, reportedBytes = 0, lastAudioAt = Date.now();
+  const ping = setInterval(() => { if (Date.now() - lastAudioAt >= 5000) toSarvam({ event: 'ping' }); }, 5000);
   const stats = setInterval(() => {
     if (sentBytes === reportedBytes) return;
-    note('Streaming mic audio to Sarvam', { totalKB: Math.round(sentBytes / 1024), audioSec: +(sentBytes / 2 / SAMPLE_RATE).toFixed(1) });
+    note('Audio sent to Sarvam so far (billed)', { totalKB: Math.round(sentBytes / 1024), audioSec: +(sentBytes / 2 / SAMPLE_RATE).toFixed(1), sessionSec: Math.round((Date.now() - opened) / 1000) });
     reportedBytes = sentBytes;
   }, 10_000);
 
@@ -152,6 +154,7 @@ async function relay(client, enabled) {
     if (isBinary) {
       // Raw PCM16 from the browser → base64 audio_input.
       sentBytes += data.length;
+      lastAudioAt = Date.now();
       return toSarvam({ event: 'audio_input', audio: Buffer.from(data).toString('base64') });
     }
     let m;

@@ -16,8 +16,8 @@ export const config = {
   sarvam: {
     apiKey: env('SARVAM_API_KEY', ''),
     baseUrl: env('SARVAM_BASE_URL', 'https://api.sarvam.ai'),
-    // Saaras v4 on /speech-to-text, with a `mode`. 'codemix' keeps English words in Latin script and
-    // Hindi words in Devanagari: exactly the signal the placement test needs.
+    // 'codemix' keeps English words in Latin script and Hindi words in Devanagari: exactly the signal
+    // the placement test needs. Used by Realtime STT, and by the mic test page's REST transcription.
     sttModel: env('SARVAM_STT_MODEL', 'saaras:v4'),
     sttMode: env('SARVAM_STT_MODE', 'codemix'),
     sttLanguage: env('SARVAM_STT_LANGUAGE', ''), // empty = let the API auto-detect
@@ -31,10 +31,8 @@ export const config = {
     llmReplyModel: env('SARVAM_LLM_REPLY_MODEL', 'sarvam-105b-conversations'),
     // Reasoning tokens count against max_tokens. "low" is the lowest value every model accepts.
     llmReasoningEffort: env('SARVAM_LLM_REASONING_EFFORT', 'low'),
-    translateModel: env('SARVAM_TRANSLATE_MODEL', 'mayura:v1'),
-    // Realtime STT (WebSocket, server-side VAD). 'auto' = try it, fall back to REST if it can't connect.
+    // Realtime STT (WebSocket, server-side VAD): the app's only speech-to-text path.
     realtime: {
-      enabled: env('SARVAM_REALTIME', 'auto') !== 'off',
       url: env('SARVAM_REALTIME_URL', 'wss://api.sarvam.ai/speech-to-text-realtime/ws'),
       model: env('SARVAM_REALTIME_MODEL', 'saaras:v4'),
       streamType: env('SARVAM_REALTIME_STREAM_TYPE', 'balanced'), // fast | balanced
@@ -43,4 +41,5 @@ export const config = {
   },
 };
 
-export const demoMode = () => !config.sarvam.apiKey;
+/** The app needs a Sarvam key; without one it reports why instead of running a fallback. */
+export const ready = () => !!config.sarvam.apiKey;

@@ -9,16 +9,16 @@ You score ONE spoken answer (given as an automatic transcript) on six dimensions
 - pronunciation: only judge for read-aloud items from the accuracy figure; otherwise give 2
 - coherence: organisation and linking of ideas (0 = none, 2 = list of ideas, 4 = structured argument with connectives)
 Rules: Transcripts come from speech recognition and may contain recognition errors; do not penalise obvious ASR noise or an Indian accent.
+The transcript is code-mixed: English words in Latin script, Hindi (or other Indian-language) words in their own script. Read them directly.
 Hindi words in the answer reduce vocabulary/grammar for ENGLISH ability but are not wrong.
 Reply with ONLY JSON: {"comprehension":n,"vocabulary":n,"grammar":n,"fluency":n,"pronunciation":n,"coherence":n,"relevant":true|false,"note":"<15 words"}`;
 
-export function judgeUser({ question, transcript, englishMeaning, features, kind, reference }) {
+export function judgeUser({ question, transcript, features, kind, reference }) {
   return [
     `Question type: ${kind}`,
     `Question asked: ${question}`,
     reference ? `Reference sentence to read: ${reference}` : '',
     `Transcript: ${transcript || '(empty)'}`,
-    englishMeaning && englishMeaning !== transcript ? `English meaning (translated): ${englishMeaning}` : '',
     `Stats: wpm=${features.wpm.toFixed(0)}, fillerRate=${features.fillerRate.toFixed(2)}, devanagariRatio=${features.devanagariRatio.toFixed(2)}` +
       (features.readAccuracy != null ? `, readAccuracy=${features.readAccuracy.toFixed(2)}` : ''),
   ].filter(Boolean).join('\n');
