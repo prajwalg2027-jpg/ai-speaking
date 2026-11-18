@@ -10,6 +10,7 @@ import { QUESTIONS, PHRASES, LEVELS, variantFor } from '../shared/assessment.js'
 import { quickCheck, understandTurn, measureAnswer, judgeAnswer } from './turn.js';
 import { compose, sayable } from './tutor.js';
 import { provisionalLevel, finalLevel } from './scoring.js';
+import { makeLedger } from './costs.js';
 
 const sessions = new Map();
 const TTL_MS = 2 * 60 * 60 * 1000;
@@ -78,6 +79,7 @@ export function startSession() {
     // What the learner has told us. The name is only ever what they said (never guessed).
     profile: { name: null, facts: [], prefersHindi: false },
     task: makeTask(0, 2), att: freshAttempt(), done: false,
+    ledger: makeLedger(), // Sarvam charges for this conversation (server/costs.js)
   };
   sessions.set(s.id, s);
   s.task.ask = s.task.scripted; // the opening line is the same for everyone (and cached)

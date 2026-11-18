@@ -181,3 +181,21 @@ test('a part they tried but got wrong is not asked again', async () => {
   t = await answer(t.sessionId, `${[v.expect[0]].flat()[0]}. And ${v.parts[1].cues[0]}, I don't remember that one.`, 4);
   assert.equal(t.task.id, 'q3_read');
 });
+
+test('each turn reports what the conversation has cost; voice is charged to it, cached lines are free', async () => {
+  let t = await post('/api/session', {});
+  assert.equal(t.cost.totalInr, 0);
+  t = await answer(t.sessionId, 'I am a teacher and I love walking in the evening with friends near my house in Pune.');
+  assert.ok(t.cost.llm.calls >= 3, 'understand, scoring and tutor calls are counted');
+  assert.ok(t.cost.llm.byPurpose.understand && t.cost.llm.byPurpose.scoring && t.cost.llm.byPurpose.tutor);
+  assert.ok(t.cost.totalInr > 0);
+  // Speak a new line for this conversation, then a cached one.
+  const tts = (text) => fetch(`${base}/api/tts/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, lang: 'en-IN', pace: 1, sessionId: t.sessionId }) }).then((r) => r.arrayBuffer());
+  await tts(t.say[0].text); await tts(t.say[0].text);
+  const c = await fetch(`${base}/api/session/cost?id=${t.sessionId}`).then((r) => r.json());
+  assert.equal(c.tts.chars, t.say[0].text.length);
+  assert.equal(c.tts.calls, 1);
+  assert.equal(c.tts.cachedCalls, 1);
+  assert.ok(c.totalInr > t.cost.totalInr);
+  assert.equal((await fetch(`${base}/api/session/cost?id=nope`)).status, 404);
+});

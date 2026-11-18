@@ -10,6 +10,7 @@ import { readAccuracy } from './scoring.js';
 import { normalizeForCompare } from './normalize.js';
 import { makeTrace } from './trace.js';
 import { startSession, getSession, handleTurn, scriptedLines } from './session.js';
+import { withLedger, summarize, shared, addSpeechToText } from './costs.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
@@ -24,14 +25,16 @@ const send = (res, status, data) => { res.writeHead(status, { 'content-type': 'a
 // ---- Conversation --------------------------------------------------------------
 // POST /api/session            → Sakhi's opening turn (and a sessionId)
 // POST /api/session/turn       → body {sessionId, event, transcript?, languageCode?, speechSec?} → Sakhi's next turn
-// Each turn: { say: [{text, lang, pace}], card, listen: {silenceMs, language} | null, done?, heard?, trace, serverMs }
+// Each turn: { say: [{text, lang, pace}], card, listen: {silenceMs, language} | null, done?, heard?, trace, serverMs, cost }
+// GET  /api/session/cost?id=…  → what the conversation has cost so far in Sarvam charges (server/costs.js)
+// Sarvam calls made while handling a conversation are charged to its ledger.
 const json = async (req, limit = 64 * 1024) => JSON.parse((await readBody(req, limit)).toString() || '{}');
 
 async function handleSessionStart(req, res) {
   if (!ready()) return send(res, 503, { error: 'Server has no SARVAM_API_KEY' });
   const trace = makeTrace();
   const turn = startSession();
-  send(res, 200, { ...turn, trace: trace.list, serverMs: trace.total() });
+  send(res, 200, { ...turn, trace: trace.list, serverMs: trace.total(), cost: summarize(getSession(turn.sessionId).ledger) });
 }
 
 async function handleSessionTurn(req, res) {
@@ -41,13 +44,19 @@ async function handleSessionTurn(req, res) {
   if (!s) return send(res, 404, { error: 'session not found (it may have expired); start again' });
   const trace = makeTrace();
   trace.add('input', { event: body.event, via: 'transcript from Realtime STT', languageCode: body.languageCode ?? null });
-  const turn = await handleTurn(s, { event: body.event, transcript: String(body.transcript || ''), languageCode: body.languageCode || null, speechSec: Number(body.speechSec) || 0 }, trace);
-  send(res, 200, { ...turn, trace: trace.list, serverMs: trace.total() });
+  const turn = await withLedger(s.ledger, () => handleTurn(s, { event: body.event, transcript: String(body.transcript || ''), languageCode: body.languageCode || null, speechSec: Number(body.speechSec) || 0 }, trace));
+  send(res, 200, { ...turn, trace: trace.list, serverMs: trace.total(), cost: summarize(s.ledger) });
 }
 
-// POST /api/tts/stream {text, lang, pace} → raw 16-bit PCM, mono, streamed as Bulbul generates it.
+// POST /api/tts/stream {text, lang, pace, sessionId?} → raw 16-bit PCM, mono, streamed as Bulbul generates it.
+// With a sessionId, a generated line is charged to that conversation.
 async function handleTTSStream(req, res) {
-  const { text, lang = 'en-IN', pace = 1 } = await json(req);
+  const { text, lang = 'en-IN', pace = 1, sessionId } = await json(req);
+  const s = sessionId ? getSession(sessionId) : null;
+  return withLedger(s?.ledger || shared, () => speakTo(res, { text, lang, pace }));
+}
+
+async function speakTo(res, { text, lang, pace }) {
   if (!ready()) return send(res, 503, { error: 'Server has no SARVAM_API_KEY' });
   if (!text || text.length > 2500) return send(res, 400, { error: 'text required (max 2500 chars)' });
   const cached = sarvam.isSpeechCached(text, { lang, pace });
@@ -131,6 +140,10 @@ export const server = createServer(async (req, res) => {
     }
     if (req.method === 'POST' && url.pathname === '/api/session') return await handleSessionStart(req, res);
     if (req.method === 'POST' && url.pathname === '/api/session/turn') return await handleSessionTurn(req, res);
+    if (req.method === 'GET' && url.pathname === '/api/session/cost') {
+      const s = getSession(url.searchParams.get('id'));
+      return s ? send(res, 200, summarize(s.ledger)) : send(res, 404, { error: 'session not found' });
+    }
     if (req.method === 'POST' && url.pathname === '/api/tts/stream') return await handleTTSStream(req, res);
     if (req.method === 'POST' && url.pathname === '/api/lab/transcribe') return await handleLabTranscribe(req, res, url);
     if (req.method === 'POST' && url.pathname === '/api/lab/compare') return await handleLabCompare(req, res);
@@ -142,7 +155,8 @@ export const server = createServer(async (req, res) => {
   }
 });
 
-attachLiveRelay(server, { enabled: ready });
+// Audio the relay sends to Sarvam is charged to the conversation the browser says it belongs to.
+attachLiveRelay(server, { enabled: ready, onAudio: (sessionId, seconds) => addSpeechToText(getSession(sessionId)?.ledger || shared, seconds) });
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   server.listen(config.port, () => {
@@ -150,6 +164,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (!ready()) return;
     // Generate every scripted line now, so they play instantly later.
     const lines = scriptedLines(), t0 = Date.now();
-    sarvam.pregenerate(lines).then(({ done, failed }) => console.log(`Pre-generated ${done} scripted voice lines in ${((Date.now() - t0) / 1000).toFixed(1)} s${failed ? ` (${failed} failed)` : ''}`));
+    sarvam.pregenerate(lines).then(({ done, failed }) => console.log(`Pre-generated ${done} scripted voice lines in ${((Date.now() - t0) / 1000).toFixed(1)} s${failed ? ` (${failed} failed)` : ''}; voice cache cost ₹${summarize(shared).tts.inr.toFixed(2)} (shared by all conversations)`));
   });
 }

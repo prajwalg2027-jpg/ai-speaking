@@ -11,7 +11,11 @@
   <main class="app" data-state="idle">
     <header class="top">
       <span class="brand">Sakhi</span>
+      <button type="button" class="cost" id="cost" hidden aria-expanded="false" aria-controls="costDetail" title="Sarvam API cost of this conversation (estimate)">
+        <span class="cost-label">Cost</span> <span id="costTotal">₹0.00</span>
+      </button>
     </header>
+    <div class="cost-detail" id="costDetail" hidden></div>
 
     <section class="stage">
       <div class="orb-wrap">

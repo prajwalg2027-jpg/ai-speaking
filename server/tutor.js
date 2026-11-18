@@ -149,7 +149,7 @@ export async function compose({ history, level, profile = {}, situation, task },
   try {
     // A slow reply is worse than a scripted one: give the model 4 s.
     const reply = sarvam.chatJSON([{ role: 'system', content: TUTOR_SYSTEM }, { role: 'user', content: user }],
-      { model: config.sarvam.llmReplyModel, temperature: 0.7, maxTokens: 300, meta });
+      { model: config.sarvam.llmReplyModel, temperature: 0.7, maxTokens: 300, meta, purpose: 'tutor' });
     const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('tutor took over 4 s')), 4000));
     out = await trace.time('tutor', () => Promise.race([reply, timeout]),
       (r) => ({ model: meta.model, situation, task: task.id, reaction: r?.reaction, ask: r?.ask, usage: meta.usage }));

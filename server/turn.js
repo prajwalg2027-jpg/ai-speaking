@@ -38,7 +38,7 @@ export async function understandTurn({ asked, parts, transcript, profile }, trac
   const user = [`Tutor asked: ${asked}`, parts?.length ? `PARTS: ${parts.map((p, i) => `${i + 1}) ${p}`).join('  ')}` : '',
     `Known learner name: ${profile.name || 'unknown'}`, profile.facts?.length ? `Already known: ${profile.facts.join('; ')}` : '',
     `Learner replied: ${transcript}`].filter(Boolean).join('\n');
-  const call = sarvam.chatJSON([{ role: 'system', content: UNDERSTAND_SYSTEM }, { role: 'user', content: user }], { temperature: 0, maxTokens: 160, meta });
+  const call = sarvam.chatJSON([{ role: 'system', content: UNDERSTAND_SYSTEM }, { role: 'user', content: user }], { temperature: 0, maxTokens: 160, meta, purpose: 'understand' });
   const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('took over 4 s')), 4000));
   const r = await trace.time('understand', () => Promise.race([call, timeout]), (x) => ({ model: meta.model, ...x })).catch(() => null);
   if (!r) return null;
@@ -70,7 +70,7 @@ export function measureAnswer({ task, transcript, speechSec }, trace) {
 export async function judgeAnswer({ task, transcript, measured }, trace) {
   const meta = {};
   const llm = await trace.time('judge', () => sarvam.chatJSON([{ role: 'system', content: JUDGE_SYSTEM },
-    { role: 'user', content: judgeUser({ question: task.ask, transcript, features: measured.features, kind: task.kind, reference: task.kind === 'read' ? task.reference : null }) }], { meta }),
+    { role: 'user', content: judgeUser({ question: task.ask, transcript, features: measured.features, kind: task.kind, reference: task.kind === 'read' ? task.reference : null }) }], { meta, purpose: 'scoring' }),
   (r) => ({ model: meta.model, scores: r, finish: meta.finish, usage: meta.usage })).catch(() => null);
   const scores = blend(llm, measured.heuristic);
   trace.add('scores', { task: task.id, blend: llm ? '60% LLM + 40% features' : 'features only', ...Object.fromEntries(Object.entries(scores).map(([k, v]) => [k, +v.toFixed(2)])) });

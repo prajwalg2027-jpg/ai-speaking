@@ -6,10 +6,13 @@ import { PHRASES } from '/shared/assessment.js';
 import { Voice, readBody } from '/audio.js';
 import { LiveSTT } from '/live.js';
 import { log, initLogPanel } from '/log.js';
+import { startCostMeter, stopCostMeter, render as showCost, initCostMeter } from '/cost.js';
 
 const $ = (id) => document.getElementById(id);
 const app = document.querySelector('.app');
 initLogPanel($('logs'));
+initCostMeter();
+let sessionId = null; // the conversation: voice and audio are charged to it
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------- screen ----------
@@ -49,7 +52,7 @@ async function speak(line) {
   log('tts', `Sakhi says (${line.lang}${line.pace !== 1 ? `, pace ${line.pace}` : ''})`, line.text);
   const t = performance.now();
   try {
-    const res = await fetch('/api/tts/stream', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(line) });
+    const res = await fetch('/api/tts/stream', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...line, sessionId }) });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
     const cached = res.headers.get('x-tts-cached') === 'true';
     const onFirst = () => log('tts', cached ? `Voice from server cache: playing after ${Math.round(performance.now() - t)} ms` : `First audio from Bulbul (streaming): playing after ${Math.round(performance.now() - t)} ms`);
@@ -100,6 +103,7 @@ async function api(path, body) {
   const r = await res.json().catch(() => ({}));
   if (!res.ok) { log('error', `${path} failed: HTTP ${res.status}`, r.error); throw new Error(r.error || `HTTP ${res.status}`); }
   for (const step of r.trace || []) logTraceStep(step);
+  showCost(r.cost);
   log('turn', `Server replied in ${r.serverMs} ms (${Math.round(performance.now() - t)} ms round trip)${r.task ? `: next task ${r.task.id} (level ${r.task.level})` : ''}`);
   return r;
 }
@@ -132,7 +136,9 @@ async function run() {
   $('chips').hidden = false;
   loadBackchannels();
   let turn = await api('/api/session', {});
-  const sessionId = turn.sessionId;
+  sessionId = turn.sessionId;
+  live.bind(sessionId);
+  startCostMeter(sessionId);
   log('app', 'Conversation started', { sessionId });
 
   for (;;) {
@@ -140,7 +146,7 @@ async function run() {
     chipAction = null;
     live.beginPrompt();
     for (const line of turn.say) { if (chipAction) break; await speak(line); }
-    if (turn.done) return showResult(turn.done);
+    if (turn.done) { stopCostMeter(5000); return showResult(turn.done); }
 
     const rec = chipAction ? { reason: 'manual' } : await listen(turn.listen);
     let input;
@@ -207,6 +213,7 @@ $('orb').addEventListener('click', async () => {
     await run();
   } catch (e) {
     log('error', `Session stopped: ${e.message}`);
+    stopCostMeter();
     ui.state('idle');
     ui.bubble('sakhi', e.name === 'NotAllowedError' ? 'I need microphone access to talk with you.' : e.userMessage || `Something went wrong: ${e.message}`);
     live?.close(); live = null;

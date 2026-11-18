@@ -156,3 +156,17 @@ test('rejected upstream → browser gets "unavailable" and the socket closes (th
   assert.ok(c.events.some((x) => x.type === 'log' && /rejected the connection: HTTP 403/.test(x.msg)), 'rejection is logged with its status');
   assert.equal(await c.closed, 4001);
 });
+
+test('audio sent to Sarvam is charged to the conversation the browser binds', async () => {
+  const { startSession, getSession } = await import('../server/session.js');
+  const s = getSession(startSession().sessionId);
+  const c = connect();
+  await c.waitFor('ready');
+  c.ws.send(JSON.stringify({ type: 'bind', sessionId: s.id }));
+  await stream(c.ws, Buffer.concat([tone(1.5), silence(0.5)]));
+  c.ws.send(JSON.stringify({ type: 'finish' })); // pushed silence is billed too
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(s.ledger.sttSec >= 2 + 1.2, `charged ${s.ledger.sttSec} s`);
+  assert.ok(s.ledger.sttSec < 4);
+  c.ws.close(); await c.closed;
+});

@@ -52,11 +52,13 @@ server/live.js                /api/live: browser ⇄ Sarvam Realtime STT relay (
 server/sarvam.js              Sarvam REST client: Bulbul v4 Flash (cached), chat (JSON mode), Saaras REST for the mic test
 server/clarify.js             "didn't understand" detection (EN / Hinglish / Devanagari)
 server/scoring.js             deterministic speech features + final level rules
+server/costs.js               Sarvam cost ledger per conversation (₹), prices from .env
 server/prompts.js             rubric and understand prompts
 public/app.js                 conversation state machine
 public/live.js                Realtime client: streams only while listening; utterances → answers
 public/audio.js               mic capture, barge-in detection, TTS playback
 public/log.js                 live log panel
+public/cost.js                cost counter at the top (polls /api/session/cost)
 public/mic-test.html          mic processing on/off test page
 public/pcm.js                 streaming resampler → 16 kHz PCM16
 test/mock-sarvam-realtime.js  protocol-accurate stand-in for Sarvam Realtime (tests / offline dev)

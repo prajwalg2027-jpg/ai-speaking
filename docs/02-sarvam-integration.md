@@ -189,6 +189,25 @@ LLM settings: `temperature: 0.2` + JSON mode for judging (consistent, parseable)
 `temperature: 0.6` for the acknowledgment. On a parse failure the server retries once,
 then falls back to feature-only scoring.
 
+## 4b. Cost counter
+The pill at the top of the app shows what the conversation has cost so far in Sarvam charges (₹, estimate,
+excluding GST); tap it for the breakdown. The server keeps a ledger per conversation (`server/costs.js`):
+
+| Service | Counted from | Price (default, `.env`) |
+|---|---|---|
+| Speech-to-text (Saaras v4 realtime) | Seconds of audio the relay sends to Sarvam, including the silence pushed on "Done" | ₹30 per hour |
+| Voice (Bulbul v4 Flash) | Characters of each line actually generated for this conversation. Lines already in the voice cache are free here | ₹20 per 10,000 characters |
+| AI (Sarvam-105B) | `usage` of every chat call: understand, scoring, tutor (thrown-away speculative lines too). Reasoning tokens are output tokens | ₹15 input / ₹5 cached / ₹60 output per million tokens |
+
+The browser polls `GET /api/session/cost?id=…` every second, and each turn's reply carries the totals.
+Filling the voice cache at startup (80 lines, about ₹8) is charged to a shared ledger and logged by the server,
+not to any conversation. The STT lab and mic test are not counted.
+
+Rates are from third-party summaries of Sarvam's pricing page (Nov 2026); sarvam.ai could not be checked from
+the build environment. Correct them in `.env` (`PRICE_*`).
+
+A typical 3-minute conversation in testing: about ₹3.25 (voice ₹2.35, speech-to-text ₹0.74, AI ₹0.16).
+
 ## 5. Failure and degradation
 - **No fallbacks.** No key: the server reports it and the app explains. Sarvam
   unreachable: the app says so and offers a retry. Voice (TTS) fails: the question

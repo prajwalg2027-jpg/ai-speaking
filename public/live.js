@@ -51,6 +51,7 @@ export class LiveSTT {
         if (e.type === 'ready') {
           log('live', 'Sarvam Realtime session started', { requestId: e.requestId, ...e.config });
           this.alive = true; this._startTap(); settle(true);
+          if (this.sessionId) this._send({ type: 'bind', sessionId: this.sessionId }); // after a reconnect
         } else if (e.type === 'unavailable') {
           log('error', 'Sarvam Realtime unavailable', e.reason);
           settle(false, e.reason);
@@ -70,6 +71,12 @@ export class LiveSTT {
       };
       this.ws = ws;
     });
+  }
+
+  /** Tell the relay which conversation this audio belongs to (for its cost). */
+  bind(sessionId) {
+    this.sessionId = sessionId;
+    this._send({ type: 'bind', sessionId });
   }
 
   /** Reconnect if Sarvam closed the session (e.g. after a long idle period). */

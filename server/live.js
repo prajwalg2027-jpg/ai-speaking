@@ -7,7 +7,8 @@
 //                    transcript.final, config.updated, error, session.end, pong
 //
 // Browser protocol (ours):
-//   browser → relay: binary PCM16 frames; JSON {type:"config", silenceMs}, {type:"finish"}
+//   browser → relay: binary PCM16 frames; JSON {type:"config", silenceMs}, {type:"finish"},
+//                    {type:"bind", sessionId} (the conversation the audio is charged to)
 //   relay → browser: {type:"ready"}, {type:"speech_start", idx}, {type:"partial", idx, text},
 //                    {type:"speech_end", idx}, {type:"final", idx, text, language, languageConfidence, speechSec},
 //                    {type:"unavailable", reason} (then close: browser falls back to REST),
@@ -89,24 +90,24 @@ export function upstreamUrl({ silenceMs = 1200, ...overrides } = {}) {
  * Attach the relay to an http.Server: /api/live for the app (fixed settings), /api/lab/live for the
  * STT lab (any realtime option, passed as query parameters, plus raw Sarvam events both ways).
  */
-export function attachLiveRelay(server, { enabled = () => true } = {}) {
+export function attachLiveRelay(server, { enabled = () => true, onAudio = () => {} } = {}) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
 
   server.on('upgrade', (req, socket, head) => {
     const u = new URL(req.url, 'http://x');
     if (u.pathname === '/api/lab/live') {
       const { params, rejected } = sanitizeRealtimeOptions(Object.fromEntries(u.searchParams));
-      return wss.handleUpgrade(req, socket, head, (client) => relay(client, enabled(), { lab: true, params, rejected }));
+      return wss.handleUpgrade(req, socket, head, (client) => relay(client, enabled(), { lab: true, params, rejected, onAudio }));
     }
     if (u.pathname !== '/api/live') return socket.destroy();
-    wss.handleUpgrade(req, socket, head, (client) => relay(client, enabled()));
+    wss.handleUpgrade(req, socket, head, (client) => relay(client, enabled(), { onAudio }));
   });
   return wss;
 }
 
 const LAB_EVENTS = new Set(['speech_start', 'speech_end', 'flush', 'end', 'config.update', 'ping']);
 
-async function relay(client, enabled, { lab = false, params = {}, rejected = [] } = {}) {
+async function relay(client, enabled, { lab = false, params = {}, rejected = [], onAudio = () => {} } = {}) {
   const toClient = (msg) => client.readyState === WebSocket.OPEN && client.send(JSON.stringify(msg));
   let failed = false;
   const unavailable = (reason) => {
@@ -132,6 +133,15 @@ async function relay(client, enabled, { lab = false, params = {}, rejected = [] 
     handshakeTimeout: 5000,
   });
   const toSarvam = (msg) => upstream.readyState === WebSocket.OPEN && upstream.send(JSON.stringify(msg));
+  // Every second of audio sent to Sarvam is billed: report it for the conversation's cost ({type:"bind"}
+  // tells us which conversation this connection belongs to).
+  let sessionId = null;
+  const sendAudio = (pcm) => {
+    if (upstream.readyState !== WebSocket.OPEN) return;
+    sentBytes += pcm.length;
+    onAudio(sessionId, pcm.length / 2 / SAMPLE_RATE);
+    upstream.send(JSON.stringify({ event: 'audio_input', audio: Buffer.from(pcm).toString('base64') }));
+  };
 
   upstream.on('unexpected-response', (_req, res) => {
     // Keep the start of the body: Sarvam's JSON error explains a rejection (bad model, key, quota…).
@@ -202,13 +212,13 @@ async function relay(client, enabled, { lab = false, params = {}, rejected = [] 
   client.on('message', (data, isBinary) => {
     if (isBinary) {
       // Raw PCM16 from the browser → base64 audio_input.
-      sentBytes += data.length;
       lastAudioAt = Date.now();
-      return toSarvam({ event: 'audio_input', audio: Buffer.from(data).toString('base64') });
+      return sendAudio(data);
     }
     let m;
     try { m = JSON.parse(data); } catch { return; }
     if (lab && m.type === 'sarvam' && LAB_EVENTS.has(m.event?.event)) return toSarvam(m.event);
+    if (m.type === 'bind') { sessionId = typeof m.sessionId === 'string' ? m.sessionId : null; return; }
     if (m.type === 'config') {
       // One config.update per request. silence_duration_ms applies immediately; language_code applies at
       // the next utterance boundary and re-arms language detection (Sarvam otherwise sticks to the first
@@ -226,7 +236,7 @@ async function relay(client, enabled, { lab = false, params = {}, rejected = [] 
     } else if (m.type === 'finish') {
       // "Done speaking": endpointing=vad has no flush, so push enough silence to end the turn now.
       const pad = Buffer.alloc(Math.ceil(((silenceMs + 400) / 1000) * SAMPLE_RATE) * 2);
-      for (let o = 0; o < pad.length; o += 6400) toSarvam({ event: 'audio_input', audio: pad.subarray(o, o + 6400).toString('base64') });
+      for (let o = 0; o < pad.length; o += 6400) sendAudio(pad.subarray(o, o + 6400));
       note(`Pushed ${silenceMs + 400} ms of silence so Sarvam ends the turn now`);
     }
   });

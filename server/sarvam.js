@@ -1,6 +1,7 @@
 // Thin Sarvam AI client: TTS (Bulbul v4 Flash), chat (Sarvam-105B), and REST STT for the mic test page.
 // Realtime STT lives in live.js.
 import { createHash } from 'node:crypto';
+import { addVoice, addChat } from './costs.js';
 import { config } from './config.js';
 
 const S = config.sarvam;
@@ -62,7 +63,8 @@ const ttsKey = (text, lang, pace) => createHash('sha1').update([text, lang, pace
  */
 export async function streamSpeech(text, { lang = 'en-IN', pace = 1.0 } = {}, onChunk = () => {}) {
   const key = ttsKey(text, lang, pace);
-  if (pcmCache.has(key)) { const b = pcmCache.get(key); onChunk(b); return { cached: true, bytes: b.length, firstByteMs: 0 }; }
+  // A cached line (or one another request is already generating) costs this conversation nothing.
+  if (pcmCache.has(key)) { const b = pcmCache.get(key); addVoice(text.length, { cached: true }); onChunk(b); return { cached: true, bytes: b.length, firstByteMs: 0 }; }
   if (pending.has(key)) { await pending.get(key).catch(() => {}); if (pcmCache.has(key)) return streamSpeech(text, { lang, pace }, onChunk); }
 
   const t0 = performance.now();
@@ -77,6 +79,7 @@ export async function streamSpeech(text, { lang = 'en-IN', pace = 1.0 } = {}, on
         body: JSON.stringify({ text, language_code: lang, speaker: S.ttsSpeaker, model: S.ttsModel, pace, speech_sample_rate: TTS_RATE, output_audio_codec: 'linear16' }),
       });
       if (!res.ok) throw new Error(`Sarvam /text-to-speech/stream ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      addVoice(text.length, { cached: false }); // billed per character sent
       const parts = [];
       for await (const chunk of res.body) {
         const b = Buffer.from(chunk);
@@ -112,7 +115,7 @@ export async function pregenerate(lines) {
  * Chat completion (OpenAI-compatible). reasoning_effort and max_tokens are always set explicitly
  * because Sarvam has changed their defaults; reasoning tokens share the max_tokens budget.
  */
-export async function chat(messages, { temperature = 0.2, maxTokens = 600, model = S.llmModel, json = false, meta = null } = {}) {
+export async function chat(messages, { temperature = 0.2, maxTokens = 600, model = S.llmModel, json = false, meta = null, purpose = 'other' } = {}) {
   const r = await call('/v1/chat/completions', {
     json: {
       model, messages, temperature,
@@ -122,6 +125,7 @@ export async function chat(messages, { temperature = 0.2, maxTokens = 600, model
     },
     timeout: S.timeouts.llm,
   });
+  addChat(r.usage, purpose);
   // Reasoning may arrive in a separate field or inline as <think>…</think>; we only want the answer.
   const text = r.choices?.[0]?.message?.content ?? '';
   if (meta) Object.assign(meta, { model, finish: r.choices?.[0]?.finish_reason ?? null, usage: r.usage ?? null, raw: text.slice(0, 600) });
