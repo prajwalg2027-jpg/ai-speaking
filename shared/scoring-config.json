@@ -10,9 +10,9 @@
   "readAccuracyCap": 0.7,
   "hindiHelpCap": 2,
   "firstGuess": {
-    "level4Score": 2.2,
-    "level4Words": 8,
-    "level3Score": 1.5
+    "level4Score": 3.5,
+    "level4Words": 30,
+    "level3Score": 3.0
   },
   "judgeWeight": {
     "comprehension": 1,
@@ -21,6 +21,5 @@
     "fluency": 1,
     "pronunciation": 0.4,
     "coherence": 1
-  },
-  "editedAt": "2026-11-18T19:07:16.839Z"
+  }
 }
