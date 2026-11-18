@@ -97,6 +97,6 @@ export async function judgeAnswer({ task, transcript, measured }, trace) {
       context: task.passage ? `Sentences the learner heard: ${task.passage}` : task.scene ? `The picture shows: ${task.scene}` : null }) }], { meta, purpose: 'scoring' }),
   (r) => ({ model: meta.model, scores: r, finish: meta.finish, usage: meta.usage })).catch(() => null);
   const scores = blend(llm, measured.heuristic);
-  trace.add('scores', { task: task.id, blend: llm ? '60% LLM + 40% features' : 'features only', ...Object.fromEntries(Object.entries(scores).map(([k, v]) => [k, v == null ? null : +v.toFixed(2)])) });
+  trace.add('scores', { task: task.id, blend: llm ? 'judge 50-80% by skill + features' : 'features only', ...Object.fromEntries(Object.entries(scores).map(([k, v]) => [k, v == null ? null : +v.toFixed(2)])) });
   return { scores, llmNote: llm?.note ?? null };
 }

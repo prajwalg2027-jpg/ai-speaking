@@ -107,15 +107,23 @@ export function heuristicScores(f, kind) {
   return s;
 }
 
+const L4_TALK = 3.0; // level-4 check on the longer answers (see finalLevel)
 const DIMS = ['comprehension', 'vocabulary', 'grammar', 'fluency', 'pronunciation', 'coherence'];
 
-/** Blend LLM and heuristic scores (LLM 60%, features 40%). */
+/**
+ * How much of each skill comes from the AI judge (the rest from measured features). Grammar and joining ideas
+ * lean on the judge: the word-counting features can't tell a fluent C1 answer from a long B1 one (their ceiling
+ * is about 2.5 without textbook linking words). Fluency keeps half from the real mic timing.
+ */
+export const JUDGE_WEIGHT = { comprehension: 0.6, vocabulary: 0.7, grammar: 0.8, fluency: 0.5, pronunciation: 0.6, coherence: 0.8 };
+
+/** Blend LLM and heuristic scores per skill (JUDGE_WEIGHT). */
 export function blend(llm, heur) {
   const out = {};
   for (const d of DIMS) {
     if (heur[d] == null) { out[d] = null; continue; } // not measured for this kind of answer
-    const l = llm?.[d] == null ? NaN : Number(llm[d]);
-    out[d] = Number.isFinite(l) ? 0.6 * clamp(l) + 0.4 * heur[d] : heur[d];
+    const l = llm?.[d] == null ? NaN : Number(llm[d]), w = JUDGE_WEIGHT[d];
+    out[d] = Number.isFinite(l) ? w * clamp(l) + (1 - w) * heur[d] : heur[d];
   }
   return out;
 }
@@ -160,11 +168,15 @@ export function finalLevel(answers) {
   if (q3?.features.readAccuracy != null && q3.features.readAccuracy < 0.6 && level > 2) {
     level = 2; reasons.push('Read-aloud accuracy below 60%');
   }
-  if (level === 4 && !(q4 && !q4.skipped && q4.scores.coherence >= 3.5 && q4.scores.vocabulary >= 3.5)) {
-    level = 3; reasons.push('L4 needs strong coherence and vocabulary in the opinion question');
+  // Level 4 needs strong English words and joining of ideas when speaking at length: averaged over the opinion
+  // answer and its follow-up (one short answer shouldn't decide it).
+  const talk = answers.filter((a) => (a.questionId === 'q4_opinion' || a.questionId === 'q4_opinion_followup') && !a.skipped);
+  const avg = (d) => (talk.length ? talk.reduce((x, a) => x + (a.scores[d] ?? 0), 0) / talk.length : 0);
+  if (level === 4 && !(avg('coherence') >= L4_TALK && avg('vocabulary') >= L4_TALK)) {
+    level = 3; reasons.push('Level 4 needs strong words and well-joined ideas in the longer answers');
   }
   if (answers.filter((a) => a.neededHindi).length >= 2 && level > 2) {
     level = 2; reasons.push('Needed Hindi instructions on two or more questions');
   }
-  return { level, overall: +adjusted.toFixed(2), dims, reasons };
+  return { level, overall: +adjusted.toFixed(2), dims, reasons, talk: { coherence: +avg('coherence').toFixed(2), vocabulary: +avg('vocabulary').toFixed(2) } };
 }
