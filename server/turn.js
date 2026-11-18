@@ -1,16 +1,18 @@
-// Evaluating one learner turn, in two steps so the tutor can prepare its reply while the answer is scored:
-//   classifyTurn: is this an answer, a request for help, or nothing we could use?
-//   measureAnswer (instant) + judgeAnswer (LLM): how good was it?
+// Evaluating one learner turn:
+//   quickCheck (instant) and understandTurn (LLM): is this an answer, a request, or something said to Sakhi?
+//   measureAnswer (instant) + judgeAnswer (LLM): how good was the answer?
 import * as sarvam from './sarvam.js';
 import { detectClarification, isUnintelligible, looksTruncated } from './clarify.js';
 import { features, heuristicScores, blend } from './scoring.js';
-import { JUDGE_SYSTEM, judgeUser, INTENT_SYSTEM } from './prompts.js';
+import { JUDGE_SYSTEM, judgeUser, UNDERSTAND_SYSTEM } from './prompts.js';
 
-/** → { action: 'answer' | 'didnt_hear' | 'cut_off' | 'clarify', intent?, transcript } */
-export async function classifyTurn({ task, transcript, speechSec = 0, prior = '' }, trace) {
+/**
+ * Instant checks before any LLM: unusable audio, a cut-off answer, or an obvious short request ("sorry, what?").
+ * → { action: 'didnt_hear' | 'cut_off' | 'clarify', intent?, transcript } or { action: 'understand', transcript }
+ */
+export function quickCheck({ task, transcript, speechSec = 0, prior = '' }, trace) {
   transcript = [prior, transcript].filter(Boolean).join(' ').trim();
   trace.add('question', { id: task.id, kind: task.kind, level: task.variantLevel, transcript, speechSec, ...(prior ? { joinedWithPrevious: prior } : {}) });
-
   if (isUnintelligible(transcript)) {
     trace.add('check', { result: "didn't hear", why: 'transcript is empty or under 2 letters' });
     return { action: 'didnt_hear', transcript };
@@ -19,20 +21,41 @@ export async function classifyTurn({ task, transcript, speechSec = 0, prior = ''
     trace.add('check', { result: 'cut off', why: 'short answer ending on a connecting word' });
     return { action: 'cut_off', transcript };
   }
-  let intent = detectClarification(transcript);
-  if (intent) trace.add('clarify', { intent, by: 'keyword match' });
-  else if (transcript.split(/\s+/).length <= 4 && task.kind !== 'vocab') {
-    // Ambiguous short reply: ask the LLM (skip for vocab, where 1-2 word answers are normal).
-    const meta = {};
-    intent = (await trace.time('intent', () => sarvam.chatJSON([{ role: 'system', content: INTENT_SYSTEM },
-      { role: 'user', content: `Tutor asked: ${task.ask}\nLearner replied: ${transcript}` }], { temperature: 0, maxTokens: 30, meta }),
-    (r) => ({ model: meta.model, result: r, usage: meta.usage })).catch(() => null))?.intent;
-    if (intent === 'answer' || intent === 'off_topic') intent = null;
-  } else {
-    trace.add('clarify', { intent: null, by: 'keyword match', note: 'treated as an answer' });
-  }
-  return intent ? { action: 'clarify', intent, transcript } : { action: 'answer', transcript };
+  const intent = detectClarification(transcript);
+  if (intent) { trace.add('clarify', { intent, by: 'keyword match' }); return { action: 'clarify', intent, transcript }; }
+  return { action: 'understand', transcript };
 }
+
+/**
+ * What did the learner mean? An answer, a request, or something said to Sakhi instead of answering
+ * (a correction, a complaint, a question). Also picks up what they tell us: their name (only if they say it),
+ * facts about them, and whether they want to talk in Hindi.
+ * asked: Sakhi's last line. parts: for a two-part task, what each part asks (to spot a half answer).
+ * → { intent, missing: [part numbers] | null, name, facts, prefersHindi }, or null if the model failed.
+ */
+export async function understandTurn({ asked, parts, transcript, profile }, trace) {
+  const meta = {};
+  const user = [`Tutor asked: ${asked}`, parts?.length ? `PARTS: ${parts.map((p, i) => `${i + 1}) ${p}`).join('  ')}` : '',
+    `Known learner name: ${profile.name || 'unknown'}`, profile.facts?.length ? `Already known: ${profile.facts.join('; ')}` : '',
+    `Learner replied: ${transcript}`].filter(Boolean).join('\n');
+  const call = sarvam.chatJSON([{ role: 'system', content: UNDERSTAND_SYSTEM }, { role: 'user', content: user }], { temperature: 0, maxTokens: 160, meta });
+  const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('took over 4 s')), 4000));
+  const r = await trace.time('understand', () => Promise.race([call, timeout]), (x) => ({ model: meta.model, ...x })).catch(() => null);
+  if (!r) return null;
+  const intents = ['answer', 'meta', 'in_hindi', 'repeat', 'slower', 'dont_know', 'skip'];
+  let name = typeof r.name === 'string' && r.name.trim().length >= 2 && r.name.length <= 30 && !/^(null|none|unknown|n\/a)$/i.test(r.name.trim()) ? r.name.trim() : null;
+  // A name must be in what they said ("my name is not Riya" is not a name), unless it was said in Hindi script.
+  if (name && (new RegExp(`\\bnot\\s+${escapeRe(name)}\\b`, 'i').test(transcript)
+    || (!/[\u0900-\u097F]/.test(transcript) && !transcript.toLowerCase().includes(name.toLowerCase())))) name = null;
+  return {
+    intent: intents.includes(r.intent) ? r.intent : 'answer',
+    missing: Array.isArray(r.missing) ? r.missing.map(Number).filter(Number.isInteger) : null,
+    name,
+    facts: Array.isArray(r.facts) ? r.facts.filter((f) => typeof f === 'string' && f.trim() && f.length <= 120).slice(0, 3) : [],
+    prefersHindi: r.prefersHindi === true,
+  };
+}
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Instant, deterministic measurements (no network). */
 export function measureAnswer({ task, transcript, speechSec }, trace) {

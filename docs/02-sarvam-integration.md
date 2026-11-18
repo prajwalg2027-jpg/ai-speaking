@@ -136,8 +136,9 @@ Detected by `server/clarify.js` in two layers:
 1. **Fast lexical match** (Hindi, Hinglish and English): *"what?", "sorry?", "repeat",
    "again", "pardon", "samajh nahi aaya", "kya?", "phir se bolo", "Hindi mein bolo",
    "slowly", "dheere"*, and their Devanagari forms.
-2. **LLM fallback** for ambiguous short replies. Sarvam-105B classifies the reply as one of
-   `{answer, repeat, slower, in_hindi, dont_know, off_topic}`.
+2. **Understand step** for every other reply: Sarvam-105B reads it as one of
+   `{answer, meta, in_hindi, repeat, slower, dont_know, skip}` and picks up the learner's name, facts and
+   whether they want to talk in Hindi (see `docs/03-conversation.md`, "Understanding the learner").
 
 **Escalation ladder** (each step is used once per question):
 
@@ -147,8 +148,9 @@ Detected by `server/clarify.js` in two layers:
 | 2nd confusion | **Rephrases more simply**, then gives the **Hindi version** | `needed_hindi = true` (comprehension signal) |
 | 3rd confusion / "I don't know" | *"No problem at all! Let's try another one."* Moves on | the item scores 0, without penalising other dimensions |
 
-An explicit *"Hindi mein bolo"* jumps straight to the Hindi version. Respecting the
-request matters more than the assessment purity.
+An explicit *"Hindi mein bolo"* jumps straight to the Hindi version. *"I'd like to speak in Hindi"* switches
+the rest of the conversation to Hindi. Respecting the request matters more than the assessment purity.
+A correction or question to Sakhi (*"my name is not Riya"*) is answered, not scored, and the task is asked again.
 
 ### B. The bot didn't understand the user
 | Situation | How it's detected | Response |

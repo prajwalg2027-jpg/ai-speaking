@@ -47,12 +47,12 @@ shared/assessment.js          question bank: 4 questions × level variants, Hind
 server/index.js               static + /api/session, /api/session/turn, /api/tts/stream, STT lab endpoints
 server/session.js             the conversation: memory, next step, help ladder, summary
 server/tutor.js               Sakhi's lines (Sarvam-105B) and their guardrails
-server/turn.js                answer evaluation: is it an answer, then measure + judge
+server/turn.js                each reply: quick checks, understand (answer or not, name, facts), measure + judge
 server/live.js                /api/live: browser ⇄ Sarvam Realtime STT relay (key stays server-side)
 server/sarvam.js              Sarvam REST client: Bulbul v4 Flash (cached), chat (JSON mode), Saaras REST for the mic test
 server/clarify.js             "didn't understand" detection (EN / Hinglish / Devanagari)
 server/scoring.js             deterministic speech features + final level rules
-server/prompts.js             rubric / intent / reply prompts
+server/prompts.js             rubric and understand prompts
 public/app.js                 conversation state machine
 public/live.js                Realtime client: streams only while listening; utterances → answers
 public/audio.js               mic capture, barge-in detection, TTS playback

@@ -36,3 +36,25 @@ test('reactions react to what was said, never how well', () => {
   assert.equal(checkReaction('What do you teach?'), '', 'no questions in the reaction');
   assert.equal(stripVerdicts('You know so many English words already, Raju. Now look at the picture.'), 'Now look at the picture.');
 });
+
+test('names: only the name the learner gave is used to address them', async () => {
+  const { stripInventedNames: g } = await import('../server/tutor.js');
+  assert.equal(g('Thank you, Riya.', null), 'Thank you.');
+  assert.equal(g('Riya, what did you do last weekend?', null), 'What did you do last weekend?');
+  assert.equal(g('Thanks Riya! Now, tell me more.', null), 'Thanks! Now, tell me more.');
+  assert.equal(g('That sounds busy, Riya ji.', 'Prajwal'), 'That sounds busy.');
+  assert.equal(g('That sounds busy, Prajwal!', 'Prajwal'), 'That sounds busy, Prajwal!');
+  assert.equal(g('Okay, tell me more. Honestly, that sounds fun.', null), 'Okay, tell me more. Honestly, that sounds fun.');
+});
+
+test('apologies survive the verdict filter; verdicts do not', async () => {
+  const { stripVerdicts: v } = await import('../server/tutor.js');
+  assert.equal(v("Sorry, my mistake! You're right."), "Sorry, my mistake! You're right.");
+  assert.equal(v('That is correct! What next?'), 'What next?');
+  assert.equal(v('You made a small mistake. Try again.'), 'Try again.');
+});
+
+test('Hindi verdicts are removed too, Hindi apologies are not', () => {
+  assert.equal(stripVerdicts('ठीक है, यह बिल्कुल सही है। अब library को हिंदी में क्या कहते हैं?'), 'अब library को हिंदी में क्या कहते हैं?');
+  assert.equal(stripVerdicts('माफ़ी चाहती हूँ, मुझसे ग़लती हो गई।'), 'माफ़ी चाहती हूँ, मुझसे ग़लती हो गई।');
+});

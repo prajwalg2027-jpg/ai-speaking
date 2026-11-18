@@ -10,8 +10,9 @@ import { normalizeForCompare } from './normalize.js';
 export const TUTOR_SYSTEM = `You are Sakhi, a warm and encouraging English tutor in a voice app for learners in India. You are having a friendly spoken conversation. Inside it you are quietly checking the learner's English level, but you never mention tests, levels, scores, questions or how many are left.
 
 Write what Sakhi says next as JSON: {"reaction": "...", "ask": "..."}
-- reaction: one short sentence reacting to what the learner just said. Make it specific and personal: use their name or a detail they shared. Warm and natural. React to WHAT they said, never to HOW WELL they said it: no corrections and no verdicts ("perfect", "correct", "exactly", "well said", "good grammar", "your English is"). Never ask a question here. Use "" when there is nothing to react to.
-- ask: what Sakhi says next to move the conversation on, ending with the TASK. Connect it naturally to what they said when you can. One to three short sentences.
+- reaction: one short sentence reacting to the learner's LAST line only. Warm and natural; you can pick up a detail from that line. Don't bring back details from earlier in the conversation. React to WHAT they said, never to HOW WELL they said it: no corrections and no verdicts ("perfect", "correct", "exactly", "well said", "good grammar", "your English is"). Never ask a question here. Use "" when there is nothing to react to.
+- ask: what Sakhi says next to move the conversation on, ending with the TASK. Connect it naturally to what they said when you can. One to three short sentences. Ask one thing only. Don't teach, explain or introduce words.
+Names: use the learner's name only if it is given under ABOUT THE LEARNER, and only now and then. If no name is given there, don't use any name, and never guess or invent one. Names in a sentence they read from the screen are not their name.
 Speak like a person: short sentences, contractions, everyday words. No lists, no emojis, no markdown, nothing hard to say out loud.
 Follow LANGUAGE exactly. Never say anything on the MUST NOT SAY list, and never give away the answer to the task.`;
 
@@ -21,22 +22,67 @@ const LANGUAGE_RULES = {
   3: 'The learner speaks English comfortably. Use natural, friendly English. No Hindi.',
   4: 'The learner is very fluent. Use natural, rich English; you can be a little playful. No Hindi.',
 };
+// The learner asked to talk in Hindi: this replaces the level rule for the rest of the conversation.
+const HINDI_RULE = 'The learner asked to talk in Hindi. Speak in simple, friendly Hindi (Devanagari script, the polite आप form: बताइए, पढ़िए, कीजिए; never बताओ). Keep the task\'s key words in English, exactly as given. When the task is to talk about something, invite them to try it in English (Hindi is fine too). Never give away the answer.';
 
 const SITUATIONS = {
-  answered: 'The learner just answered.',
+  answered: "The learner just answered. React to what they said in their last line, not to earlier topics.",
+  answered_task: 'The learner just answered a word task. The reaction is only a brief, neutral acknowledgement (like "Okay!" or "Got it."): don\'t say whether it was right, and nothing about earlier topics.',
+  partial: 'The learner answered only part of the task. The reaction is only a brief acknowledgement (like "Okay!"): don\'t say whether it was right. In ask, ask only for the part they haven\'t answered yet.',
   moved_on: "The learner couldn't answer the last task, or asked to skip it. Be kind and reassuring; don't dwell on it.",
+  meta: "Instead of answering, the learner said something to you about the conversation (their last line). In the reaction, respond to that line directly in a few words: if it corrects you, apologise simply and accept it; if it asks you something, answer it briefly. Then in ask, come back to the same task in fresh words (don't repeat your last line word for word).",
   probe: 'The learner just read a sentence from the screen (not their own words). The reaction is only a brief thanks, nothing about earlier topics. Ask them to try one more sentence, now on their screen. Do not say how well they read.',
-  read_done: "The learner just read a sentence aloud from the screen. Those were not their own words. The reaction is only a brief thanks (like \"Thank you, Priya.\"), nothing about the sentence or earlier topics.",
+  read_done: 'The learner just read a sentence aloud from the screen. Those were not their own words. The reaction is only a brief thanks, nothing about the sentence or earlier topics.',
   finish: 'The conversation is ending.',
 };
 
 // Sakhi stays warm about what was said, never about how well it was said: no corrections, no verdicts.
-// Any sentence (in the reaction or the task line) that matches is dropped before Sakhi speaks.
-const CORRECTION = /\b(should (?:say|be)|correct(?:ly|ion)?|mistakes?|wrong|grammar|instead of|you meant|the right word|right answer|perfect(?:ly)?|exactly( right)?|spot on|well said|well done|did (?:very |really )?well|great (?:job|answer|reading)|good (?:job|answer|reading)|know (?:those|these|the|so many|a lot of|many) (?:english )?words|(?:so|very|really) well|excellent|nailed|clearly|fluen(?:t|cy)|good english|your english|pronunciation|accent)\b/i;
+// Any sentence (in the reaction or the task line) that matches is dropped before Sakhi speaks. Apologies
+// ("sorry, my mistake") are allowed: Sakhi needs them when the learner corrects her.
+const CORRECTION = /\b(should (?:say|be)|correct(?:ly|ion)?|incorrect|(?:you made|you make|small|little|one|a few|some|no|any) mistakes?|(?:that(?:'s| is)|it(?:'s| is)|answer is|word is) (?:a bit |a little |slightly |not )?(?:wrong|right)|you(?:'re| are) (?:a bit |a little |slightly )?wrong|wrong (?:word|answer)|grammar|instead of|you meant|the right word|right answer|perfect(?:ly)?|exactly( right)?|spot on|well said|well done|did (?:very |really )?well|great (?:job|answer|reading)|good (?:job|answer|reading)|know (?:those|these|the|so many|a lot of|many) (?:english )?words|(?:so|very|really) well|excellent|nailed|clearly|fluen(?:t|cy)|good english|your english|pronunciation|accent)\b/i;
+// The same in Hindi ("सही है", "बिल्कुल सही", "शाबाश"…). Not "ग़लती": "sorry, my mistake" is an apology.
+const CORRECTION_HI = /(सही है|सही था|सही जवाब|सही शब्द|बिल्कुल सही|एकदम सही|ग़लत है|गलत है|ग़लत जवाब|गलत जवाब|शाबाश|बहुत बढ़िया|बहुत अच्छा बोल|अच्छा जवाब|बढ़िया जवाब|उच्चारण|व्याकरण|आपकी अंग्रेज़ी|आपकी इंग्लिश)/;
 const sentences = (t) => t.match(/[^.!?।]+[.!?।]*\s*/g) || [t];
-export const stripVerdicts = (t) => sentences(t || '').filter((s) => !CORRECTION.test(s)).join('').trim();
+export const stripVerdicts = (t) => sentences(t || '').filter((s) => !CORRECTION.test(s) && !CORRECTION_HI.test(s)).join('').trim();
 const words = (t) => (t.trim() ? t.trim().split(/\s+/).length : 0);
 const has = (text, needle) => text.toLowerCase().normalize('NFKC').includes(needle.toLowerCase().normalize('NFKC'));
+
+// ---- names ------------------------------------------------------------------------
+// The model sometimes addresses the learner by a name they never gave ("Thank you, Riya."). Sakhi may only
+// use the name the learner told us; any other name used to address them is removed before she speaks.
+const NOT_NAMES = new Set(('sakhi okay ok now so well yes no oh ah aha hmm great nice sure alright thanks please achha accha acha achcha '
+  + 'wow hey hi hello namaste look listen then next first also and but right cool good lovely haha ji sorry arre chalo haan '
+  + 'hindi english friend dear wonderful awesome amazing interesting true fine perfect indeed yeah yep anyway see tell try let '
+  + 'oops wah waah shabash ooh today tomorrow yesterday sunday monday tuesday wednesday thursday friday saturday everyone there '
+  + 'go come say read think imagine guess remember tea chai india delhi mumbai').split(/\s+/));
+const isNameLike = (w, known) => {
+  const lw = w.toLowerCase();
+  if (known && known.toLowerCase().split(/\s+/).includes(lw)) return false;
+  return !NOT_NAMES.has(lw) && !/(ly|ing)$/.test(lw);
+};
+const capFirst = (t) => t.replace(/^(\s*)(\p{Ll})/u, (_, sp, c) => sp + c.toUpperCase());
+
+/** Remove names used to address the learner, unless it's the name they told us. */
+export function stripInventedNames(text, knownName) {
+  if (!text) return text;
+  const N = '([A-Z][a-z]{1,15})(?:\\s+ji)?';
+  return text
+    // "Thank you Riya" / "Hi Riya" (no comma)
+    .replace(new RegExp(`\\b([Tt]hanks|[Tt]hank you|[Hh]i|[Hh]ello|[Hh]ey|[Nn]amaste|[Bb]ye|[Ww]elcome|[Dd]ear) ${N}\\b`, 'g'), (m, lead, w) => (isNameLike(w, knownName) ? lead : m))
+    // "…, Riya." / "…, Riya, …"
+    .replace(new RegExp(`,\\s*${N}(?=\\s*([.!?,…]|$))`, 'g'), (m, w) => (isNameLike(w, knownName) ? '' : m))
+    // "Riya, tell me…" at the start of a sentence
+    .replace(new RegExp(`(^|[.!?।]\\s+)${N},\\s*`, 'g'), (m, before, w) => (isNameLike(w, knownName) ? before : m))
+    .replace(/(^|[.!?।]\s+)(\p{Ll})/gu, (m, b, c) => b + c.toUpperCase())
+    .replace(/\s+([.!?,])/g, '$1').replace(/,([.!?])/g, '$1').trim();
+}
+
+/** The line Sakhi says, with the name check applied (the name may have been learned while it was written). */
+export function sayable(said, knownName) {
+  const reaction = stripInventedNames(said.reaction, knownName);
+  const ask = stripInventedNames(said.ask, knownName);
+  return { text: [reaction, ask].filter(Boolean).join(' '), ask };
+}
 
 /** Does a proposed task line keep the task intact? → { ok, reason } */
 export function checkAsk(ask, task) {
@@ -68,20 +114,28 @@ export function checkReaction(reaction) {
 }
 
 function historyText(history) {
-  return history.slice(-8).map((h) => (h.who === 'sakhi' ? `Sakhi: ${h.text}`
+  return history.slice(-12).map((h) => (h.who === 'sakhi' ? `Sakhi: ${h.text}`
     : h.reading ? `Learner (reading a sentence from the screen, not their own words): ${h.text}` : `Learner: ${h.text}`)).join('\n') || '(nothing yet)';
 }
 
+function aboutText(profile = {}) {
+  return [
+    profile.name ? `- Name: ${profile.name}` : '- Name: not known. Do not use any name.',
+    profile.facts?.length ? `- What they've told you (background; mention only when it fits naturally): ${profile.facts.join('; ')}` : '',
+  ].filter(Boolean).join('\n');
+}
+
 /**
- * Write Sakhi's next line. → { text, reaction, ask, fallback?: reason }
- * task: { brief | tutor.brief, tutor: { mustInclude, mustNotSay }, scripted, reference?, followup?, summary? }
+ * Write Sakhi's next line. → { reaction, ask, fallback?: reason }  (use sayable() to get the spoken text)
+ * task: { brief | tutor.brief, tutor: { mustInclude, mustNotSay }, scripted, hindi?, reference?, followup?, summary? }
  */
-export async function compose({ history, level, situation, task }, trace) {
+export async function compose({ history, level, profile = {}, situation, task }, trace) {
   const spec = task.tutor || {};
   const quote = (w) => `"${w}"`;
   const user = [
     `LEARNER LEVEL: ${level} of 4 (1 = beginner, 4 = very fluent)`,
-    `LANGUAGE: ${LANGUAGE_RULES[level] || LANGUAGE_RULES[2]}`,
+    `LANGUAGE: ${profile.prefersHindi ? HINDI_RULE : LANGUAGE_RULES[level] || LANGUAGE_RULES[2]}`,
+    `ABOUT THE LEARNER:\n${aboutText(profile)}`,
     `CONVERSATION SO FAR:\n${historyText(history)}`,
     `WHAT JUST HAPPENED: ${SITUATIONS[situation] || SITUATIONS.answered}`,
     `TASK: ${task.brief || spec.brief}`,
@@ -101,11 +155,15 @@ export async function compose({ history, level, situation, task }, trace) {
       (r) => ({ model: meta.model, situation, task: task.id, reaction: r?.reaction, ask: r?.ask, usage: meta.usage }));
   } catch { /* fall back below */ }
 
-  const reaction = checkReaction(out?.reaction);
-  // The closing summary is allowed to say how they did; every other line isn't.
-  const proposed = task.summary ? (out?.ask || '').trim() : stripVerdicts(out?.ask);
+  // The closing summary has no reaction, and it is allowed to say how they did; every other line isn't.
+  const reaction = task.summary ? '' : checkReaction(out?.reaction);
+  // The summary may say how they did, but it ends the conversation: no questions.
+  let proposed = task.summary ? sentences(out?.ask || '').filter((x) => !x.includes('?')).join('').trim() : stripVerdicts(out?.ask);
+  // A follow-up is one question: anything after the first question mark is dropped.
+  if (task.followup && proposed.includes('?')) proposed = proposed.slice(0, proposed.indexOf('?') + 1);
   const check = checkAsk(proposed, task);
-  const ask = check.ok ? proposed : task.scripted;
+  // Scripted fallback: in Hindi if the learner asked to talk in Hindi.
+  const ask = check.ok ? proposed : (profile.prefersHindi && task.hindi) || task.scripted;
   if (!check.ok) trace.add('tutor-fallback', { task: task.id, reason: out ? check.reason : 'no reply from the model', using: 'scripted line' });
-  return { text: [reaction, ask].filter(Boolean).join(' '), reaction, ask, ...(check.ok ? {} : { fallback: out ? check.reason : 'no reply' }) };
+  return { reaction, ask, ...(check.ok ? {} : { fallback: out ? check.reason : 'no reply' }) };
 }

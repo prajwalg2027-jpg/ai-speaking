@@ -1,6 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startMockRest } from './mock-sarvam-rest.js';
+import { QUESTIONS, PHRASES } from '../shared/assessment.js';
 
 let server, base, mock;
 before(async () => {
@@ -110,4 +111,73 @@ test('unknown sessions and events are refused', async () => {
   assert.equal((await post('/api/session/turn', { sessionId: 'nope', event: 'answer' })).status, 404);
   const t = await post('/api/session', {});
   assert.equal((await post('/api/session/turn', { sessionId: t.sessionId, event: 'dance' })).status, 400);
+});
+
+// ---- coherence: memory, replies that aren't answers, Hindi, half answers ----------------------------
+
+test('a correction is not scored as an answer: Sakhi responds, then asks the same thing again', async () => {
+  let t = await post('/api/session', {});
+  t = await answer(t.sessionId, 'I am a teacher and I love walking in the evening with friends near my house in Pune.');
+  assert.equal(t.task.id, 'q1_intro_followup');
+  t = await answer(t.sessionId, 'But my name is not Riya. Why are you calling me Riya?');
+  assert.equal(t.task.id, 'q1_intro_followup', 'still on the same question');
+  const plan = t.trace.find((s) => s.step === 'plan' && s.discarded);
+  assert.ok(plan, 'the prepared reply and scores were discarded');
+  assert.match(mock.state.tutorPrompts.at(-1), /Instead of answering, the learner said something to you/);
+  // Answering now moves on as normal.
+  t = await answer(t.sessionId, 'I teach English and maths to small children every morning at the school.');
+  assert.equal(t.task.id, 'q2_vocab');
+});
+
+test('"I would like to speak in Hindi" switches to Hindi for the rest of the conversation', async () => {
+  let t = await post('/api/session', {});
+  t = await answer(t.sessionId, 'Okay, uh, I would like to speak in Hindi.');
+  assert.equal(t.task.id, 'q1_intro', 'not scored as the introduction');
+  assert.equal(t.say[0].text, PHRASES.hindiOk);
+  assert.equal(t.say[1].lang, 'hi-IN');
+  t = await answer(t.sessionId, 'I usually work in a chakki, atta chakki, grinding wheat for people.');
+  assert.equal(t.task.id, 'q1_intro_followup');
+  assert.match(mock.state.tutorPrompts.at(-1), /LANGUAGE: The learner asked to talk in Hindi/);
+});
+
+test('Sakhi only uses the name the learner gave', async () => {
+  mock.state.tutorMode = 'invent-name';
+  try {
+    let t = await post('/api/session', {});
+    t = await answer(t.sessionId, 'I work in a shop near the station and I go home at night.');
+    assert.doesNotMatch(t.say[0].text, /Riya/, 'an invented name is removed');
+    assert.match(mock.state.tutorPrompts.at(-1), /Name: not known/);
+    t = await answer(t.sessionId, 'My name is Prajwal and I sell tea and biscuits at the shop.');
+    assert.match(mock.state.tutorPrompts.at(-1), /Name: not known/, 'learned while that line was written');
+    t = await answer(t.sessionId, 'I do not know this one, sorry, can we go on please?');
+    assert.match(mock.state.tutorPrompts.at(-1), /Name: Prajwal/, 'the name they said is remembered');
+  } finally { mock.state.tutorMode = 'good'; }
+});
+
+test('half an answer to a two-part word task: Sakhi asks only for the missing part, then scores both together', async () => {
+  let t = await post('/api/session', {});
+  t = await answer(t.sessionId, 'I am a teacher and I love walking in the evening with friends near my house in Pune.');
+  t = await answer(t.sessionId, 'I teach English and maths to small children every morning at the school.');
+  assert.equal(t.task.id, 'q2_vocab');
+  const v = QUESTIONS[1].variants[t.task.level];
+  const first = [v.expect[0]].flat()[0];
+  t = await answer(t.sessionId, `This is ${first}.`, 2);
+  assert.equal(t.task.id, 'q2_vocab', 'still on the word task');
+  assert.ok(t.trace.some((s) => s.step === 'plan' && s.next === 'ask for the missing part'));
+  assert.match(mock.state.tutorPrompts.at(-1), /answered only part of the task/);
+  assert.ok(!t.trace.some((s) => s.step === 'judge'), 'half an answer is not scored yet');
+  const second = [v.expect[1]].flat()[0];
+  t = await answer(t.sessionId, `I think it is ${second}, that is my answer.`, 3);
+  assert.equal(t.task.id, 'q3_read', 'moved on after the second part');
+  const scores = t.trace.find((s) => s.step === 'features');
+  assert.deepEqual(scores.vocabHits, [true, true], 'both replies were scored together');
+});
+
+test('a part they tried but got wrong is not asked again', async () => {
+  let t = await post('/api/session', {});
+  t = await answer(t.sessionId, 'I am a teacher and I love walking in the evening with friends near my house in Pune.');
+  t = await answer(t.sessionId, 'I teach English and maths to small children every morning at the school.');
+  const v = QUESTIONS[1].variants[t.task.level];
+  t = await answer(t.sessionId, `${[v.expect[0]].flat()[0]}. And ${v.parts[1].cues[0]}, I don't remember that one.`, 4);
+  assert.equal(t.task.id, 'q3_read');
 });

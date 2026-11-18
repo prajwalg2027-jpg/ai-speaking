@@ -105,7 +105,7 @@ async function api(path, body) {
 }
 
 // Turn one server trace step into a readable log line.
-const TRACE_CAT = { intent: 'llm', judge: 'llm', tutor: 'llm', 'tutor-fallback': 'error', features: 'score', heuristic: 'score', scores: 'score', plan: 'app' };
+const TRACE_CAT = { understand: 'llm', profile: 'app', judge: 'llm', tutor: 'llm', 'tutor-fallback': 'error', features: 'score', heuristic: 'score', scores: 'score', plan: 'app' };
 function logTraceStep(st) {
   const { step, at, ms, error, ...d } = st;
   const p = `server +${at} ms · `;
@@ -115,14 +115,15 @@ function logTraceStep(st) {
     question: () => `${p}evaluating ${d.id} (level ${d.level})`,
     check: () => `${p}${d.result}: ${d.why}`,
     clarify: () => d.intent ? `${p}request for help: ${d.intent} (${d.by})` : `${p}not a request for help: scoring as an answer`,
-    intent: () => `${p}${d.model} classified the short reply in ${ms} ms`,
+    understand: () => `${p}${d.model} read the reply as "${d.intent}" in ${ms} ms${d.missing?.length ? ` (missing part ${d.missing.join(', ')})` : ''}${d.name ? ` · name: ${d.name}` : ''}${d.prefersHindi ? ' · wants Hindi' : ''}`,
+    profile: () => `${p}remembered about the learner: ${[d.name && `name ${d.name}`, d.prefersHindi && 'prefers Hindi', ...(d.facts || [])].filter(Boolean).join('; ')}`,
     features: () => `${p}speech features measured`,
     heuristic: () => `${p}feature-based scores (0–4)`,
     judge: () => `${p}${d.model} rubric scores in ${ms} ms`,
     scores: () => `${p}answer scores for ${d.task} (${d.blend})`,
     tutor: () => `${p}${d.model} wrote Sakhi's next line in ${ms} ms (${d.situation})`,
     'tutor-fallback': () => `${p}tutor line rejected (${d.reason}): using the scripted line`,
-    plan: () => `${p}${d.next ? `next: ${d.next}` : ''}${d.why ? ` (${d.why})` : ''}${d.level ? ` · level ${d.level}` : ''}`,
+    plan: () => `${p}${d.next ? `next: ${d.next}` : ''}${d.why ? ` (${d.why})` : ''}${d.level ? ` · level ${d.level}` : ''}${d.discarded ? ` · discarded ${d.discarded}` : ''}`,
   }[step]?.() || `${p}${step}`;
   log(TRACE_CAT[step] || 'turn', msg, Object.keys(d).length ? d : undefined);
 }
