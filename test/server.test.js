@@ -13,38 +13,8 @@ before(async () => {
 });
 after(() => { server.close(); mock.close(); });
 
-const turn = (q, transcript, speechSec = 5) => fetch(`${base}/api/turn?q=${q}&level=2&speechSec=${speechSec}`, {
-  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ transcript }),
-}).then((r) => r.json());
-
 test('config reports ready when a key is set', async () => {
   assert.deepEqual(await (await fetch(`${base}/api/config`)).json(), { ready: true });
-});
-
-test('scored turns return a step-by-step trace, with no translation step', async () => {
-  const r = await turn(0, 'मेरा नाम Raju है। मैं shop में काम करता हूँ and I like cricket.');
-  assert.equal(r.action, 'scored');
-  assert.equal(r.englishMeaning, undefined);
-  const steps = r.trace.map((s) => s.step);
-  for (const s of ['input', 'question', 'clarify', 'features', 'heuristic', 'judge', 'reply', 'scores', 'level']) assert.ok(steps.includes(s), `missing ${s}`);
-  assert.ok(!steps.includes('translate'), 'Hindi answers are no longer translated');
-  assert.equal(r.trace.find((s) => s.step === 'judge').model, 'sarvam-105b');
-  assert.equal(r.ack, 'Nice to meet you!');
-  assert.ok(!mock.calls.some((c) => c.path === '/translate'));
-});
-
-test('clarification and unclear-audio turns explain themselves in the trace', async () => {
-  const c = await turn(1, 'sorry, what?', 1);
-  assert.equal(c.action, 'clarify');
-  assert.equal(c.trace.at(-1).intent, 'repeat');
-  const d = await turn(1, ' . ', 0.2);
-  assert.equal(d.action, 'didnt_hear');
-  assert.equal(d.trace.at(-1).step, 'check');
-});
-
-test('audio uploads to /api/turn are refused (no REST fallback)', async () => {
-  const r = await fetch(`${base}/api/turn?q=0`, { method: 'POST', headers: { 'content-type': 'audio/wav' }, body: Buffer.alloc(100) });
-  assert.equal(r.status, 415);
 });
 
 test('mic test endpoint transcribes and scores against the expected sentence', async () => {
@@ -72,8 +42,21 @@ test('lab compare scores any transcript the same way as read-aloud', async () =>
   assert.equal(r.compared.heard, 'i paid 250 rupees');
 });
 
-test('voice responses report cache hits', async () => {
-  const say = () => fetch(`${base}/api/tts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'Hello there' }) }).then((r) => r.json());
-  assert.equal((await say()).trace.cached, false);
-  assert.equal((await say()).trace.cached, true);
+test('voice streams as raw PCM, then comes from the cache', async () => {
+  const say = () => fetch(`${base}/api/tts/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'Hello there', lang: 'en-IN', pace: 1 }) });
+  const first = await say();
+  assert.equal(first.headers.get('content-type'), 'audio/pcm');
+  assert.equal(first.headers.get('x-sample-rate'), '24000');
+  assert.equal(first.headers.get('x-tts-cached'), 'false');
+  assert.equal((await first.arrayBuffer()).byteLength, 9600);
+  const again = await say();
+  assert.equal(again.headers.get('x-tts-cached'), 'true');
+  assert.equal((await again.arrayBuffer()).byteLength, 9600);
+  assert.equal(mock.calls.filter((c) => c.path === '/text-to-speech/stream').length, 1, 'generated once');
+});
+
+test('old per-question endpoints are gone', async () => {
+  for (const path of ['/api/turn', '/api/tts', '/api/final']) {
+    assert.equal((await fetch(`${base}${path}`, { method: 'POST', body: '{}' })).status, 404, path);
+  }
 });

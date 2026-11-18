@@ -1,4 +1,4 @@
-// Mic capture (feeds live.js), barge-in detection, and prompt playback — all driving the orb's level.
+// Mic capture (feeds live.js), barge-in detection, and streamed playback of Sakhi's voice — all driving the orb's level.
 import { log } from '/log.js';
 
 export class Voice {
@@ -61,49 +61,80 @@ export class Voice {
   userIsLoud() { return performance.now() - this.lastLoudAt < 400; }
 
   /**
-   * Play base64 WAV. Resolves when finished, when stopped, or on barge-in: the mic well above the speech
-   * threshold for 300 ms while the prompt plays (echo cancellation keeps Sakhi's voice out of it). The loud
+   * Play 16-bit mono PCM as it arrives: `chunks` is an async iterable of Uint8Array (a streamed response,
+   * or a single cached clip). Each piece is scheduled right after the previous one, so playback starts with
+   * the first piece. Resolves when playback ends, is stopped, or the learner barges in: the mic well above
+   * the speech threshold for 300 ms while Sakhi talks (echo cancellation keeps her own voice out). The loud
    * counter drains slowly instead of resetting, so normal dips inside words don't delay detection.
    */
-  async play(base64) {
-    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-    const buffer = await this.ctx.decodeAudioData(bytes.buffer);
-    return new Promise((resolve) => {
-      const node = this.ctx.createBufferSource();
-      node.buffer = buffer;
-      node.connect(this.botAnalyser);
-      const data = new Uint8Array(this.botAnalyser.fftSize);
-      let raf, loud = 0, stoppedBy = null, onsetAt = null, quietMs = 0;
-      const tick = () => {
-        this.botAnalyser.getByteTimeDomainData(data);
-        let s = 0; for (const v of data) s += ((v - 128) / 128) ** 2;
-        this.onLevel(Math.min(1, Math.sqrt(s / data.length) * 4), 'bot');
-        raf = requestAnimationFrame(tick);
-      };
-      this._frameHook = (rms, ms) => {
-        // When did this stretch of sound start? (so live.js can send audio from that point)
-        if (rms > this.threshold) { onsetAt ??= performance.now() - ms; quietMs = 0; }
-        else if ((quietMs += ms) > 400) onsetAt = null;
-        loud = rms > this.threshold * 4 ? loud + ms : Math.max(0, loud - ms / 2);
-        if (loud > 300 && !stoppedBy) {
-          const leadMs = Math.round(performance.now() - (onsetAt ?? performance.now() - 300));
-          stoppedBy = `barge-in: learner spoke over the prompt (speech started ${leadMs} ms earlier)`;
-          this.onBargeIn?.(leadMs);
-          node.stop();
-        }
-      };
-      this.stopPlayback = () => { stoppedBy ||= 'stopped by app'; try { node.stop(); } catch {} };
-      const started = this.ctx.currentTime;
-      node.onended = () => {
-        cancelAnimationFrame(raf); this.playing = false; this.stopPlayback = null; this._frameHook = null;
-        const played = this.ctx.currentTime - started;
-        if (stoppedBy) log('tts', `Prompt cut short after ${played.toFixed(1)} of ${buffer.duration.toFixed(1)} s: ${stoppedBy}`);
-        else log('tts', `Prompt finished playing (${buffer.duration.toFixed(1)} s)`);
-        this.onLevel(0, 'bot'); resolve();
-      };
-      this.playing = true;
-      log('tts', `Playing prompt audio (${buffer.duration.toFixed(1)} s, ${buffer.sampleRate} Hz)`);
-      node.start(); tick();
-    });
+  async playPcm(chunks, rate = 24000) {
+    if (this.ctx.state !== 'running') await this.ctx.resume();
+    const nodes = [];
+    let at = this.ctx.currentTime + 0.05, total = 0, leftover = null;
+    let raf, loud = 0, stoppedBy = null, onsetAt = null, quietMs = 0;
+    const stopAll = () => { for (const n of nodes) { try { n.stop(); } catch {} } };
+    const data = new Uint8Array(this.botAnalyser.fftSize);
+    const tick = () => {
+      this.botAnalyser.getByteTimeDomainData(data);
+      let s = 0; for (const v of data) s += ((v - 128) / 128) ** 2;
+      this.onLevel(Math.min(1, Math.sqrt(s / data.length) * 4), 'bot');
+      raf = requestAnimationFrame(tick);
+    };
+    this._frameHook = (rms, ms) => {
+      if (rms > this.threshold) { onsetAt ??= performance.now() - ms; quietMs = 0; }
+      else if ((quietMs += ms) > 400) onsetAt = null;
+      loud = rms > this.threshold * 4 ? loud + ms : Math.max(0, loud - ms / 2);
+      if (loud > 300 && !stoppedBy) {
+        const leadMs = Math.round(performance.now() - (onsetAt ?? performance.now() - 300));
+        stoppedBy = `barge-in: learner spoke over Sakhi (speech started ${leadMs} ms earlier)`;
+        this.onBargeIn?.(leadMs);
+        stopAll();
+      }
+    };
+    this.stopPlayback = () => { stoppedBy ||= 'stopped by app'; stopAll(); };
+    this.playing = true;
+    const started = this.ctx.currentTime;
+    tick();
+    try {
+      for await (const chunk of chunks) {
+        if (stoppedBy) break;
+        const bytes = leftover ? concat(leftover, chunk) : chunk;
+        const n = bytes.length >> 1;
+        leftover = bytes.length & 1 ? bytes.slice(n * 2) : null;
+        if (!n) continue;
+        const view = new DataView(bytes.buffer, bytes.byteOffset, n * 2);
+        const buf = this.ctx.createBuffer(1, n, rate);
+        const ch = buf.getChannelData(0);
+        for (let i = 0; i < n; i++) ch[i] = view.getInt16(i * 2, true) / 32768;
+        const node = this.ctx.createBufferSource();
+        node.buffer = buf; node.connect(this.botAnalyser);
+        at = Math.max(at, this.ctx.currentTime + 0.02); // if the network fell behind, carry on just ahead of now
+        node.start(at); at += buf.duration; total += buf.duration;
+        nodes.push(node);
+      }
+      while (!stoppedBy && this.ctx.currentTime < at) await new Promise((r) => setTimeout(r, 40));
+    } finally {
+      cancelAnimationFrame(raf); this.playing = false; this.stopPlayback = null; this._frameHook = null;
+      this.onLevel(0, 'bot');
+      const played = this.ctx.currentTime - started;
+      if (stoppedBy) log('tts', `Sakhi cut short after ${played.toFixed(1)} of ${total.toFixed(1)} s: ${stoppedBy}`);
+      else log('tts', `Sakhi finished speaking (${total.toFixed(1)} s)`);
+    }
   }
+}
+
+function concat(a, b) { const c = new Uint8Array(a.length + b.length); c.set(a); c.set(b, a.length); return c; }
+
+/** Async iterable over a fetch Response body, calling onFirst() when the first bytes arrive. */
+export async function* readBody(res, onFirst) {
+  const reader = res.body.getReader();
+  let first = true;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return;
+      if (first && value?.length) { first = false; onFirst?.(); }
+      yield value;
+    }
+  } finally { reader.cancel().catch(() => {}); }
 }

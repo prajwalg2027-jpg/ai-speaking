@@ -46,33 +46,66 @@ export async function transcribe(wav, overrides = {}) {
 }
 
 
-// Scripted prompts are synthesised once and cached by content hash.
-const ttsCache = new Map();
+// ---- Text-to-speech: Bulbul v4 Flash, streamed --------------------------------
+// /text-to-speech/stream returns raw 16-bit PCM as it's generated (first audio in about 0.5 s, versus
+// about 2 s for the whole clip from /text-to-speech). Finished clips are cached by content, so scripted
+// lines, generated when the server starts, play instantly.
+export const TTS_RATE = 24000;
+const pcmCache = new Map();  // key → Buffer (complete PCM)
+const pending = new Map();   // key → Promise of a generation in progress
 
-const ttsKey = (text, lang, pace) => createHash('sha1').update([text, lang, pace, S.ttsSpeaker, S.ttsModel].join('|')).digest('hex');
+const ttsKey = (text, lang, pace) => createHash('sha1').update([text, lang, pace, S.ttsSpeaker, S.ttsModel, TTS_RATE].join('|')).digest('hex');
 
-/** Is this exact prompt (text, language, pace, voice) already synthesised? */
-export const isSpeechCached = (text, { lang = 'en-IN', pace = 1.0 } = {}) => ttsCache.has(ttsKey(text, lang, pace));
-
-/** Bulbul: returns base64 WAV. */
-export async function speak(text, { lang = 'en-IN', pace = 1.0 } = {}) {
+/**
+ * Speak `text`, calling onChunk(Buffer) as audio arrives. Resolves { cached, bytes, firstByteMs }.
+ * Identical requests share one generation.
+ */
+export async function streamSpeech(text, { lang = 'en-IN', pace = 1.0 } = {}, onChunk = () => {}) {
   const key = ttsKey(text, lang, pace);
-  if (ttsCache.has(key)) return ttsCache.get(key);
-  const p = call('/text-to-speech', {
-    json: {
-      text,
-      language_code: lang,
-      speaker: S.ttsSpeaker,
-      model: S.ttsModel,
-      pace,
-      speech_sample_rate: S.ttsSampleRate,
-      output_audio_codec: 'wav',
-    },
-    timeout: S.timeouts.tts,
-  }).then((r) => r.audios?.[0]);
-  ttsCache.set(key, p);
-  p.catch(() => ttsCache.delete(key));
-  return p;
+  if (pcmCache.has(key)) { const b = pcmCache.get(key); onChunk(b); return { cached: true, bytes: b.length, firstByteMs: 0 }; }
+  if (pending.has(key)) { await pending.get(key).catch(() => {}); if (pcmCache.has(key)) return streamSpeech(text, { lang, pace }, onChunk); }
+
+  const t0 = performance.now();
+  let firstByteMs = null;
+  const job = (async () => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20_000);
+    try {
+      const res = await fetch(`${S.baseUrl}/text-to-speech/stream`, {
+        method: 'POST', signal: ctrl.signal,
+        headers: { 'api-subscription-key': S.apiKey, 'content-type': 'application/json' },
+        body: JSON.stringify({ text, language_code: lang, speaker: S.ttsSpeaker, model: S.ttsModel, pace, speech_sample_rate: TTS_RATE, output_audio_codec: 'linear16' }),
+      });
+      if (!res.ok) throw new Error(`Sarvam /text-to-speech/stream ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      const parts = [];
+      for await (const chunk of res.body) {
+        const b = Buffer.from(chunk);
+        firstByteMs ??= Math.round(performance.now() - t0);
+        parts.push(b);
+        onChunk(b);
+      }
+      const all = Buffer.concat(parts);
+      if (all.length) pcmCache.set(key, all);
+      return all;
+    } finally { clearTimeout(timer); }
+  })();
+  pending.set(key, job);
+  try { const all = await job; return { cached: false, bytes: all.length, firstByteMs }; }
+  finally { pending.delete(key); }
+}
+
+export const isSpeechCached = (text, { lang = 'en-IN', pace = 1.0 } = {}) => pcmCache.has(ttsKey(text, lang, pace));
+
+/** Generate lines ahead of time (two at a time). */
+export async function pregenerate(lines) {
+  let done = 0, failed = 0;
+  const queue = [...lines];
+  await Promise.all([0, 1].map(async () => {
+    for (let l; (l = queue.shift());) {
+      try { await streamSpeech(l.text, l); done++; } catch { failed++; }
+    }
+  }));
+  return { done, failed };
 }
 
 /**

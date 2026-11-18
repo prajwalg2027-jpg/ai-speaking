@@ -12,6 +12,8 @@ The speech, voice and language AI is powered by **[Sarvam AI](https://www.sarvam
 **Bulbul v4 Flash** (voice) and **Sarvam-105B** (scoring and replies, reading Hindi directly).
 
 ## Design docs
+- **[docs/03-conversation.md](docs/03-conversation.md)**: how the placement runs as a conversation with a
+  tutor (follow-ups, memory, guardrails, streamed voice).
 - **[docs/01-assessment-design.md](docs/01-assessment-design.md)**: how to measure
   speaking ability by voice, the 4 adaptive questions (open intro → picture/word
   vocabulary in both directions → read-aloud → opinion), and the scoring rubric.
@@ -42,7 +44,10 @@ automatically. Your proxy must allow WebSocket upgrades.
 ## Layout
 ```
 shared/assessment.js          question bank: 4 questions × level variants, Hindi fallbacks
-server/index.js               static + /api/turn, /api/tts, /api/final; evaluateTurn()
+server/index.js               static + /api/session, /api/session/turn, /api/tts/stream, STT lab endpoints
+server/session.js             the conversation: memory, next step, help ladder, summary
+server/tutor.js               Sakhi's lines (Sarvam-105B) and their guardrails
+server/turn.js                answer evaluation: is it an answer, then measure + judge
 server/live.js                /api/live: browser ⇄ Sarvam Realtime STT relay (key stays server-side)
 server/sarvam.js              Sarvam REST client: Bulbul v4 Flash (cached), chat (JSON mode), Saaras REST for the mic test
 server/clarify.js             "didn't understand" detection (EN / Hinglish / Devanagari)

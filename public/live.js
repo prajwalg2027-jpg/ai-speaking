@@ -124,7 +124,7 @@ export class LiveSTT {
   beginPrompt() {
     this.accepted = new Set();
     this.pending = [];
-    this.inUtterance = false;
+    this.open = new Set(); // utterances that started and whose final transcript hasn't arrived yet
     this.speechSec = 0;
     this.language = null;
     this.languageConfidence = null;
@@ -137,7 +137,7 @@ export class LiveSTT {
         if (!this.listener) return log('live', `VAD: speech started outside an answer window, ignored (utterance ${e.idx})`);
         log('live', `VAD: speech started (utterance ${e.idx})`);
         this.accepted.add(e.idx);
-        this.inUtterance = true;
+        this.open.add(e.idx);
         this._utterStart = performance.now();
         return this.listener.onSpeechStart();
       case 'partial':
@@ -146,13 +146,13 @@ export class LiveSTT {
       case 'speech_end':
         if (!accepted) return;
         log('live', `VAD: speech ended (utterance ${e.idx})`);
-        this.inUtterance = false;
         this._wallSpeech = (performance.now() - (this._utterStart ?? performance.now())) / 1000;
         return this.listener?.onSpeechEnd();
       case 'final':
         if (!accepted) return log('live', `Final transcript for ignored utterance ${e.idx} dropped`, e.text);
         log('stt', `Final transcript (utterance ${e.idx})`, { text: e.text, language: e.language, confidence: e.languageConfidence, speechSec: e.speechSec });
-        this.inUtterance = false;
+        // A final can arrive after the learner has started the next stretch of speech: only that utterance closes.
+        this.open.delete(e.idx);
         if (e.text?.trim()) this.pending.push(e.text.trim());
         this.speechSec += e.speechSec ?? this._wallSpeech ?? 0;
         if (e.language) { this.language = e.language; this.languageConfidence = e.languageConfidence; }
@@ -213,17 +213,17 @@ export class LiveSTT {
           if (language === 'auto') this._send({ type: 'config', language: 'auto' });
           clearTimeout(grace); clearTimeout(safety);
           if (finishing) return finish(finishing);
-          if (!this.inUtterance) {
+          if (this.open.size === 0) {
             log('live', `Waiting ${graceMs} ms in case the learner continues`);
             grace = setTimeout(() => finish('silence'), graceMs);
-          }
+          } else log('live', 'Learner is still talking (a later utterance is open): keeping the answer open');
         },
         onFail: () => finish('live_failed'),
       };
 
       // "Done speaking" / orb tap. immediate=true (skip, repeat…) doesn't wait for the transcript.
       this.voice.stopListening = (immediate = false) => {
-        if (immediate || !this.inUtterance) finish('manual');
+        if (immediate || this.open.size === 0) finish('manual');
         else if (!finishing) requestFinal('manual');
       };
       const tick = setInterval(() => {

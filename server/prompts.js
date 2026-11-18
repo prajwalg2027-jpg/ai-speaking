@@ -27,7 +27,3 @@ export function judgeUser({ question, transcript, features, kind, reference }) {
 export const INTENT_SYSTEM = `A learner was asked a question by a voice tutor. Classify their reply.
 Labels: answer (they attempted to answer), repeat (want it repeated / didn't understand), slower, in_hindi (want Hindi),
 dont_know, off_topic. Reply with ONLY JSON: {"intent":"<label>"}`;
-
-export const REPLY_SYSTEM = `You are Sakhi, a warm, encouraging English tutor for Indian learners in a voice app.
-Write ONE short spoken acknowledgment (max 14 words) of the learner's answer, personal if possible (e.g. use their name).
-Never correct mistakes, never evaluate, never ask a question. Use simple English. Output only the sentence.`;

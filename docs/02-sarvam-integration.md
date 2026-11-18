@@ -37,15 +37,15 @@ talks to `/api/*` and `/api/live`, never to Sarvam directly.
  │ live.js: answer = utterances    │ ◄───────── │ ◄── session.begin, vad.speech_start,   ◄─────── saaras:v4
  │  until VAD silence + 700 ms     │  events    │     transcript.partial/final, …            (server VAD,
  │  • captions from partials       │            │   {type:"config"} → config.update             codemix)
- │  • barge-in on speech_start     │            │   {type:"finish"} → silence push
- │                                 │  JSON      │ /api/turn {transcript,languageCode}
+ │  • barge-in from the mic level  │            │   {type:"finish"} → silence push
+ │ quick reaction (cached)         │  JSON      │ /api/session/turn {event, transcript, …}
  │                                 │            │   clarify.detect() → (short & ambiguous) ───────► sarvam-105b
  │                                 │            │   features() + rubric judge (JSON mode) ────────► sarvam-105b
- │ next prompt audio ◄─────────────│ ◄───────── │   + acknowledgment (Q1) ────────────────────────► sarvam-105b-conversations
- │                                 │            │ /api/tts (cached by text/voice/pace) ───────────► bulbul:v4-flash
+ │ Sakhi's next line ◄─────────────│ ◄───────── │   + tutor writes the next line (parallel) ──────► sarvam-105b-conversations
+ │ PCM played as it streams        │ ◄───────── │ /api/tts/stream (PCM, cached) ──────────────────► bulbul:v4-flash /stream
  └─────────────────────────────────┘            └─────────────────────────────────────────┘
-   Mic audio streams only while listening for an answer (pre-roll covers the start); nothing is streamed
-   while Sakhi talks or the server scores. If Sarvam closes the session, the next answer reconnects.
+   The conversation itself runs on the server (docs/03-conversation.md). Mic audio streams only while
+   listening for an answer (pre-roll covers the start); nothing is streamed while Sakhi talks or the server scores. If Sarvam closes the session, the next answer reconnects.
 ```
 
 ### Making it feel instant

@@ -11,16 +11,14 @@
   <main class="app" data-state="idle">
     <header class="top">
       <span class="brand">Sakhi</span>
-      <span class="progress" id="progress" aria-live="polite"></span>
     </header>
 
     <section class="stage">
       <div class="orb-wrap">
         <button class="orb" id="orb" aria-label="Start talking"><span class="orb-core"></span></button>
       </div>
-      <p class="bot-line" id="botLine" aria-live="polite">Tap the bubble to start</p>
+      <div class="convo" id="convo" aria-live="polite"></div>
       <div class="card" id="card" hidden></div>
-      <p class="you-line" id="youLine" aria-live="polite"></p>
       <p class="hint" id="hint"></p>
     </section>
 

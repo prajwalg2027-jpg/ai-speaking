@@ -42,8 +42,9 @@ test set · Hearing · Turn-taking · Speaking · Understanding and replies · A
   with the speaker on, where echo cancellation varies by device.
 
 ## Speaking
-- **Pre-generate all scripted prompts when the server starts.** Today the first time each prompt is
-  used, Bulbul takes 1.7–4.6 s before Sakhi speaks. The cache is also lost on restart.
+- ~~Pre-generate scripted prompts~~ **Done**, along with streamed voice (first audio in about 0.5 s).
+- **Stream the tutor's text into the voice**: start speaking the reaction while the rest is written.
+- The voice cache lives in memory; it's rebuilt (about 30 s) on every restart.
 
 ## Understanding and replies
 - The keyword list misses common Hindi ways of saying "repeat" (e.g. "एक बार और बोलिए",
