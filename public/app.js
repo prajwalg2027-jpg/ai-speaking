@@ -90,18 +90,53 @@ async function loadBackchannels() {
   await Promise.all(PHRASES.backchannels.map(async (text) => {
     try {
       const res = await fetch('/api/tts/stream', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, lang: 'en-IN', pace: 1 }) });
-      if (res.ok) backchannels.push({ text, pcm: new Uint8Array(await res.arrayBuffer()), rate: Number(res.headers.get('x-sample-rate')) || 24000 });
+      if (res.ok) backchannels.push({ text, pcm: trimSilence(new Uint8Array(await res.arrayBuffer())), rate: Number(res.headers.get('x-sample-rate')) || 24000 });
     } catch { /* optional */ }
   }));
   log('tts', `Loaded ${backchannels.length} quick reactions`, backchannels.map((b) => b.text));
 }
 
-/** A short "Mm-hmm." the moment the learner finishes, so there's no dead air while the reply is prepared. */
-function backchannel() {
-  if (!backchannels.length) return null;
-  const b = backchannels[Math.floor(Math.random() * backchannels.length)];
-  log('tts', `Quick reaction while the reply is prepared: "${b.text}"`);
-  return voice.playPcm([b.pcm], b.rate);
+/** Cut the quiet lead-in and tail from a 16-bit PCM clip, so a short reaction starts and stops crisply. */
+function trimSilence(pcm) {
+  const v = new DataView(pcm.buffer, pcm.byteOffset, pcm.length & ~1), n = v.byteLength >> 1, quiet = 500, pad = 960; // 40 ms
+  let a = 0, b = n - 1;
+  while (a < n && Math.abs(v.getInt16(a * 2, true)) < quiet) a++;
+  while (b > a && Math.abs(v.getInt16(b * 2, true)) < quiet) b--;
+  if (a >= b) return pcm;
+  return pcm.slice(Math.max(0, a - pad) * 2, Math.min(n, b + pad) * 2);
+}
+
+/**
+ * A short "Okay." while the reply is prepared, so there's no dead air. Said like a person would: a beat after
+ * they stop (not the instant), softer than a full line, never the same one twice in a row, and only if the
+ * reply isn't already here.
+ */
+let lastBackchannel = null;
+function backchannel(replyReady) {
+  if (!backchannels.length) return { played: Promise.resolve(null), text: () => null };
+  let said = null;
+  const played = sleep(350).then(() => {
+    if (replyReady()) return null;
+    const pool = backchannels.length > 1 ? backchannels.filter((b) => b.text !== lastBackchannel) : backchannels;
+    const b = pool[Math.floor(Math.random() * pool.length)];
+    said = lastBackchannel = b.text;
+    log('tts', `Quick reaction while the reply is prepared: "${b.text}"`);
+    return voice.playPcm([b.pcm], b.rate, { volume: 0.8 });
+  });
+  return { played, text: () => said };
+}
+
+// Sakhi's own replies often open with the same kind of word ("Okay! ..."). After a quick reaction, that opening
+// is dropped so she doesn't say "Okay." and then "Okay!" again.
+const ACK = /^\s*(?:okay|ok|alright|all right|right|got it|i see|hmm+|mm-?hmm|achha|great|nice|good|thanks|thank you)(?:[,\s]+(?:okay|thanks|thank you|got it))?\s*[.!]+\s+/i;
+function dropRepeatedAck(turn) {
+  const first = turn.say?.[0];
+  const m = first && first.lang === 'en-IN' && first.text.match(ACK);
+  if (!m || !first.text.slice(m[0].length).trim()) return;
+  const cut = m[0].trim().split(/\s+/).length;
+  log('tts', `Dropped "${m[0].trim()}" from the start of the reply (a quick reaction was just said)`);
+  turn.say[0] = { ...first, text: first.text.slice(m[0].length) };
+  if (turn.cue && turn.cue.line === 0) turn.cue = { ...turn.cue, word: Math.max(0, turn.cue.word - cut) };
 }
 
 // ---------- haptics ----------
@@ -226,11 +261,13 @@ async function run() {
 
     if (input.event === 'answer' && input.transcript) ui.cardAnswered();
     const words = (input.transcript || '').trim().split(/\s+/).filter(Boolean).length;
-    const reacting = input.event === 'answer' && words >= 3 ? backchannel() : null;
+    let replied = false;
+    const reacting = input.event === 'answer' && words >= 3 ? backchannel(() => replied) : null;
     setState('thinking');
     ui.sent();
     turn = await api('/api/session/turn', { sessionId, ...input });
-    await reacting;
+    replied = true;
+    if (reacting) { await reacting.played; if (reacting.text()) dropRepeatedAck(turn); }
   }
 }
 

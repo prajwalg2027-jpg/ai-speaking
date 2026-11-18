@@ -88,7 +88,7 @@ export const PHRASES = {
   listenLead: "Now listen carefully. I'll say two short sentences, and then ask you one question.",
   listenAgain: "Okay, I'll say it again. Listen carefully.",
   // Played the moment the learner finishes, while Sakhi's real reply is being prepared.
-  backchannels: ['Mm-hmm.', 'Okay!', 'Achha.', 'I see.'],
+  backchannels: ['Okay.', 'Right.', 'I see.', 'Hmm, okay.', 'Got it.'],
 };
 
 /** Pick a question for a level: one at random from that level's pool (`random` is replaceable in tests). */

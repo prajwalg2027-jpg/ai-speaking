@@ -102,11 +102,12 @@ export class Voice {
    * onProgress({ played, total, complete }) is called every frame: seconds heard so far, seconds received so far,
    * and whether the whole clip has arrived (the screen reveals Sakhi's words with it).
    */
-  async playPcm(chunks, rate = 24000, { onProgress } = {}) {
+  async playPcm(chunks, rate = 24000, { onProgress, volume = 1 } = {}) {
     if (this.ctx.state !== 'running') await this.ctx.resume();
     const nodes = [];
     const gain = this.ctx.createGain();
     gain.connect(this.botAnalyser);
+    gain.gain.value = volume;
     let at = this.ctx.currentTime + 0.05, total = 0, leftover = null;
     let raf, loud = 0, stoppedBy = null, duckedAt = null, result = null, complete = false;
     const stopAll = () => { for (const n of nodes) { try { n.stop(); } catch {} } };
@@ -131,7 +132,7 @@ export class Voice {
         stoppedBy = `barge-in: learner spoke over Sakhi (speech started ${Math.round(now - onset)} ms earlier)`;
         this.onBargeIn?.(onset);
         stopAll();
-      } else if (duckedAt != null && loud === 0 && now - duckedAt > 600) { duckedAt = null; setVolume(1); }
+      } else if (duckedAt != null && loud === 0 && now - duckedAt > 600) { duckedAt = null; setVolume(volume); }
     };
     this.stopPlayback = () => { stoppedBy ||= 'stopped by app'; stopAll(); };
     this.playing = true;
