@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { startMockRest } from './mock-sarvam-rest.js';
 import { QUESTIONS, PHRASES } from '../shared/assessment.js';
 
+/** The question the session picked from the pool (each conversation picks one at random). */
+const picked = (t, qIndex) => [QUESTIONS[qIndex].variants[t.task.level]].flat().find((v) => v.id === t.task.item);
+
 let server, base, mock;
 before(async () => {
   mock = await startMockRest();
@@ -159,7 +162,7 @@ test('word tasks ask one word at a time, then score both replies together', asyn
   t = await answer(t.sessionId, 'I am a teacher and I love walking in the evening with friends near my house in Pune.');
   t = await answer(t.sessionId, 'I teach English and maths to small children every morning at the school.');
   assert.equal(t.task.id, 'q2_vocab');
-  const v = QUESTIONS[1].variants[t.task.level];
+  const v = picked(t, 1);
   assert.equal(t.card.text, v.screen, 'the card shows only the first word');
   t = await answer(t.sessionId, `This is ${[v.expect[0]].flat()[0]}.`, 2);
   assert.equal(t.task.id, 'q2_vocab', 'still on the word task');
@@ -175,7 +178,7 @@ test('"I don\'t know" to the first word still asks the second; both words at onc
   let t = await post('/api/session', {});
   t = await answer(t.sessionId, 'I am a teacher and I love walking in the evening with friends near my house in Pune.');
   t = await answer(t.sessionId, 'I teach English and maths to small children every morning at the school.');
-  const v = QUESTIONS[1].variants[t.task.level];
+  const v = picked(t, 1);
   t = await answer(t.sessionId, "I don't know", 1);
   assert.equal(t.task.id, 'q2_vocab');
   assert.equal(t.card.text, v.second.screen);
@@ -183,7 +186,7 @@ test('"I don\'t know" to the first word still asks the second; both words at onc
   t = await post('/api/session', {});
   t = await answer(t.sessionId, 'I am a teacher and I love walking in the evening with friends near my house in Pune.');
   t = await answer(t.sessionId, 'I teach English and maths to small children every morning at the school.');
-  const w = QUESTIONS[1].variants[t.task.level];
+  const w = picked(t, 1);
   t = await answer(t.sessionId, `${[w.expect[0]].flat()[0]}, and the other one is ${[w.expect[1]].flat()[0]}.`, 4);
   assert.equal(t.task.id, 'q2_listen');
 });
@@ -287,7 +290,7 @@ const toListening = async () => {
   let t = await post('/api/session', {});
   t = await answer(t.sessionId, 'I am a teacher and I love walking in the evening with friends near my house in Pune.');
   t = await answer(t.sessionId, 'I teach English and maths to small children every morning at the school.');
-  const v = QUESTIONS[1].variants[t.task.level];
+  const v = picked(t, 1);
   t = await answer(t.sessionId, `It is ${[v.expect[0]].flat()[0]}, and the other is ${[v.expect[1]].flat()[0]}.`, 4);
   return t;
 };
@@ -295,7 +298,7 @@ const toListening = async () => {
 test('listening: Sakhi leads in, says the two sentences and asks one question; a right answer counts', async () => {
   let t = await toListening();
   assert.equal(t.task.id, 'q2_listen');
-  const v = QUESTIONS[2].variants[t.task.level];
+  const v = picked(t, 2);
   assert.equal(t.say.length, 3, 'lead-in, sentences, question');
   assert.equal(t.say[1].text, v.passage);
   assert.equal(t.say[2].text, v.question);
@@ -332,7 +335,7 @@ test('pronunciation is only measured from reading; fluency uses the mic timing',
 test('the result says the level in simple words, with what went well and what to practise', async () => {
   let t = await post('/api/session', {});
   for (let i = 0; i < 25 && !t.done; i++) {
-    const v = t.task.kind === 'vocab' ? QUESTIONS[1].variants[t.task.level] : t.task.kind === 'listen' ? QUESTIONS[2].variants[t.task.level] : null;
+    const v = t.task.kind === 'vocab' ? picked(t, 1) : t.task.kind === 'listen' ? picked(t, 2) : null;
     const reply = t.task.kind === 'read' ? t.card.text : v ? `It is ${[v.expect.at(-1)].flat()[0]} and ${[v.expect[0]].flat()[0]}.` : 'I work as a teacher in a small school near Pune and I walk with friends in the evening.';
     t = await answer(t.sessionId, reply, 6);
   }
@@ -341,4 +344,13 @@ test('the result says the level in simple words, with what went well and what to
   assert.equal(t.done.doingWell.length, 2); assert.equal(t.done.practise.length, 2);
   assert.ok(t.done.dims.pronunciation != null, 'measured from the read-aloud');
   assert.doesNotMatch(JSON.stringify([t.done.doingWell, t.done.practise]), /fluency|vocabulary|coherence/i);
+});
+
+test('each conversation picks its questions from the approved pools', async () => {
+  const seen = new Set();
+  for (let i = 0; i < 12; i++) seen.add((await post('/api/session', {})).task.item);
+  assert.ok(seen.size >= 2, `openings vary: ${[...seen]}`);
+  for (const id of seen) assert.match(id, /^OPEN-\d$/);
+  // Every pool has at least two questions at every level (so retakes differ).
+  for (const q of QUESTIONS.slice(1)) for (const [lvl, pool] of Object.entries(q.variants)) assert.ok(pool.length >= 2, `${q.id} level ${lvl}`);
 });

@@ -142,3 +142,10 @@ first audio 0.45–0.75 s). Before, there were 1.7–4.6 s of silence with no re
 On Android the phone vibrates when it's the learner's turn to speak (45 ms) and gives a lighter tap (18 ms) when
 their answer is complete and being processed. No "your turn" buzz after an interruption (they're already talking).
 iPhones don't support web vibration. `?haptics=0` in the URL turns it off.
+
+## Question bank (reviewed)
+The questions live in `shared/bank.js`: 91 approved in review (review page `/review.html`, batches in
+`public/review/`). Each type has a pool per level, and each conversation picks one question at random from each
+pool, so retakes rarely repeat: 3 openings; word pairs 5/2/5/6 (levels 1-4); listening 6 per level; read-aloud
+6/6/6/5; speaking 5/6/6/6. Help lines (simpler English, Hindi) were drafted with Sarvam-105B and checked by hand.
+`docs/question-bank.xlsx` lists every item. Result tips ("what to practise") come only from open answers.

@@ -35,7 +35,7 @@ function makeTask(qIndex, level, { probe = false } = {}) {
     return {
       id: q.id, qIndex, kind: q.kind, variantLevel: Math.min(4, Math.max(1, level)), silenceMs: q.silenceMs, language: q.language || 'auto',
       scripted: PHRASES.listenLead, simple: PHRASES.listenLead, hindi: v.hindi, passage: v.passage, question: v.question, secret: `${v.passage} ${v.question}`,
-      reference: null, expect: v.expect, tutor: q.tutor, card: { text: v.screen, kind: 'task' }, probe, followUp: false, ask: null,
+      reference: null, expect: v.expect, tutor: q.tutor, card: { text: v.screen, kind: 'task' }, probe, followUp: false, ask: null, item: v.id,
     };
   }
   return {
@@ -43,7 +43,7 @@ function makeTask(qIndex, level, { probe = false } = {}) {
     silenceMs: q.silenceMs, language: q.language || 'auto',
     scripted: v.say, simple: v.simple, hindi: v.hindi, reference: q.kind === 'read' ? v.screen : null, expect: v.expect, second: v.second, scene: v.scene,
     tutor: q.tutor || v.tutor, card: showCard ? { text: v.screen, kind: q.kind === 'read' ? 'read' : 'task' } : null,
-    probe, followUp: q.kind === 'open', ask: null,
+    probe, followUp: q.kind === 'open', ask: null, item: v.id, // which question from the pool
   };
 }
 
@@ -68,20 +68,21 @@ function secondQuestion(t) {
 
 const freshAttempt = () => ({ confusions: 0, unheard: 0, meta: 0, neededHindi: false, nudgedEnglish: false, prior: '', partial: null, askedRest: false, focus: null });
 
-/** Every scripted line the conversation can say, with the exact pace it's said at (for pre-generation). */
+/**
+ * Lines worth generating ahead (for pre-generation at startup): each question as first asked, the listening
+ * sentences and questions, and the fixed phrases. Help versions (slower, simpler, Hindi) are generated when
+ * needed: they stream in about a quarter of a second.
+ */
 export function scriptedLines() {
-  const out = [line(QUESTIONS[0].variants.any.say)];
-  for (const q of QUESTIONS) for (const v of Object.values(q.variants)) {
-    if (v.passage) out.push(line(v.passage, { pace: 0.95 }), line(v.passage, { pace: 0.8 }), line(v.question), line(v.question, { pace: 0.8 }), line(v.passage, { pace: 0.85 }));
-    if (v.say) out.push(line(v.say), line(v.say, { pace: 0.8 }));
-    if (v.simple) out.push(line(v.simple, { pace: 0.85 }));
-    if (v.hindi) out.push(line(v.hindi, { pace: 0.9 }));
-    if (v.second) out.push(line(v.second.say), line(v.second.say, { pace: 0.8 }), line(v.second.simple, { pace: 0.85 }), line(v.second.hindi, { pace: 0.9 }));
+  const out = [];
+  for (const q of QUESTIONS) for (const pool of Object.values(q.variants)) for (const v of [pool].flat()) {
+    if (v.passage) out.push(line(v.passage, { pace: 0.95 }), line(v.question));
+    if (v.say) out.push(line(v.say));
+    if (v.second) out.push(line(v.second.say));
   }
   out.push(line(PHRASES.didntHear, { pace: 0.95 }), line(PHRASES.cutOff), line(PHRASES.moveOn), line(PHRASES.followUp), line(PHRASES.hindiOk), line(PHRASES.englishOk),
-    line(PHRASES.tryEnglish), line(PHRASES.tryEnglishHindi), line(PHRASES.listenAgain), line(PHRASES.listenLead),
-    line(PHRASES.followUpSimple, { pace: 0.85 }), line(PHRASES.followUpHindi, { pace: 0.9 }), ...PHRASES.backchannels.map((b) => line(b)));
-  return out;
+    line(PHRASES.tryEnglish), line(PHRASES.tryEnglishHindi), line(PHRASES.listenAgain), line(PHRASES.listenLead), ...PHRASES.backchannels.map((b) => line(b)));
+  return [...new Map(out.map((l) => [`${l.text}|${l.pace}`, l])).values()];
 }
 
 // ---- session lifecycle ------------------------------------------------------------
@@ -109,7 +110,7 @@ function respond(s, lines, extra = {}) {
   return {
     sessionId: s.id, say: lines, card: s.done ? null : current(s).card,
     listen: s.done ? null : { silenceMs: s.task.silenceMs, language: s.task.language },
-    task: s.done ? null : { id: s.task.id, level: s.task.variantLevel, kind: s.task.kind },
+    task: s.done ? null : { id: s.task.id, level: s.task.variantLevel, kind: s.task.kind, item: s.task.item },
     ...extra,
   };
 }

@@ -3,29 +3,29 @@ import assert from 'node:assert/strict';
 import { checkAsk, checkReaction, stripVerdicts } from '../server/tutor.js';
 import { QUESTIONS } from '../shared/assessment.js';
 
-const vocab3 = { tutor: QUESTIONS[1].variants[3].tutor };
-const read = { tutor: QUESTIONS[3].tutor, reference: QUESTIONS[3].variants[3].screen };
+const vocab3 = { tutor: QUESTIONS[1].variants[3].find((v) => v.id === 'WORD-L3-3').tutor }; // 'expensive', starts with E
+const read = { tutor: QUESTIONS[3].tutor, reference: QUESTIONS[3].variants[3][1].screen }; // the restaurant sentence
 
 test('task lines must keep the task words', () => {
-  assert.equal(checkAsk("Here's a puzzle: if something is your duty, it's your… what? It starts with R.", vocab3).ok, true);
-  assert.match(checkAsk('What is this word?', vocab3).reason, /missing/);
+  assert.equal(checkAsk("Here's a puzzle: when something costs a lot of money, it's… what? It starts with E.", vocab3).ok, true);
+  assert.match(checkAsk('When something costs a lot of money, what is it?', vocab3).reason, /missing/);
 });
 
 test('task lines must never give away the answer', () => {
-  assert.match(checkAsk('Your duty is your responsibility, right?', vocab3).reason, /gives away "responsibility"/);
-  const l1 = { tutor: QUESTIONS[1].variants[1].tutor };
-  assert.match(checkAsk('Look at this picture of a सेब. What is it in English?', l1).reason, /gives away/);
+  assert.match(checkAsk("It's expensive, right? It starts with E.", vocab3).reason, /gives away "expensive"/);
+  const l1 = { tutor: QUESTIONS[1].variants[1].find((v) => v.id === 'WORD-L1-1').tutor };
+  assert.match(checkAsk('Look at this picture of a dog. What is it?', l1).reason, /gives away "dog"/);
 });
 
 test('a listening lead-in must not give away the sentences or the question', () => {
-  const v = QUESTIONS[2].variants[2], listen = { tutor: QUESTIONS[2].tutor, secret: `${v.passage} ${v.question}` };
+  const v = QUESTIONS[2].variants[2][0], listen = { tutor: QUESTIONS[2].tutor, secret: `${v.passage} ${v.question}` };
   assert.equal(checkAsk("Now listen carefully: I'll say two short sentences, then ask one question.", listen).ok, true);
-  assert.match(checkAsk('Listen: Meena wakes up at six every day.', listen).reason, /reads the sentence out/);
+  assert.match(checkAsk('Listen: Ravi missed the bus this morning.', listen).reason, /reads the sentence out/);
 });
 
 test('read-aloud lines must not say the sentence', () => {
   assert.equal(checkAsk('Please read the sentence on your screen out loud.', read).ok, true);
-  assert.match(checkAsk('Read this out: although the weather was terrible.', read).reason, /reads the sentence out/);
+  assert.match(checkAsk('Read this out: even though the restaurant was expensive.', read).reason, /reads the sentence out/);
 });
 
 test('follow-ups must be questions; summaries must name the level', () => {

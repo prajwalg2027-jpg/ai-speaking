@@ -160,9 +160,10 @@ function aboutText(profile = {}) {
  */
 export async function explainResult({ answers, dims, level }, trace) {
   const meta = {};
-  const said = answers.filter((a) => !a.skipped && a.transcript).map((a) => `- (${a.kind}) ${a.transcript}`).join('\n');
+  // Tips come from what they said in their own words: not word-game answers, listening answers or reading.
+  const said = answers.filter((a) => !a.skipped && a.transcript && a.kind === 'open').map((a) => `- ${a.transcript}`).join('\n');
   const ranked = Object.entries(dims || {}).sort((a, b) => b[1] - a[1]).map(([k]) => SKILL_WORDS[k]);
-  const user = `Their level: ${level} of 4.\nStrongest to weakest: ${ranked.join('; ')}.\nTheir answers:\n${said || '(none)'}`;
+  const user = `Their level: ${level} of 4.\nStrongest to weakest: ${ranked.join('; ')}.\nWhat they said in their own words:\n${said || '(only short answers)'}`;
   const call = sarvam.chatJSON([{ role: 'system', content: EXPLAIN_SYSTEM }, { role: 'user', content: user }], { model: config.sarvam.llmReplyModel, temperature: 0.4, maxTokens: 300, meta, purpose: 'tutor' });
   const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('took over 5 s')), 5000));
   const r = await trace.time('explain', () => Promise.race([call, timeout]), (x) => ({ model: meta.model, ...x })).catch(() => null);
