@@ -24,6 +24,8 @@ export function judgeUser({ question, transcript, features, kind, reference }) {
   ].filter(Boolean).join('\n');
 }
 
+export const CONTINUE_SYSTEM = `A learner in a voice English lesson answered the tutor, paused, and the tutor started replying. The learner then talked over the tutor. Decide whether the learner was still adding to their previous answer (finishing their thought), or was replying to what the tutor had just started saying. Reply with ONLY JSON: {"continues": true|false}`;
+
 export const UNDERSTAND_SYSTEM = `You help a voice English tutor understand what a learner just said. The tutor asked something; read the learner's reply (an automatic transcript, maybe mixing Hindi and English) and reply with ONLY JSON:
 {"intent": "...", "language": null, "name": null, "facts": []}
 intent, one of:
@@ -34,6 +36,7 @@ intent, one of:
 - "slower": they asked the tutor to speak more slowly
 - "dont_know": they said they don't know
 - "skip": they asked to skip or move on
+- "reply": only if the message says the learner talked over the tutor before hearing the question, AND their reply is just a short response to what they heard ("yes", "thank you", "haha", "that's right", a comment on what the tutor said). Anything about themselves or their life, or anything that answers even part of the question, is "answer".
 name: the learner's own first name if they say it in this reply, including when correcting the tutor ("my name is not Riya, it's Priya" → "Priya"). Otherwise null. Never guess a name, and never return a name they said is not theirs.
 facts: up to 3 short NEW facts about the learner's life stated in this reply, in English (e.g. "works at an atta chakki"). Leave out anything already known. [] if none.
 language: when intent is "language", the language they asked for, in English (e.g. "Punjabi"). Otherwise null.`;

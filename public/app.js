@@ -109,7 +109,7 @@ async function api(path, body) {
 }
 
 // Turn one server trace step into a readable log line.
-const TRACE_CAT = { understand: 'llm', profile: 'app', judge: 'llm', tutor: 'llm', 'tutor-fallback': 'error', 'tutor-retry': 'llm', features: 'score', heuristic: 'score', scores: 'score', plan: 'app' };
+const TRACE_CAT = { understand: 'llm', continues: 'llm', interrupted: 'app', profile: 'app', judge: 'llm', tutor: 'llm', 'tutor-fallback': 'error', 'tutor-retry': 'llm', features: 'score', heuristic: 'score', scores: 'score', plan: 'app' };
 function logTraceStep(st) {
   const { step, at, ms, error, ...d } = st;
   const p = `server +${at} ms · `;
@@ -126,6 +126,8 @@ function logTraceStep(st) {
     judge: () => `${p}${d.model} rubric scores in ${ms} ms`,
     scores: () => `${p}answer scores for ${d.task} (${d.blend})`,
     tutor: () => `${p}${d.model} wrote Sakhi's next line in ${ms} ms (${d.situation})`,
+    interrupted: () => `${p}learner talked over Sakhi after: "${d.heard}"${d.askHeard ? '' : ' (before her question)'}`,
+    continues: () => `${p}${d.model} checked in ${ms} ms: ${d.continues ? 'still finishing the previous answer' : 'a reply to what Sakhi said'}`,
     'tutor-retry': () => `${p}tutor line rejected (${d.reason}): asking again`,
     'tutor-fallback': () => `${p}tutor line rejected (${d.reason}): using the scripted line`,
     plan: () => `${p}${d.next ? `next: ${d.next}` : ''}${d.why ? ` (${d.why})` : ''}${d.level ? ` · level ${d.level}` : ''}${d.discarded ? ` · discarded ${d.discarded}` : ''}`,
@@ -146,19 +148,28 @@ async function run() {
     ui.card(turn.card);
     chipAction = null;
     live.beginPrompt();
-    // The learner talking over Sakhi ends her whole turn, not just the current line.
-    for (const line of turn.say) {
+    // The learner talking over Sakhi ends her whole turn, not just the current line. The server is told how
+    // much of it they heard, so it knows whether they heard the question.
+    let interrupted = null;
+    for (let i = 0; i < turn.say.length; i++) {
       if (chipAction) break;
-      if ((await speak(line)) === 'barge-in') { log('app', 'Learner interrupted: skipping the rest of Sakhi\'s turn'); break; }
+      const r = await speak(turn.say[i]);
+      if (r?.stoppedBy === 'barge-in') {
+        interrupted = { index: i, heardSec: r.heardSec };
+        log('app', `Learner interrupted after ${r.heardSec} s of line ${i + 1} of ${turn.say.length}: skipping the rest of Sakhi's turn`);
+        break;
+      }
     }
-    if (turn.done) { stopCostMeter(5000); return showResult(turn.done); }
+    if (turn.done && !interrupted) { stopCostMeter(5000); return showResult(turn.done); }
+    // Talking over the closing summary usually means they were still finishing their last answer: listen.
+    if (turn.done) log('app', 'Learner talked over the summary: listening in case they were still answering');
 
-    const rec = chipAction ? { reason: 'manual' } : await listen(turn.listen);
+    const rec = chipAction ? { reason: 'manual' } : await listen(turn.listen || { silenceMs: 1400, language: 'auto' });
     let input;
     if (chipAction) input = { event: chipAction };
     else if (rec.reason === 'no_speech') input = { event: 'no_speech' };
     else if (rec.reason === 'live_failed') input = { event: 'live_failed' };
-    else input = { event: 'answer', transcript: rec.transcript, languageCode: rec.language, speechSec: rec.speechSec };
+    else input = { event: 'answer', transcript: rec.transcript, languageCode: rec.language, speechSec: rec.speechSec, ...(interrupted ? { interrupted } : {}) };
     chipAction = null;
     ui.heard(input.transcript);
 
@@ -208,8 +219,8 @@ $('orb').addEventListener('click', async () => {
     const params = new URLSearchParams(location.search);
     if (!voice.ctx) await voice.init({ noiseSuppression: params.get('ns') !== '0', autoGainControl: params.get('agc') !== '0' });
     live = new LiveSTT(voice);
-    // Send audio from where the learner started talking (+250 ms margin), within the 2 s buffer.
-    voice.onBargeIn = (leadMs) => { live.bargeInPrerollMs = Math.min(2000, leadMs + 250); };
+    // An interruption: listening sends audio from where the learner started talking (live.js).
+    voice.onBargeIn = (onsetAt) => { live.bargeInAt = onsetAt; };
     if (!(await live.connect())) {
       throw Object.assign(new Error(`Sarvam Realtime unavailable: ${live.reason}`), { userMessage: "I couldn't connect to the speech service. Check your connection and tap the bubble to try again." });
     }

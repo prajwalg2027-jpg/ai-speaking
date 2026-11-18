@@ -5,7 +5,8 @@ export class Voice {
   constructor(onLevel) {
     this.onLevel = onLevel; // (0..1, 'user'|'bot') => void
     this.ctx = null;
-    this.onBargeIn = null; // called with (msSinceSpeechStarted) when the learner talks over a prompt
+    this.onBargeIn = null; // called with (speechOnsetTime) when the learner talks over a prompt
+    this.speechOnsetAt = null; // performance.now() when the current stretch of speech began (null in silence)
   }
 
   /**
@@ -47,7 +48,12 @@ export class Voice {
     // Continuous noise-floor estimate: drops quickly in quiet, rises very slowly, and is capped.
     const nf = this.noiseFloor;
     this.noiseFloor = Math.min(0.015, rms < nf ? nf * 0.8 + rms * 0.2 : nf * 0.999 + rms * 0.001);
-    if (rms > this.threshold * 2) this.lastLoudAt = performance.now();
+    const now = performance.now();
+    if (rms > this.threshold * 2) this.lastLoudAt = now;
+    // Where the current stretch of speech began (kept through short dips inside words; cleared after 400 ms of
+    // quiet). The start of an answer is sent from here, so nothing the learner said is lost.
+    if (rms > this.threshold) { this.speechOnsetAt ??= now - ms; this._quietMs = 0; }
+    else if ((this._quietMs = (this._quietMs || 0) + ms) > 400) this.speechOnsetAt = null;
     if (this.metering) this.onLevel(Math.min(1, rms / (this.threshold * 6)), 'user');
     this.tap?.(buf);
     this._frameHook?.(rms, ms, buf);
@@ -63,17 +69,23 @@ export class Voice {
   /**
    * Play 16-bit mono PCM as it arrives: `chunks` is an async iterable of Uint8Array (a streamed response,
    * or a single cached clip). Each piece is scheduled right after the previous one, so playback starts with
-   * the first piece. Resolves when playback ends, is stopped, or the learner barges in: the mic well above
-   * the speech threshold for 300 ms while Sakhi talks (echo cancellation keeps her own voice out). The loud
-   * counter drains slowly instead of resetting, so normal dips inside words don't delay detection.
-   * Returns 'barge-in', 'stopped by app', or null if it played to the end.
+   * the first piece.
+   *
+   * Interruptions: the moment the learner's voice is clearly above the noise (4× the threshold), Sakhi's
+   * volume drops to a quarter, so she isn't talking over them and echo cancellation doesn't swallow their first
+   * words. If the voice stays up for 300 ms (the loud counter drains slowly, so dips inside words don't reset
+   * it), she stops: a barge-in. If it was just a cough or a bump, her volume comes back after 600 ms.
+   * Resolves { stoppedBy: 'barge-in' | 'stopped by app' | null, heardSec } when playback ends or stops.
    */
   async playPcm(chunks, rate = 24000) {
     if (this.ctx.state !== 'running') await this.ctx.resume();
     const nodes = [];
+    const gain = this.ctx.createGain();
+    gain.connect(this.botAnalyser);
     let at = this.ctx.currentTime + 0.05, total = 0, leftover = null;
-    let raf, loud = 0, stoppedBy = null, onsetAt = null, quietMs = 0;
+    let raf, loud = 0, stoppedBy = null, duckedAt = null, result = null;
     const stopAll = () => { for (const n of nodes) { try { n.stop(); } catch {} } };
+    const setVolume = (v) => gain.gain.setTargetAtTime(v, this.ctx.currentTime, 0.015);
     const data = new Uint8Array(this.botAnalyser.fftSize);
     const tick = () => {
       this.botAnalyser.getByteTimeDomainData(data);
@@ -82,15 +94,18 @@ export class Voice {
       raf = requestAnimationFrame(tick);
     };
     this._frameHook = (rms, ms) => {
-      if (rms > this.threshold) { onsetAt ??= performance.now() - ms; quietMs = 0; }
-      else if ((quietMs += ms) > 400) onsetAt = null;
-      loud = rms > this.threshold * 4 ? loud + ms : Math.max(0, loud - ms / 2);
-      if (loud > 300 && !stoppedBy) {
-        const leadMs = Math.round(performance.now() - (onsetAt ?? performance.now() - 300));
-        stoppedBy = `barge-in: learner spoke over Sakhi (speech started ${leadMs} ms earlier)`;
-        this.onBargeIn?.(leadMs);
+      if (stoppedBy) return;
+      const now = performance.now();
+      if (rms > this.threshold * 4) {
+        loud += ms;
+        if (duckedAt == null) { duckedAt = now; setVolume(0.25); }
+      } else loud = Math.max(0, loud - ms / 2);
+      if (loud > 300) {
+        const onset = this.speechOnsetAt ?? now - 300;
+        stoppedBy = `barge-in: learner spoke over Sakhi (speech started ${Math.round(now - onset)} ms earlier)`;
+        this.onBargeIn?.(onset);
         stopAll();
-      }
+      } else if (duckedAt != null && loud === 0 && now - duckedAt > 600) { duckedAt = null; setVolume(1); }
     };
     this.stopPlayback = () => { stoppedBy ||= 'stopped by app'; stopAll(); };
     this.playing = true;
@@ -108,7 +123,7 @@ export class Voice {
         const ch = buf.getChannelData(0);
         for (let i = 0; i < n; i++) ch[i] = view.getInt16(i * 2, true) / 32768;
         const node = this.ctx.createBufferSource();
-        node.buffer = buf; node.connect(this.botAnalyser);
+        node.buffer = buf; node.connect(gain);
         at = Math.max(at, this.ctx.currentTime + 0.02); // if the network fell behind, carry on just ahead of now
         node.start(at); at += buf.duration; total += buf.duration;
         nodes.push(node);
@@ -117,11 +132,15 @@ export class Voice {
     } finally {
       cancelAnimationFrame(raf); this.playing = false; this.stopPlayback = null; this._frameHook = null;
       this.onLevel(0, 'bot');
-      const played = this.ctx.currentTime - started;
-      if (stoppedBy) log('tts', `Sakhi cut short after ${played.toFixed(1)} of ${total.toFixed(1)} s: ${stoppedBy}`);
+      // What reached the learner's ears: time played, minus the 50 ms lead-in and the device's output delay.
+      const played = Math.max(0, Math.min(total, this.ctx.currentTime - started - 0.05 - (this.ctx.outputLatency || 0)));
+      if (stoppedBy) log('tts', `Sakhi cut short after ${played.toFixed(1)} s${total ? ` of ${total.toFixed(1)} s received` : ''}: ${stoppedBy}`);
       else log('tts', `Sakhi finished speaking (${total.toFixed(1)} s)`);
+      if (duckedAt != null && !stoppedBy) log('tts', 'Lowered Sakhi\'s volume for a moment (a sound that wasn\'t an interruption)');
+      setTimeout(() => gain.disconnect(), 200);
+      result = { stoppedBy: stoppedBy?.startsWith('barge-in') ? 'barge-in' : stoppedBy, heardSec: +played.toFixed(2) };
     }
-    return stoppedBy?.startsWith('barge-in') ? 'barge-in' : stoppedBy;
+    return result;
   }
 }
 

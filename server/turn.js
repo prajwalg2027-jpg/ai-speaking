@@ -4,7 +4,7 @@
 import * as sarvam from './sarvam.js';
 import { detectClarification, isUnintelligible, looksTruncated } from './clarify.js';
 import { features, heuristicScores, blend } from './scoring.js';
-import { JUDGE_SYSTEM, judgeUser, UNDERSTAND_SYSTEM } from './prompts.js';
+import { JUDGE_SYSTEM, judgeUser, UNDERSTAND_SYSTEM, CONTINUE_SYSTEM } from './prompts.js';
 import { languageCode } from '../shared/languages.js';
 
 /**
@@ -35,17 +35,20 @@ export function quickCheck({ task, transcript, speechSec = 0, prior = '' }, trac
  * → { intent, language, name, facts }, or null if the model failed.
  * language: the language they asked Sakhi to talk in, as a code ("pa-IN", "en-IN"…), or its name if Sakhi can't speak it.
  */
-export async function understandTurn({ asked, transcript, profile }, trace) {
+export async function understandTurn({ asked, transcript, profile, heardOnly = null }, trace) {
   const meta = {};
   const user = [`Tutor asked: ${asked}`,
+    heardOnly != null ? `NOTE: the learner talked over the tutor and heard only: "${heardOnly}" (not the question).` : '',
     `Known learner name: ${profile.name || 'unknown'}`, profile.facts?.length ? `Already known: ${profile.facts.join('; ')}` : '',
     `Learner replied: ${transcript}`].filter(Boolean).join('\n');
   const call = sarvam.chatJSON([{ role: 'system', content: UNDERSTAND_SYSTEM }, { role: 'user', content: user }], { temperature: 0, maxTokens: 160, meta, purpose: 'understand' });
   const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('took over 4 s')), 4000));
   const r = await trace.time('understand', () => Promise.race([call, timeout]), (x) => ({ model: meta.model, ...x })).catch(() => null);
   if (!r) return null;
-  const intents = ['answer', 'meta', 'language', 'repeat', 'slower', 'dont_know', 'skip'];
+  const intents = ['answer', 'meta', 'language', 'repeat', 'slower', 'dont_know', 'skip', ...(heardOnly != null ? ['reply'] : [])];
   if (r.intent === 'in_hindi') Object.assign(r, { intent: 'language', language: r.language || 'Hindi' });
+  // A long reply is an answer, whatever they had heard: never set it aside.
+  if (r.intent === 'reply' && transcript.trim().split(/\s+/).length >= 12) r.intent = 'answer';
   const wantsLang = typeof r.language === 'string' && r.language.trim() ? r.language.trim() : null;
   let name = typeof r.name === 'string' && r.name.trim().length >= 2 && r.name.length <= 30 && !/^(null|none|unknown|n\/a)$/i.test(r.name.trim()) ? r.name.trim() : null;
   // A name must be in what they said ("my name is not Riya" is not a name), unless it was said in Hindi script.
@@ -59,6 +62,19 @@ export async function understandTurn({ asked, transcript, profile }, trace) {
   };
 }
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * The learner talked over Sakhi's reply: were they still finishing their previous answer? → true / false
+ * heard: the part of Sakhi's reply they heard before talking over it.
+ */
+export async function continuesAnswer({ asked, previous, heard, transcript }, trace) {
+  const meta = {};
+  const user = `Tutor's question: ${asked}\nLearner's answer: ${previous}\nTutor then started saying (cut off here): ${heard || '(nothing yet)'}\nLearner then said: ${transcript}`;
+  const call = sarvam.chatJSON([{ role: 'system', content: CONTINUE_SYSTEM }, { role: 'user', content: user }], { temperature: 0, maxTokens: 30, meta, purpose: 'understand' });
+  const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('took over 3 s')), 3000));
+  const r = await trace.time('continues', () => Promise.race([call, timeout]), (x) => ({ model: meta.model, continues: x?.continues })).catch(() => null);
+  return r?.continues === true;
+}
 
 /** Instant, deterministic measurements (no network). */
 export function measureAnswer({ task, transcript, speechSec }, trace) {

@@ -231,3 +231,43 @@ test('a line in the wrong language is retried once, then replaced', async () => 
   assert.ok(steps.includes('tutor-retry'));
   assert.equal(t.trace.find((s) => s.step === 'tutor-fallback').reason, 'not in Tamil');
 });
+
+// ---- interruptions -------------------------------------------------------------------------------------
+
+test('talking over Sakhi before her question: memory keeps only what was heard, and the reply is not scored', async () => {
+  let t = await post('/api/session', {});
+  t = await answer(t.sessionId, 'I am a teacher and I love walking in the evening with friends near my house in Pune.');
+  assert.equal(t.task.id, 'q1_intro_followup');
+  const said = t.say[0].text; // reaction, then the follow-up question
+  t = await post('/api/session/turn', { sessionId: t.sessionId, event: 'answer', transcript: 'Yes it is really nice there.', speechSec: 3, interrupted: { index: 0, heardSec: 0.05 } });
+  const cut = t.trace.find((s) => s.step === 'interrupted');
+  assert.ok(cut && !cut.askHeard && said.startsWith(cut.heard));
+  assert.ok(t.trace.some((s) => s.step === 'plan' && s.next === 'respond, then ask the question' && s.discarded), 'not scored');
+  assert.equal(t.task.id, 'q1_intro_followup', 'same question, asked properly');
+  assert.match(mock.state.tutorPrompts.at(-1), /\[the learner talked over Sakhi here\]/);
+});
+
+test('talking over Sakhi to finish the previous answer: the two are joined and scored as one', async () => {
+  let t = await post('/api/session', {});
+  t = await answer(t.sessionId, 'I am a teacher in a small school.');
+  assert.equal(t.task.id, 'q1_intro_followup');
+  t = await post('/api/session/turn', { sessionId: t.sessionId, event: 'answer', transcript: 'and also I teach music to children on weekends.', speechSec: 3, interrupted: { index: 0, heardSec: 0.6 } });
+  assert.ok(t.trace.some((s) => s.step === 'plan' && s.next === 'join it to their previous answer'));
+  const q = t.trace.find((s) => s.step === 'question');
+  assert.equal(q.id, 'q1_intro', 'back on the introduction');
+  assert.equal(q.transcript, 'I am a teacher in a small school. and also I teach music to children on weekends.');
+  assert.equal(t.task.id, 'q1_intro_followup');
+});
+
+test('talking over the closing summary to finish the last answer reopens it, then closes again', async () => {
+  let t = await post('/api/session', {});
+  for (let i = 0; i < 20 && !t.done; i++) {
+    const reply = t.task.kind === 'read' ? t.card.text : t.task.kind === 'vocab' ? 'Responsibility. And a deadline is the last date to finish a task.' : 'I work as a teacher in a small school near Pune and I walk with friends in the evening.';
+    t = await answer(t.sessionId, reply, 6);
+  }
+  assert.ok(t.done);
+  t = await post('/api/session/turn', { sessionId: t.sessionId, event: 'answer', transcript: 'and also we go to the movies sometimes.', speechSec: 2, interrupted: { index: 0, heardSec: 0.5 } });
+  assert.ok(t.trace.some((s) => s.step === 'plan' && s.next === 'join it to their previous answer'));
+  assert.ok(t.done, 'a new summary');
+  assert.match(t.done.answers.at(-1).transcript, /movies/);
+});

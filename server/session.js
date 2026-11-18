@@ -7,7 +7,8 @@
 // after two hours.
 import { randomUUID } from 'node:crypto';
 import { QUESTIONS, PHRASES, LEVELS, variantFor } from '../shared/assessment.js';
-import { quickCheck, understandTurn, measureAnswer, judgeAnswer } from './turn.js';
+import { quickCheck, understandTurn, continuesAnswer, measureAnswer, judgeAnswer } from './turn.js';
+import { speechSeconds } from './sarvam.js';
 import { compose, sayable } from './tutor.js';
 import { provisionalLevel, finalLevel } from './scoring.js';
 import { makeLedger } from './costs.js';
@@ -91,6 +92,8 @@ export function startSession() {
 
 function respond(s, lines, extra = {}) {
   lines = lines.map((l) => ({ ...l, lang: voiceLanguage(l.text, s.profile.language) }));
+  // Remember exactly what was said, so an interruption can be placed in it (see noteInterruption).
+  if (lines.length) s.lastSay = { lines, historyAt: s.history.length, ask: s.done ? null : current(s).ask };
   for (const l of lines) s.history.push({ who: 'sakhi', text: l.text });
   return {
     sessionId: s.id, say: lines, card: s.done ? null : current(s).card,
@@ -108,9 +111,19 @@ const current = (s) => s.att.focus || s.task;
  * input: { event: 'answer'|'no_speech'|'live_failed'|'skip'|'repeat'|'in_hindi', transcript?, languageCode?, speechSec? }
  */
 export async function handleTurn(s, input, trace) {
-  if (s.done) return respond(s, [], { done: s.result });
   s.at = Date.now();
-  const t = s.task;
+  // The learner talked over Sakhi: keep only what they heard in the conversation memory, and check whether
+  // they were still finishing their previous answer (then the two go together, as one answer).
+  const heard = input.interrupted && input.event === 'answer' ? noteInterruption(s, input.interrupted, trace) : null;
+  if (heard && s.prev && s.prev.kind !== 'read' && (input.transcript || '').trim()
+    && await continuesAnswer({ asked: s.prev.asked, previous: s.prev.transcript, heard: heard.text, transcript: input.transcript }, trace)) {
+    const { snap, transcript, speechSec } = s.prev;
+    restore(s, snap);
+    trace.add('plan', { next: 'join it to their previous answer', why: 'the learner was still finishing their answer when Sakhi started talking' });
+    return answerTurn(s, { ...input, interrupted: null, transcript: `${transcript} ${input.transcript}`, speechSec: speechSec + (input.speechSec || 0) }, trace, snap);
+  }
+  if (s.done) return respond(s, [], { done: s.result });
+  if (input.event === 'answer') return answerTurn(s, { ...input, heardOnly: heard && !heard.askHeard ? heard.text : null }, trace, snapshot(s));
   switch (input.event) {
     case 'skip': trace.add('plan', { next: 'move on', why: 'learner tapped Skip' }); return moveOn(s, trace);
     case 'repeat': return clarify(s, 'repeat', trace);
@@ -120,18 +133,67 @@ export async function handleTurn(s, input, trace) {
       trace.add('check', { result: 'silence', why: 'no speech for 12 s' });
       return s.att.neededHindi ? moveOn(s, trace) : clarify(s, 'in_hindi', trace);
     case 'live_failed': return didntHear(s, trace);
-    case 'answer': {
-      const c = quickCheck({ task: t, transcript: input.transcript || '', speechSec: input.speechSec, prior: s.att.prior }, trace);
-      if (c.action === 'didnt_hear') return didntHear(s, trace);
-      s.history.push({ who: 'learner', text: input.transcript, reading: t.kind === 'read' });
-      if (c.action === 'cut_off') { s.att.prior = c.transcript; return respond(s, [line(PHRASES.cutOff)], { heard: c.transcript, plan: 'answer looks cut off: asking them to go on' }); }
-      // "I don't know" to the first word of a word task: still ask the second word.
-      const firstWord = t.kind === 'vocab' && t.second && !s.att.askedRest;
-      if (c.action === 'clarify' && !(c.intent === 'dont_know' && firstWord)) return clarify(s, c.intent, trace, c.transcript);
-      return understood(s, { transcript: c.transcript, languageCode: input.languageCode, speechSec: input.speechSec || 0 }, trace);
-    }
     default: throw Object.assign(new Error(`unknown event "${input.event}"`), { status: 400 });
   }
+}
+
+/** One spoken reply. `snap` is the state before it, kept in case the next reply turns out to continue it. */
+async function answerTurn(s, input, trace, snap) {
+  const t = s.task;
+  const asked = current(s).ask;
+  const c = quickCheck({ task: t, transcript: input.transcript || '', speechSec: input.speechSec, prior: s.att.prior }, trace);
+  if (c.action === 'didnt_hear') return didntHear(s, trace);
+  s.prev = { snap, asked, kind: t.kind, transcript: c.transcript, speechSec: input.speechSec || 0 };
+  s.history.push({ who: 'learner', text: input.transcript, reading: t.kind === 'read' });
+  if (c.action === 'cut_off') { s.att.prior = c.transcript; return respond(s, [line(PHRASES.cutOff)], { heard: c.transcript, plan: 'answer looks cut off: asking them to go on' }); }
+  // "I don't know" to the first word of a word task: still ask the second word.
+  const firstWord = t.kind === 'vocab' && t.second && !s.att.askedRest;
+  if (c.action === 'clarify' && !(c.intent === 'dont_know' && firstWord)) return clarify(s, c.intent, trace, c.transcript);
+  return understood(s, { transcript: c.transcript, languageCode: input.languageCode, speechSec: input.speechSec || 0, heardOnly: input.heardOnly }, trace);
+}
+
+// ---- interruptions ------------------------------------------------------------------
+/**
+ * The learner talked over Sakhi's last turn after `heardSec` of line `index`. Cut that turn in the conversation
+ * memory down to what they heard (so the tutor and the scoring know), and work out whether they heard the
+ * question. → { text: what they heard, askHeard }
+ */
+function noteInterruption(s, { index = 0, heardSec = 0 }, trace) {
+  const say = s.lastSay;
+  if (!say) return null;
+  const i = Math.max(0, Math.min(say.lines.length - 1, Number(index) || 0));
+  const l = say.lines[i];
+  const total = speechSeconds(l.text, l) || l.text.length / 14; // about 14 characters a second
+  const frac = Math.max(0, Math.min(1, (Number(heardSec) || 0) / total));
+  let cut = l.text.slice(0, Math.round(l.text.length * frac));
+  if (frac < 1) cut = cut.replace(/\s+\S*$/, ''); // whole words only
+  const heardLines = [...say.lines.slice(0, i).map((x) => x.text), cut].filter(Boolean);
+  const text = heardLines.join(' ');
+  // Did they hear (most of) the question? The question is the end of Sakhi's turn.
+  const full = say.lines.map((x) => x.text).join(' ');
+  const askAt = say.ask ? Math.max(0, full.lastIndexOf(say.ask.slice(0, 24))) : 0;
+  const askLen = say.ask ? say.ask.length : full.length;
+  const askHeard = text.length >= askAt + askLen * 0.6;
+  // Memory: the heard part only, marked as cut off; lines after it were never heard.
+  const at = say.historyAt;
+  if (s.history[at + i]?.who === 'sakhi') {
+    s.history.splice(at + i, say.lines.length - i, { who: 'sakhi', text: `${cut || '…'} [the learner talked over Sakhi here]` });
+  }
+  trace.add('interrupted', { heard: text, heardSec, line: i + 1, of: say.lines.length, askHeard });
+  return { text, askHeard };
+}
+
+/** A copy of the conversation state before a reply, to go back to if the next reply continues it. */
+function snapshot(s) {
+  return {
+    task: s.task, ask: s.task.ask, att: { ...s.att, focus: s.att.focus && { ...s.att.focus } }, level: s.level, qIndex: s.qIndex,
+    answers: s.answers.slice(), historyLen: s.history.length, profile: JSON.parse(JSON.stringify(s.profile)), done: s.done, result: s.result,
+  };
+}
+function restore(s, snap) {
+  Object.assign(s, { task: snap.task, att: snap.att, level: snap.level, qIndex: snap.qIndex, answers: snap.answers, profile: snap.profile, done: snap.done, result: snap.result });
+  s.task.ask = snap.ask;
+  s.history.length = snap.historyLen;
 }
 
 /**
@@ -153,7 +215,7 @@ async function understood(s, ans, trace) {
   // A real reading attempt doesn't need reading for meaning; anything else does.
   const reading = t.kind === 'read' && (measured.features.readAccuracy ?? 0) >= 0.5;
   const understanding = reading ? null : understandTurn({
-    asked: current(s).ask, transcript: ans.transcript, profile: s.profile,
+    asked: current(s).ask, transcript: ans.transcript, profile: s.profile, heardOnly: ans.heardOnly,
   }, trace);
   // The judge sees every question the answer replies to (both, for a word task).
   const judged = { ...t, ask: [t.ask, att.focus?.ask].filter(Boolean).join(' ') };
@@ -169,6 +231,16 @@ async function understood(s, ans, trace) {
   if (intent === 'meta') { dropped('respond to what they said, then ask again'); return metaTurn(s, trace, ans.transcript); }
   if (intent === 'language' || switched) { dropped('switch language'); return switchLanguage(s, u.language, trace, ans.transcript); }
   if (intent === 'repeat' || intent === 'slower') { dropped('repeat more slowly'); return clarify(s, 'repeat', trace, ans.transcript); }
+  // They talked over Sakhi before her question and replied to what they heard, not to the question (a reply
+  // that answers it anyway is scored as usual). Don't score it; respond, then ask the question.
+  if (intent === 'reply') {
+    trace.add('plan', { next: 'respond, then ask the question', why: 'the learner talked over Sakhi before hearing her question', discarded: 'the prepared reply and scores' });
+    const note = 'The learner talked over you before you got to your question, so they have not heard it. Their last line replies to what they did hear. In the reaction, respond to it in a few words. Then in ask, ask the TASK.';
+    const task = current(s);
+    const said = sayable(await compose({ history: s.history, level: s.level, profile: s.profile, situation: 'meta', note, task }, trace), s.profile.name);
+    task.ask = said.ask;
+    return respond(s, [line(said.text)], { heard: ans.transcript });
+  }
   const gaveUp = intent === 'dont_know' || intent === 'skip';
   // "I don't know" to the first word of a word task still goes on to the second word.
   if (gaveUp && !att.partial && !askSecond && !(measured.features.vocabHits || []).some(Boolean)) { dropped('move on'); return clarify(s, intent, trace, ans.transcript); }

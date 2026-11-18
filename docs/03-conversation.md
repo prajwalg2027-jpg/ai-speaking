@@ -62,7 +62,27 @@ The fixes:
   read-aloud lines have none.
 - **Reactions**: only about the learner's last line; after a word task, a brief neutral "Okay!". The summary has no
   reaction and no questions.
-- **Interrupting** Sakhi stops her whole turn, not just the line she was on.
+
+## Interruptions (barge-in)
+Nothing the learner says when they talk over Sakhi is lost, and the server knows what they heard.
+
+- **Capture from the first syllable** (`public/live.js`, `public/audio.js`): the mic is kept in a 10 s buffer
+  while nothing is streamed, each piece stamped with its time. The start of each stretch of speech is tracked
+  all the time. When listening starts, audio is sent from 300 ms before that start (at most 3 s back), however
+  long listening took to start (a reconnect included). Speech that ran over the end of Sakhi's line without
+  interrupting her is kept the same way. Before, a fixed length counted back from "now" was sent.
+- **Duck, then stop**: the instant the learner's voice is clearly above the noise, Sakhi drops to a quarter of
+  her volume (so echo cancellation swallows less of their first words). After 300 ms of voice she stops; if it
+  was a cough, her volume comes back after 600 ms. Her whole turn stops, not just the current line.
+- **What was heard**: the app reports which line was cut and after how many seconds. The server cuts that line
+  in the conversation memory to the words heard, marked "[the learner talked over Sakhi here]", and works out
+  whether the question was heard.
+- **Still finishing the last answer?** An LLM check (about 0.4 s, interrupted turns only) decides whether the
+  learner was adding to their previous answer. If so, the server goes back to before that answer and scores
+  the two together as one (this also works over the closing summary, which is then given again).
+- **Replying to the reaction, not the question**: if they talked over Sakhi before her question and only
+  answered what they'd heard ("yes, it's fun"), it isn't scored: Sakhi responds and asks the question. A reply
+  that answers it anyway (or is 12+ words) is scored as usual.
 
 Replaying the reported session's words through the fixed version: no name is ever used, the Hindi request is
 honoured, "This is called umbrella." gets "अब 'library' के लिए Hindi का शब्द क्या होता है?", the complaint gets

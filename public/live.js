@@ -4,8 +4,10 @@
 // Streaming rules (Sarvam bills every second of audio it receives):
 // - Audio is streamed only while we're listening for an answer. While Sakhi talks or the server is
 //   scoring, mic audio is kept in a short pre-roll buffer instead of being sent.
-// - When listening starts, the end of that buffer is sent first, so the start of an answer isn't lost:
-//   after a barge-in, everything since the learner started talking (up to 2 s); otherwise 250 ms.
+// - When listening starts, the buffered audio is sent first, from where the learner's speech began (300 ms
+//   before it, at most 3 s back; 250 ms if they're quiet). Every buffered piece carries its time, so this holds
+//   however long it takes to start listening (a reconnect included): nothing said after an interruption is
+//   lost, and neither is speech that ran over the end of Sakhi's line without interrupting her.
 // - Barge-in is detected locally from the mic level (audio.js), because nothing is streamed during prompts.
 //
 // Turn rules:
@@ -15,8 +17,10 @@ import { createResampler } from '/pcm.js';
 import { log, logPartial } from '/log.js';
 
 const RATE = 16000;
-const PREROLL_MS = 2000;         // kept while not streaming
-const PREROLL_AFTER_PROMPT = 250; // sent when listening starts after a prompt finished normally
+const BUFFER_MS = 10_000;         // mic audio kept while not streaming (covers a slow reconnect)
+const PREROLL_AFTER_PROMPT = 250; // sent when listening starts and the learner is quiet
+const ONSET_MARGIN = 300;         // sent before the detected start of speech (soft first sounds)
+const MAX_LOOKBACK = 3000;        // never further back than this (it would be Sakhi's echo, not the learner)
 
 export class LiveSTT {
   constructor(voice) {
@@ -25,8 +29,8 @@ export class LiveSTT {
     this.alive = false;
     this.listener = null;
     this.streaming = false;
-    this.bargeInPrerollMs = null; // set by the app when the learner interrupted the last prompt
-    this.ring = []; this.ringSamples = 0;
+    this.bargeInAt = null; // when the learner started talking over the last prompt (set by the app)
+    this.ring = []; this.ringSamples = 0; // [{ pcm, end: performance.now() at the end of the piece }]
     this.beginPrompt();
   }
 
@@ -98,27 +102,29 @@ export class LiveSTT {
       const pcm = resample(buf);
       if (!pcm.length) return;
       if (this.streaming) return this._send(pcm.buffer);
-      // Not listening: keep the last PREROLL_MS of audio, send nothing (nothing billed).
-      this.ring.push(pcm); this.ringSamples += pcm.length;
-      while (this.ring.length > 1 && this.ringSamples - this.ring[0].length >= (RATE * PREROLL_MS) / 1000) {
-        this.ringSamples -= this.ring.shift().length;
+      // Not listening: keep the last BUFFER_MS of audio with its time, send nothing (nothing billed).
+      this.ring.push({ pcm, end: performance.now() }); this.ringSamples += pcm.length;
+      while (this.ring.length > 1 && this.ringSamples - this.ring[0].pcm.length >= (RATE * BUFFER_MS) / 1000) {
+        this.ringSamples -= this.ring.shift().pcm.length;
       }
     };
     log('mic', `Mic → 16 kHz PCM16 (${this.voice.ctx.sampleRate} Hz input). Streaming only while listening for an answer.`);
   }
 
-  _startStreaming(prerollMs) {
-    // Send the newest `prerollMs` of buffered audio, oldest first, then stream live.
-    let need = Math.round((RATE * prerollMs) / 1000), parts = [];
-    for (let i = this.ring.length - 1; i >= 0 && need > 0; i--) {
-      const c = this.ring[i];
-      parts.unshift(c.length <= need ? c : c.subarray(c.length - need));
-      need -= c.length;
+  /** Send buffered audio from time `from` (performance.now() clock), oldest first, then stream live. */
+  _startStreaming(from, why) {
+    const now = performance.now();
+    from = Math.max(from, now - MAX_LOOKBACK);
+    let sent = 0;
+    for (const { pcm, end } of this.ring) {
+      const start = end - (pcm.length / RATE) * 1000;
+      if (end <= from) continue;
+      const piece = start >= from ? pcm : pcm.subarray(Math.round(((from - start) / 1000) * RATE));
+      this._send(piece.slice().buffer); sent += piece.length;
     }
-    for (const p of parts) this._send(p.slice().buffer);
     this.ring = []; this.ringSamples = 0;
     this.streaming = true;
-    log('live', `Streaming to Sarvam (sent ${prerollMs} ms of pre-roll${prerollMs !== PREROLL_AFTER_PROMPT ? ' covering the start of the interruption' : ''})`);
+    log('live', `Streaming to Sarvam (sent ${Math.round((sent / RATE) * 1000)} ms buffered${why ? `: ${why}` : ''})`);
   }
 
   _stopStreaming() {
@@ -185,8 +191,12 @@ export class LiveSTT {
     log('live', language === 'auto' ? 'Language: detect again for this answer' : `Language: fixed to ${language} for this answer`);
     this.voice.metering = true;
     log('live', `Listening: Sarvam ends the turn after ${silenceMs} ms of silence, then ${graceMs} ms grace`);
-    this._startStreaming(this.bargeInPrerollMs ?? PREROLL_AFTER_PROMPT);
-    this.bargeInPrerollMs = null;
+    // From where the learner started talking: over Sakhi (a barge-in), or just now, while she finished her line.
+    const now = performance.now(), talking = this.voice.speechOnsetAt;
+    if (this.bargeInAt != null) this._startStreaming(this.bargeInAt - ONSET_MARGIN, 'from the start of the interruption');
+    else if (talking != null) this._startStreaming(Math.min(now - PREROLL_AFTER_PROMPT, talking - ONSET_MARGIN), 'the learner was already talking');
+    else this._startStreaming(now - PREROLL_AFTER_PROMPT);
+    this.bargeInAt = null;
     return new Promise((resolve) => {
       const t0 = performance.now();
       let done = false, nudged = false, grace = null, safety = null, finishing = false;

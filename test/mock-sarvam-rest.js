@@ -10,6 +10,7 @@ function understand(user) {
   const r = { intent: 'answer', language: null, missing: [], name: null, facts: [] };
   const lang = said.match(/(?:speak|talk) in (\w+)/i)?.[1];
   if (lang) Object.assign(r, { intent: 'language', language: lang });
+  else if (/NOTE: the learner talked over/.test(user) && said.split(/\s+/).length < 8) r.intent = 'reply';
   else if (/my name is not|why are you calling me/i.test(said)) r.intent = 'meta';
   const name = said.match(/my name is (?!not)(\w+)/i)?.[1] || said.match(/\bit'?s (\w+)\b/i)?.[1];
   if (name) r.name = name[0].toUpperCase() + name.slice(1);
@@ -30,6 +31,7 @@ export function startMockRest({ transcript = 'my name is ravi i like tea' } = {}
       const msgs = JSON.parse(body).messages, sys = msgs[0].content, user = msgs[1]?.content || '';
       let content;
       if (/understand what a learner just said/.test(sys)) content = JSON.stringify(understand(user));
+      else if (/talked over the tutor/.test(sys)) content = JSON.stringify({ continues: /Learner then said: (and|also)\b/i.test(user) });
       else if (/examiner/.test(sys)) content = '{"comprehension":3,"vocabulary":3,"grammar":3,"fluency":3,"pronunciation":3,"coherence":3,"relevant":true,"note":"ok"}';
       else if (/You are Sakhi/.test(sys)) {
         const must = (user.match(/MUST INCLUDE[^:]*: (.*)/)?.[1] || '').split(';').map((g) => g.match(/"([^"]+)"/)?.[1]).filter(Boolean);

@@ -24,7 +24,7 @@ const send = (res, status, data) => { res.writeHead(status, { 'content-type': 'a
 
 // ---- Conversation --------------------------------------------------------------
 // POST /api/session            → Sakhi's opening turn (and a sessionId)
-// POST /api/session/turn       → body {sessionId, event, transcript?, languageCode?, speechSec?} → Sakhi's next turn
+// POST /api/session/turn       → body {sessionId, event, transcript?, languageCode?, speechSec?, interrupted?: {index, heardSec}} → Sakhi's next turn
 // Each turn: { say: [{text, lang, pace}], card, listen: {silenceMs, language} | null, done?, heard?, trace, serverMs, cost }
 // GET  /api/session/cost?id=…  → what the conversation has cost so far in Sarvam charges (server/costs.js)
 // Sarvam calls made while handling a conversation are charged to its ledger.
@@ -44,7 +44,11 @@ async function handleSessionTurn(req, res) {
   if (!s) return send(res, 404, { error: 'session not found (it may have expired); start again' });
   const trace = makeTrace();
   trace.add('input', { event: body.event, via: 'transcript from Realtime STT', languageCode: body.languageCode ?? null });
-  const turn = await withLedger(s.ledger, () => handleTurn(s, { event: body.event, transcript: String(body.transcript || ''), languageCode: body.languageCode || null, speechSec: Number(body.speechSec) || 0 }, trace));
+  const turn = await withLedger(s.ledger, () => handleTurn(s, {
+    event: body.event, transcript: String(body.transcript || ''), languageCode: body.languageCode || null, speechSec: Number(body.speechSec) || 0,
+    // Set when the learner talked over Sakhi: which of her lines, and how many seconds of it they heard.
+    interrupted: body.interrupted ? { index: Number(body.interrupted.index) || 0, heardSec: Number(body.interrupted.heardSec) || 0 } : null,
+  }, trace));
   send(res, 200, { ...turn, trace: trace.list, serverMs: trace.total(), cost: summarize(s.ledger) });
 }
 

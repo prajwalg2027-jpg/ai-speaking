@@ -99,6 +99,12 @@ export async function streamSpeech(text, { lang = 'en-IN', pace = 1.0 } = {}, on
 
 export const isSpeechCached = (text, { lang = 'en-IN', pace = 1.0 } = {}) => pcmCache.has(ttsKey(text, lang, pace));
 
+/** How long a generated line lasts, in seconds (null if it isn't in the cache). */
+export function speechSeconds(text, { lang = 'en-IN', pace = 1.0 } = {}) {
+  const b = pcmCache.get(ttsKey(text, lang, pace));
+  return b ? b.length / 2 / TTS_RATE : null;
+}
+
 /** Generate lines ahead of time (two at a time). */
 export async function pregenerate(lines) {
   let done = 0, failed = 0;
