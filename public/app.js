@@ -56,7 +56,7 @@ async function speak(line) {
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
     const cached = res.headers.get('x-tts-cached') === 'true';
     const onFirst = () => log('tts', cached ? `Voice from server cache: playing after ${Math.round(performance.now() - t)} ms` : `First audio from Bulbul (streaming): playing after ${Math.round(performance.now() - t)} ms`);
-    await voice.playPcm(readBody(res, onFirst), Number(res.headers.get('x-sample-rate')) || 24000);
+    return await voice.playPcm(readBody(res, onFirst), Number(res.headers.get('x-sample-rate')) || 24000);
   } catch (e) {
     // No backup voice: the line stays on screen, and the conversation carries on.
     log('error', `Voice failed: ${e.message}. The line is shown as text only.`);
@@ -109,7 +109,7 @@ async function api(path, body) {
 }
 
 // Turn one server trace step into a readable log line.
-const TRACE_CAT = { understand: 'llm', profile: 'app', judge: 'llm', tutor: 'llm', 'tutor-fallback': 'error', features: 'score', heuristic: 'score', scores: 'score', plan: 'app' };
+const TRACE_CAT = { understand: 'llm', profile: 'app', judge: 'llm', tutor: 'llm', 'tutor-fallback': 'error', 'tutor-retry': 'llm', features: 'score', heuristic: 'score', scores: 'score', plan: 'app' };
 function logTraceStep(st) {
   const { step, at, ms, error, ...d } = st;
   const p = `server +${at} ms · `;
@@ -119,13 +119,14 @@ function logTraceStep(st) {
     question: () => `${p}evaluating ${d.id} (level ${d.level})`,
     check: () => `${p}${d.result}: ${d.why}`,
     clarify: () => d.intent ? `${p}request for help: ${d.intent} (${d.by})` : `${p}not a request for help: scoring as an answer`,
-    understand: () => `${p}${d.model} read the reply as "${d.intent}" in ${ms} ms${d.missing?.length ? ` (missing part ${d.missing.join(', ')})` : ''}${d.name ? ` · name: ${d.name}` : ''}${d.prefersHindi ? ' · wants Hindi' : ''}`,
-    profile: () => `${p}remembered about the learner: ${[d.name && `name ${d.name}`, d.prefersHindi && 'prefers Hindi', ...(d.facts || [])].filter(Boolean).join('; ')}`,
+    understand: () => `${p}${d.model} read the reply as "${d.intent}" in ${ms} ms${d.name ? ` · name: ${d.name}` : ''}${d.language ? ` · asked for ${d.language}` : ''}`,
+    profile: () => `${p}remembered about the learner: ${[d.name && `name ${d.name}`, d.language && `talks in ${d.language}`, ...(d.facts || [])].filter(Boolean).join('; ')}`,
     features: () => `${p}speech features measured`,
     heuristic: () => `${p}feature-based scores (0–4)`,
     judge: () => `${p}${d.model} rubric scores in ${ms} ms`,
     scores: () => `${p}answer scores for ${d.task} (${d.blend})`,
     tutor: () => `${p}${d.model} wrote Sakhi's next line in ${ms} ms (${d.situation})`,
+    'tutor-retry': () => `${p}tutor line rejected (${d.reason}): asking again`,
     'tutor-fallback': () => `${p}tutor line rejected (${d.reason}): using the scripted line`,
     plan: () => `${p}${d.next ? `next: ${d.next}` : ''}${d.why ? ` (${d.why})` : ''}${d.level ? ` · level ${d.level}` : ''}${d.discarded ? ` · discarded ${d.discarded}` : ''}`,
   }[step]?.() || `${p}${step}`;
@@ -145,7 +146,11 @@ async function run() {
     ui.card(turn.card);
     chipAction = null;
     live.beginPrompt();
-    for (const line of turn.say) { if (chipAction) break; await speak(line); }
+    // The learner talking over Sakhi ends her whole turn, not just the current line.
+    for (const line of turn.say) {
+      if (chipAction) break;
+      if ((await speak(line)) === 'barge-in') { log('app', 'Learner interrupted: skipping the rest of Sakhi\'s turn'); break; }
+    }
     if (turn.done) { stopCostMeter(5000); return showResult(turn.done); }
 
     const rec = chipAction ? { reason: 'manual' } : await listen(turn.listen);

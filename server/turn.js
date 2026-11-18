@@ -5,6 +5,7 @@ import * as sarvam from './sarvam.js';
 import { detectClarification, isUnintelligible, looksTruncated } from './clarify.js';
 import { features, heuristicScores, blend } from './scoring.js';
 import { JUDGE_SYSTEM, judgeUser, UNDERSTAND_SYSTEM } from './prompts.js';
+import { languageCode } from '../shared/languages.js';
 
 /**
  * Instant checks before any LLM: unusable audio, a cut-off answer, or an obvious short request ("sorry, what?").
@@ -30,29 +31,31 @@ export function quickCheck({ task, transcript, speechSec = 0, prior = '' }, trac
  * What did the learner mean? An answer, a request, or something said to Sakhi instead of answering
  * (a correction, a complaint, a question). Also picks up what they tell us: their name (only if they say it),
  * facts about them, and whether they want to talk in Hindi.
- * asked: Sakhi's last line. parts: for a two-part task, what each part asks (to spot a half answer).
- * → { intent, missing: [part numbers] | null, name, facts, prefersHindi }, or null if the model failed.
+ * asked: Sakhi's last line.
+ * → { intent, language, name, facts }, or null if the model failed.
+ * language: the language they asked Sakhi to talk in, as a code ("pa-IN", "en-IN"…), or its name if Sakhi can't speak it.
  */
-export async function understandTurn({ asked, parts, transcript, profile }, trace) {
+export async function understandTurn({ asked, transcript, profile }, trace) {
   const meta = {};
-  const user = [`Tutor asked: ${asked}`, parts?.length ? `PARTS: ${parts.map((p, i) => `${i + 1}) ${p}`).join('  ')}` : '',
+  const user = [`Tutor asked: ${asked}`,
     `Known learner name: ${profile.name || 'unknown'}`, profile.facts?.length ? `Already known: ${profile.facts.join('; ')}` : '',
     `Learner replied: ${transcript}`].filter(Boolean).join('\n');
   const call = sarvam.chatJSON([{ role: 'system', content: UNDERSTAND_SYSTEM }, { role: 'user', content: user }], { temperature: 0, maxTokens: 160, meta, purpose: 'understand' });
   const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('took over 4 s')), 4000));
   const r = await trace.time('understand', () => Promise.race([call, timeout]), (x) => ({ model: meta.model, ...x })).catch(() => null);
   if (!r) return null;
-  const intents = ['answer', 'meta', 'in_hindi', 'repeat', 'slower', 'dont_know', 'skip'];
+  const intents = ['answer', 'meta', 'language', 'repeat', 'slower', 'dont_know', 'skip'];
+  if (r.intent === 'in_hindi') Object.assign(r, { intent: 'language', language: r.language || 'Hindi' });
+  const wantsLang = typeof r.language === 'string' && r.language.trim() ? r.language.trim() : null;
   let name = typeof r.name === 'string' && r.name.trim().length >= 2 && r.name.length <= 30 && !/^(null|none|unknown|n\/a)$/i.test(r.name.trim()) ? r.name.trim() : null;
   // A name must be in what they said ("my name is not Riya" is not a name), unless it was said in Hindi script.
   if (name && (new RegExp(`\\bnot\\s+${escapeRe(name)}\\b`, 'i').test(transcript)
     || (!/[\u0900-\u097F]/.test(transcript) && !transcript.toLowerCase().includes(name.toLowerCase())))) name = null;
   return {
     intent: intents.includes(r.intent) ? r.intent : 'answer',
-    missing: Array.isArray(r.missing) ? r.missing.map(Number).filter(Number.isInteger) : null,
+    language: wantsLang ? languageCode(wantsLang) || wantsLang : null,
     name,
     facts: Array.isArray(r.facts) ? r.facts.filter((f) => typeof f === 'string' && f.trim() && f.length <= 120).slice(0, 3) : [],
-    prefersHindi: r.prefersHindi === true,
   };
 }
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

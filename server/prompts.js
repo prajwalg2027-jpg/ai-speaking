@@ -25,16 +25,15 @@ export function judgeUser({ question, transcript, features, kind, reference }) {
 }
 
 export const UNDERSTAND_SYSTEM = `You help a voice English tutor understand what a learner just said. The tutor asked something; read the learner's reply (an automatic transcript, maybe mixing Hindi and English) and reply with ONLY JSON:
-{"intent": "...", "missing": [], "name": null, "facts": [], "prefersHindi": false}
+{"intent": "...", "language": null, "name": null, "facts": []}
 intent, one of:
 - "answer": they tried to answer, even if the answer is wrong, off-topic, short, broken, or partly in Hindi. Anything they say about themselves or their life is an answer.
 - "meta": instead of answering, they spoke to the tutor about the conversation itself: corrected the tutor, complained about something the tutor said, or asked the tutor a question
-- "in_hindi": they asked to use Hindi, or said they want to speak in Hindi
+- "language": they asked the tutor to talk in a particular language (Hindi, Punjabi, Tamil, Marathi, English…), or said they want to speak in it
 - "repeat": they asked to hear it again, or said they didn't understand
 - "slower": they asked the tutor to speak more slowly
 - "dont_know": they said they don't know
 - "skip": they asked to skip or move on
-missing: only when PARTS are listed: the numbers of the parts the learner did not attempt at all. A wrong or unsure try still counts as attempted. [] otherwise.
 name: the learner's own first name if they say it in this reply, including when correcting the tutor ("my name is not Riya, it's Priya" → "Priya"). Otherwise null. Never guess a name, and never return a name they said is not theirs.
 facts: up to 3 short NEW facts about the learner's life stated in this reply, in English (e.g. "works at an atta chakki"). Leave out anything already known. [] if none.
-prefersHindi: true only if they said they want to speak, or be spoken to, in Hindi.`;
+language: when intent is "language", the language they asked for, in English (e.g. "Punjabi"). Otherwise null.`;

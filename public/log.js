@@ -5,7 +5,7 @@ const MAX_ROWS = 1500;
 const t0 = performance.now();
 const CATS = {
   app: 'APP', state: 'STATE', tts: 'VOICE', mic: 'MIC', live: 'LIVE', relay: 'RELAY',
-  stt: 'STT', turn: 'TURN', llm: 'LLM', score: 'SCORE', error: 'ERROR',
+  stt: 'STT', turn: 'TURN', llm: 'LLM', score: 'SCORE', cost: 'COST', error: 'ERROR',
 };
 
 let listEl = null, countEl = null, filterEl = null, jumpEl = null;

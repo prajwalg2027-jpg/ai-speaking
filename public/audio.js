@@ -66,6 +66,7 @@ export class Voice {
    * the first piece. Resolves when playback ends, is stopped, or the learner barges in: the mic well above
    * the speech threshold for 300 ms while Sakhi talks (echo cancellation keeps her own voice out). The loud
    * counter drains slowly instead of resetting, so normal dips inside words don't delay detection.
+   * Returns 'barge-in', 'stopped by app', or null if it played to the end.
    */
   async playPcm(chunks, rate = 24000) {
     if (this.ctx.state !== 'running') await this.ctx.resume();
@@ -120,6 +121,7 @@ export class Voice {
       if (stoppedBy) log('tts', `Sakhi cut short after ${played.toFixed(1)} of ${total.toFixed(1)} s: ${stoppedBy}`);
       else log('tts', `Sakhi finished speaking (${total.toFixed(1)} s)`);
     }
+    return stoppedBy?.startsWith('barge-in') ? 'barge-in' : stoppedBy;
   }
 }
 

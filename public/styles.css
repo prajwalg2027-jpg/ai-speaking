@@ -28,9 +28,13 @@ body.logs-hidden .logs { display: none; }
 .top { display: flex; justify-content: space-between; align-items: center; }
 .brand { font-weight: 650; letter-spacing: -0.01em; }
 /* ---- Cost counter (Sarvam charges for this conversation, estimate) ---- */
-.cost { display: inline-flex; align-items: baseline; gap: 6px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px;
-  background: var(--card); cursor: pointer; font-variant-numeric: tabular-nums; }
-.cost-label { font-size: 12px; color: var(--muted); }
+.cost { display: inline-grid; grid-template-columns: auto auto; align-items: baseline; justify-content: end; column-gap: 6px; padding: 4px 12px;
+  border: 1px solid var(--line); border-radius: 14px; background: var(--card); cursor: pointer; font-variant-numeric: tabular-nums; text-align: right; }
+.cost-label { font-size: 12px; color: var(--muted); justify-self: end; }
+.cost-parts { grid-column: 1 / -1; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.cost-parts:empty { display: none; }
+.cost-parts i { font-style: normal; }
+.cost-parts i.bump { color: var(--fg); transition: color .2s; }
 #costTotal { font-weight: 600; }
 .cost-detail { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); font-size: 13px; }
 .cost-detail ul { list-style: none; margin: 0; padding: 0; }
@@ -115,7 +119,7 @@ body.logs-hidden .logs { display: none; }
 .lg pre { margin: 4px 0 2px; padding: 6px 8px; border-radius: 6px; background: var(--log-pre); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow-y: auto; font: inherit; }
 .lg-state b { color: var(--c-state); } .lg-tts b { color: var(--c-tts); } .lg-mic b { color: var(--c-mic); }
 .lg-live b { color: var(--c-live); } .lg-relay b { color: var(--c-relay); } .lg-stt b { color: var(--c-stt); }
-.lg-turn b { color: var(--c-turn); } .lg-llm b { color: var(--c-llm); } .lg-score b { color: var(--c-score); }
+.lg-turn b { color: var(--c-turn); } .lg-llm b { color: var(--c-llm); } .lg-score b { color: var(--c-score); } .lg-cost b { color: var(--c-score); }
 .lg-error { background: var(--log-err-bg); } .lg-error b, .lg-error .lg-msg { color: var(--c-error); }
 .lg-partial .lg-msg { font-style: italic; color: var(--muted); }
 .logs-jump { position: absolute; right: max(16px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); box-shadow: 0 4px 14px rgba(0,0,0,.12); }

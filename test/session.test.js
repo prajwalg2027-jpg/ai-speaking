@@ -154,31 +154,37 @@ test('Sakhi only uses the name the learner gave', async () => {
   } finally { mock.state.tutorMode = 'good'; }
 });
 
-test('half an answer to a two-part word task: Sakhi asks only for the missing part, then scores both together', async () => {
+test('word tasks ask one word at a time, then score both replies together', async () => {
   let t = await post('/api/session', {});
   t = await answer(t.sessionId, 'I am a teacher and I love walking in the evening with friends near my house in Pune.');
   t = await answer(t.sessionId, 'I teach English and maths to small children every morning at the school.');
   assert.equal(t.task.id, 'q2_vocab');
   const v = QUESTIONS[1].variants[t.task.level];
-  const first = [v.expect[0]].flat()[0];
-  t = await answer(t.sessionId, `This is ${first}.`, 2);
+  assert.equal(t.card.text, v.screen, 'the card shows only the first word');
+  t = await answer(t.sessionId, `This is ${[v.expect[0]].flat()[0]}.`, 2);
   assert.equal(t.task.id, 'q2_vocab', 'still on the word task');
-  assert.ok(t.trace.some((s) => s.step === 'plan' && s.next === 'ask for the missing part'));
-  assert.match(mock.state.tutorPrompts.at(-1), /answered only part of the task/);
-  assert.ok(!t.trace.some((s) => s.step === 'judge'), 'half an answer is not scored yet');
-  const second = [v.expect[1]].flat()[0];
-  t = await answer(t.sessionId, `I think it is ${second}, that is my answer.`, 3);
-  assert.equal(t.task.id, 'q3_read', 'moved on after the second part');
-  const scores = t.trace.find((s) => s.step === 'features');
-  assert.deepEqual(scores.vocabHits, [true, true], 'both replies were scored together');
+  assert.equal(t.card.text, v.second.screen, 'the card now shows the second word');
+  assert.ok(t.trace.some((s) => s.step === 'plan' && s.next === 'ask the second word on its own'));
+  assert.ok(!t.trace.some((s) => s.step === 'judge'), 'not scored until both are answered');
+  t = await answer(t.sessionId, `I think it is ${[v.expect[1]].flat()[0]}.`, 3);
+  assert.equal(t.task.id, 'q3_read');
+  assert.deepEqual(t.trace.find((s) => s.step === 'features').vocabHits, [true, true], 'both replies scored together');
 });
 
-test('a part they tried but got wrong is not asked again', async () => {
+test('"I don\'t know" to the first word still asks the second; both words at once skips it', async () => {
   let t = await post('/api/session', {});
   t = await answer(t.sessionId, 'I am a teacher and I love walking in the evening with friends near my house in Pune.');
   t = await answer(t.sessionId, 'I teach English and maths to small children every morning at the school.');
   const v = QUESTIONS[1].variants[t.task.level];
-  t = await answer(t.sessionId, `${[v.expect[0]].flat()[0]}. And ${v.parts[1].cues[0]}, I don't remember that one.`, 4);
+  t = await answer(t.sessionId, "I don't know", 1);
+  assert.equal(t.task.id, 'q2_vocab');
+  assert.equal(t.card.text, v.second.screen);
+
+  t = await post('/api/session', {});
+  t = await answer(t.sessionId, 'I am a teacher and I love walking in the evening with friends near my house in Pune.');
+  t = await answer(t.sessionId, 'I teach English and maths to small children every morning at the school.');
+  const w = QUESTIONS[1].variants[t.task.level];
+  t = await answer(t.sessionId, `${[w.expect[0]].flat()[0]}, and the other one is ${[w.expect[1]].flat()[0]}.`, 4);
   assert.equal(t.task.id, 'q3_read');
 });
 
@@ -198,4 +204,30 @@ test('each turn reports what the conversation has cost; voice is charged to it, 
   assert.equal(c.tts.cachedCalls, 1);
   assert.ok(c.totalInr > t.cost.totalInr);
   assert.equal((await fetch(`${base}/api/session/cost?id=nope`)).status, 404);
+});
+
+test('"speak in Punjabi" switches Sakhi to Punjabi (voice too); "speak in English" switches back', async () => {
+  let t = await post('/api/session', {});
+  let from = mock.state.tutorPrompts.length;
+  t = await answer(t.sessionId, 'Can you speak in Punjabi please?');
+  assert.equal(t.task.id, 'q1_intro', 'not scored');
+  assert.equal(t.say[0].lang, 'pa-IN');
+  assert.ok(mock.state.tutorPrompts.slice(from).some((x) => /talk in Punjabi/.test(x)));
+  t = await answer(t.sessionId, 'I am a farmer and I grow wheat and sugarcane in my village near Ludhiana.');
+  assert.equal(t.task.id, 'q1_intro_followup');
+  assert.equal(t.say[0].lang, 'pa-IN', 'stays in Punjabi');
+  t = await answer(t.sessionId, 'Okay, now speak in English please.');
+  assert.equal(t.say[0].lang, 'en-IN');
+  assert.ok(t.trace.some((s) => s.step === 'plan' && s.next === 'talk in English from now on'));
+  from = mock.state.tutorPrompts.length;
+  t = await answer(t.sessionId, 'We start work at six in the morning and finish when the sun goes down.');
+  assert.ok(!mock.state.tutorPrompts.slice(from).some((x) => /talk in Punjabi/.test(x)));
+});
+
+test('a line in the wrong language is retried once, then replaced', async () => {
+  let t = await post('/api/session', {});
+  t = await answer(t.sessionId, 'Can you speak in Tamil please?'); // the mock tutor only writes English
+  const steps = t.trace.map((s) => s.step);
+  assert.ok(steps.includes('tutor-retry'));
+  assert.equal(t.trace.find((s) => s.step === 'tutor-fallback').reason, 'not in Tamil');
 });

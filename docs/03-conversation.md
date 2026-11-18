@@ -50,15 +50,19 @@ The fixes:
   says is "not" theirs is never stored.
 - **Replies that aren't answers**: not scored. Sakhi responds (apologises if corrected), then asks the same
   thing again in fresh words. After the third such reply in a row she moves on.
-- **"I'd like to speak in Hindi"**: Sakhi agrees ("ज़रूर! हम हिंदी में बात कर सकते हैं…"), repeats the task in
-  Hindi, and talks in Hindi from then on (task words stay in English; she invites English answers). The tasks
-  start at level 2 at most (a well-read bonus sentence can still raise it), and the tasks count as "needed Hindi".
-- **Half answers to two-part word tasks**: each part has words that show it was tried (`cues` in
-  `shared/assessment.js`, e.g. "library"). If one part is right and the other was not tried at all, Sakhi asks for
-  just that part, then scores both replies together. A part that was tried but wrong is not asked again. For
-  parts with no cue words (naming the picture), the understand step decides.
-- **Reactions**: only about the learner's last line; after a word task, a brief neutral "Okay!". Follow-ups are cut
-  after their first question. The summary has no reaction and no questions.
+- **Talking in the learner's language**: "can you speak in Punjabi?" switches Sakhi to Punjabi for the rest of the
+  conversation (Hindi, Marathi, Punjabi, Bengali, Gujarati, Odia, Tamil, Telugu, Kannada, Malayalam; see
+  `shared/languages.js`). Hindi uses the scripted lines; the others are written by the tutor, and a line not in the
+  chosen script is retried once. Task words stay in English, the voice language follows the script, and "speak in
+  English" switches back. A language Sakhi can't speak gets a kind no, with Hindi or English offered. Tasks start
+  at level 2 at most for a learner who asked for another language, and count as "needed help in their language".
+- **One question at a time**: the opening asks only what they do during the day; each word task asks its two words
+  as two separate questions, each with its own card, and scores both replies together ("I don't know" to the first
+  still gets the second; naming both at once skips it). Every tutor line is cut after its first question mark;
+  read-aloud lines have none.
+- **Reactions**: only about the learner's last line; after a word task, a brief neutral "Okay!". The summary has no
+  reaction and no questions.
+- **Interrupting** Sakhi stops her whole turn, not just the line she was on.
 
 Replaying the reported session's words through the fixed version: no name is ever used, the Hindi request is
 honoured, "This is called umbrella." gets "अब 'library' के लिए Hindi का शब्द क्या होता है?", the complaint gets

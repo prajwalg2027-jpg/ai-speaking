@@ -7,8 +7,9 @@ import { createServer } from 'node:http';
 // A rough stand-in for the "understand" step, enough for the conversation tests.
 function understand(user) {
   const said = user.match(/Learner replied: (.*)/)?.[1] || '';
-  const r = { intent: 'answer', missing: [], name: null, facts: [], prefersHindi: false };
-  if (/speak in hindi|talk in hindi/i.test(said)) Object.assign(r, { intent: 'in_hindi', prefersHindi: true });
+  const r = { intent: 'answer', language: null, missing: [], name: null, facts: [] };
+  const lang = said.match(/(?:speak|talk) in (\w+)/i)?.[1];
+  if (lang) Object.assign(r, { intent: 'language', language: lang });
   else if (/my name is not|why are you calling me/i.test(said)) r.intent = 'meta';
   const name = said.match(/my name is (?!not)(\w+)/i)?.[1] || said.match(/\bit'?s (\w+)\b/i)?.[1];
   if (name) r.name = name[0].toUpperCase() + name.slice(1);
@@ -34,9 +35,11 @@ export function startMockRest({ transcript = 'my name is ravi i like tea' } = {}
         const must = (user.match(/MUST INCLUDE[^:]*: (.*)/)?.[1] || '').split(';').map((g) => g.match(/"([^"]+)"/)?.[1]).filter(Boolean);
         const never = (user.match(/MUST NOT SAY: (.*)/)?.[1] || '').match(/"([^"]+)"/)?.[1];
         state.tutorPrompts.push(user);
-        const ask = state.tutorMode === 'leak' && never ? `Is it ${never}? Tell me about ${must.join(' and ')}.`
+        let ask = state.tutorMode === 'leak' && never ? `Is it ${never}? Tell me about ${must.join(' and ')}.`
+          : /The sentence is on their screen/.test(user) ? 'Please read the sentence on your screen out loud.'
           : /conversation is ending/.test(user) ? `You're a ${must[0]} speaker. It was lovely talking with you.`
           : must.length ? `Let's keep going: tell me about ${must.join(' and ')}?` : 'What else can you tell me about that?';
+        if (/LANGUAGE: The learner asked to talk in Punjabi/.test(user)) ask = `ਚਲੋ! ${ask}`; // writes Punjabi when asked
         content = JSON.stringify({ reaction: state.tutorMode === 'invent-name' ? 'Thanks for sharing that, Riya.' : 'Thanks for sharing that.', ask });
       } else content = 'Nice to meet you!';
       return json({ choices: [{ message: { content }, finish_reason: 'stop' }], usage: { prompt_tokens: 50, completion_tokens: 10 } });
