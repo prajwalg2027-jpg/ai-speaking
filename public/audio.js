@@ -57,6 +57,29 @@ export class Voice {
     if (this.metering) this.onLevel(Math.min(1, rms / (this.threshold * 6)), 'user');
     this.tap?.(buf);
     this._frameHook?.(rms, ms, buf);
+    if (this._timing) this._timing.push([rms > this.threshold, ms]);
+  }
+
+  /** Start measuring when the learner is voicing and where they pause (for fluency). */
+  startTiming() { this._timing = []; }
+
+  /**
+   * Stop measuring. → { spanSec: first to last voiced moment, voicedSec, pauses: [seconds, each ≥ 0.25 s] },
+   * or null if they didn't speak. Dips under 0.25 s are gaps inside words, not pauses.
+   */
+  stopTiming() {
+    const frames = this._timing || [];
+    this._timing = null;
+    const first = frames.findIndex(([v]) => v), last = frames.findLastIndex(([v]) => v);
+    if (first < 0) return null;
+    let span = 0, voiced = 0, gap = 0;
+    const pauses = [];
+    for (let i = first; i <= last; i++) {
+      const [v, ms] = frames[i];
+      span += ms;
+      if (v) { voiced += ms; if (gap >= 250) pauses.push(+(gap / 1000).toFixed(2)); gap = 0; } else gap += ms;
+    }
+    return { spanSec: +(span / 1000).toFixed(2), voicedSec: +(voiced / 1000).toFixed(2), pauses };
   }
 
   get threshold() { return Math.max(0.012, this.noiseFloor * 3); }

@@ -32,7 +32,7 @@ export function quickCheck({ task, transcript, speechSec = 0, prior = '' }, trac
  * (a correction, a complaint, a question). Also picks up what they tell us: their name (only if they say it),
  * facts about them, and whether they want to talk in Hindi.
  * asked: Sakhi's last line.
- * → { intent, language, name, facts }, or null if the model failed.
+ * → { intent, english: 'yes'|'partly'|'no', language, name, facts }, or null if the model failed.
  * language: the language they asked Sakhi to talk in, as a code ("pa-IN", "en-IN"…), or its name if Sakhi can't speak it.
  */
 export async function understandTurn({ asked, transcript, profile, heardOnly = null }, trace) {
@@ -59,6 +59,7 @@ export async function understandTurn({ asked, transcript, profile, heardOnly = n
     || (!/[\u0900-\u097F]/.test(transcript) && !transcript.toLowerCase().includes(name.toLowerCase())))) name = null;
   return {
     intent: intents.includes(r.intent) ? r.intent : 'answer',
+    english: ['yes', 'partly', 'no'].includes(r.english) ? r.english : 'yes',
     language: wantsLang ? languageCode(wantsLang) || wantsLang : null,
     name,
     facts: Array.isArray(r.facts) ? r.facts.filter((f) => typeof f === 'string' && f.trim() && f.length <= 120).slice(0, 3) : [],
@@ -80,8 +81,8 @@ export async function continuesAnswer({ asked, previous, heard, transcript }, tr
 }
 
 /** Instant, deterministic measurements (no network). */
-export function measureAnswer({ task, transcript, speechSec }, trace) {
-  const f = features(transcript, { speechSec, kind: task.kind, reference: task.reference, expect: task.expect });
+export function measureAnswer({ task, transcript, speechSec, timing }, trace) {
+  const f = features(transcript, { speechSec, kind: task.kind, reference: task.reference, expect: task.expect, timing });
   const heur = heuristicScores(f, task.kind);
   trace.add('features', f);
   trace.add('heuristic', heur);
@@ -92,9 +93,10 @@ export function measureAnswer({ task, transcript, speechSec }, trace) {
 export async function judgeAnswer({ task, transcript, measured }, trace) {
   const meta = {};
   const llm = await trace.time('judge', () => sarvam.chatJSON([{ role: 'system', content: JUDGE_SYSTEM },
-    { role: 'user', content: judgeUser({ question: task.ask, transcript, features: measured.features, kind: task.kind, reference: task.kind === 'read' ? task.reference : null }) }], { meta, purpose: 'scoring' }),
+    { role: 'user', content: judgeUser({ question: task.ask, transcript, features: measured.features, kind: task.kind, reference: task.kind === 'read' ? task.reference : null,
+      context: task.passage ? `Sentences the learner heard: ${task.passage}` : task.scene ? `The picture shows: ${task.scene}` : null }) }], { meta, purpose: 'scoring' }),
   (r) => ({ model: meta.model, scores: r, finish: meta.finish, usage: meta.usage })).catch(() => null);
   const scores = blend(llm, measured.heuristic);
-  trace.add('scores', { task: task.id, blend: llm ? '60% LLM + 40% features' : 'features only', ...Object.fromEntries(Object.entries(scores).map(([k, v]) => [k, +v.toFixed(2)])) });
+  trace.add('scores', { task: task.id, blend: llm ? '60% LLM + 40% features' : 'features only', ...Object.fromEntries(Object.entries(scores).map(([k, v]) => [k, v == null ? null : +v.toFixed(2)])) });
   return { scores, llmNote: llm?.note ?? null };
 }

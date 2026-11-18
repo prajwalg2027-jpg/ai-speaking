@@ -4,18 +4,23 @@ import { checkAsk, checkReaction, stripVerdicts } from '../server/tutor.js';
 import { QUESTIONS } from '../shared/assessment.js';
 
 const vocab3 = { tutor: QUESTIONS[1].variants[3].tutor };
-const read = { tutor: QUESTIONS[2].tutor, reference: QUESTIONS[2].variants[3].screen };
+const read = { tutor: QUESTIONS[3].tutor, reference: QUESTIONS[3].variants[3].screen };
 
 test('task lines must keep the task words', () => {
-  assert.equal(checkAsk("At work, what's zimmedari in English? And what does deadline mean?", vocab3).ok, true);
-  assert.match(checkAsk('What does deadline mean?', vocab3).reason, /missing/);
-  assert.equal(checkAsk('ज़िम्मेदारी को English में क्या कहेंगे? And deadline?', vocab3).ok, true);
+  assert.equal(checkAsk("Here's a puzzle: if something is your duty, it's your… what? It starts with R.", vocab3).ok, true);
+  assert.match(checkAsk('What is this word?', vocab3).reason, /missing/);
 });
 
 test('task lines must never give away the answer', () => {
-  assert.match(checkAsk('Zimmedari means responsibility, right? And what is a deadline?', vocab3).reason, /gives away "responsibility"/);
+  assert.match(checkAsk('Your duty is your responsibility, right?', vocab3).reason, /gives away "responsibility"/);
   const l1 = { tutor: QUESTIONS[1].variants[1].tutor };
-  assert.match(checkAsk("Look at this picture of a सेब. And what's paani in English?", l1).reason, /gives away/);
+  assert.match(checkAsk('Look at this picture of a सेब. What is it in English?', l1).reason, /gives away/);
+});
+
+test('a listening lead-in must not give away the sentences or the question', () => {
+  const v = QUESTIONS[2].variants[2], listen = { tutor: QUESTIONS[2].tutor, secret: `${v.passage} ${v.question}` };
+  assert.equal(checkAsk("Now listen carefully: I'll say two short sentences, then ask one question.", listen).ok, true);
+  assert.match(checkAsk('Listen: Meena wakes up at six every day.', listen).reason, /reads the sentence out/);
 });
 
 test('read-aloud lines must not say the sentence', () => {
@@ -66,3 +71,10 @@ test('one question per line: later questions are dropped, instructions stay', as
   assert.equal(oneQuestion('There is a sentence on your screen. Can you read it out loud? Are you ready?', { reference: 'x' }), 'There is a sentence on your screen. Can you read it out loud?');
   assert.equal(oneQuestion('Please read the sentence on your screen. Are you ready?', { reference: 'x' }), 'Please read the sentence on your screen.');
 });
+
+test('a listening lead-in has no question; comments on how they spoke are dropped', async () => {
+  const { oneQuestion } = await import('../server/tutor.js');
+  assert.equal(oneQuestion("I'll say two short sentences, so listen carefully. Do you like your work?", { kind: 'listen' }), "I'll say two short sentences, so listen carefully.");
+  assert.equal(stripVerdicts('You used she, which is nice. Now listen.'), 'Now listen.');
+});
+

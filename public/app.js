@@ -169,7 +169,7 @@ async function run() {
     if (chipAction) input = { event: chipAction };
     else if (rec.reason === 'no_speech') input = { event: 'no_speech' };
     else if (rec.reason === 'live_failed') input = { event: 'live_failed' };
-    else input = { event: 'answer', transcript: rec.transcript, languageCode: rec.language, speechSec: rec.speechSec, ...(interrupted ? { interrupted } : {}) };
+    else input = { event: 'answer', transcript: rec.transcript, languageCode: rec.language, speechSec: rec.speechSec, ...(rec.timing ? { timing: rec.timing } : {}), ...(interrupted ? { interrupted } : {}) };
     chipAction = null;
     ui.heard(input.transcript);
 
@@ -181,16 +181,27 @@ async function run() {
   }
 }
 
+// Skills in everyday words (the learner never sees "fluency" or "coherence").
+const SKILLS = {
+  comprehension: 'Understanding', vocabulary: 'English words', grammar: 'Making sentences',
+  fluency: 'Speaking smoothly', pronunciation: 'Saying words clearly', coherence: 'Joining ideas',
+};
+
 function showResult(result) {
   ui.state('idle'); ui.card(null); ui.hint('');
   $('chips').hidden = true;
   log('score', `Final placement: level ${result.level} (${result.name}), adjusted score ${result.overall}`, result);
-  const bars = Object.entries(result.dims || {}).map(([k, v]) =>
-    `<div class="bar"><span>${k}</span><i><b style="width:${(v / 4) * 100}%"></b></i><span>${v.toFixed(1)}</span></div>`).join('');
+  // Only skills that were measured (clear speech comes from reading aloud).
+  const bars = Object.entries(SKILLS).filter(([k]) => result.dims?.[k] != null).map(([k, label]) =>
+    `<div class="bar"><span>${label}</span><i><b style="width:${(result.dims[k] / 4) * 100}%"></b></i></div>`).join('');
+  const list = (items) => (items || []).map((x) => `<li>${escapeHtml(x)}</li>`).join('');
   const el = $('result');
   el.hidden = false;
-  el.innerHTML = `<h2>Level ${result.level} · ${result.name}</h2><p class="lvl">${result.blurb}</p>${bars}
-    <details><summary>How we decided</summary><ul>${(result.reasons || []).map((r) => `<li>${escapeHtml(r)}</li>`).join('') || '<li>Weighted score across all your answers.</li>'}</ul>
+  el.innerHTML = `<p class="lvl-of">Level ${result.level} of 4</p><h2>${escapeHtml(result.name)}</h2><p class="lvl">${escapeHtml(result.blurb)}</p>
+    ${result.doingWell?.length ? `<h3>What you did well</h3><ul class="good">${list(result.doingWell)}</ul>` : ''}
+    ${result.practise?.length ? `<h3>What we'll practise next</h3><ul class="next">${list(result.practise)}</ul>` : ''}
+    <h3>Your skills</h3>${bars}
+    <details><summary>How we decided</summary><ul>${(result.reasons || []).map((r) => `<li>${escapeHtml(r)}</li>`).join('') || '<li>Your answers to all the questions, put together.</li>'}</ul>
     <pre>${escapeHtml(JSON.stringify(result.answers, null, 1))}</pre></details>`;
 }
 const escapeHtml = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);

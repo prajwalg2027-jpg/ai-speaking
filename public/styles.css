@@ -92,7 +92,10 @@ body.logs-hidden .logs { display: none; }
 .result { display: flex; flex-direction: column; gap: 14px; padding: 8px 0 24px; }
 .result h2 { font-size: 30px; margin: 0; letter-spacing: -0.02em; }
 .result .lvl { color: var(--muted); margin: 0; }
-.bar { display: grid; grid-template-columns: 120px 1fr 32px; gap: 10px; align-items: center; font-size: 14px; }
+.bar { display: grid; grid-template-columns: 150px 1fr; gap: 10px; align-items: center; font-size: 14px; }
+.result .lvl-of { margin: 0 0 -10px; color: var(--muted); font-size: 14px; font-weight: 600; }
+.result h3 { margin: 6px 0 -6px; font-size: 16px; }
+.result ul.good, .result ul.next { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
 .bar i { display: block; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
 .bar i b { display: block; height: 100%; background: var(--o3); border-radius: 4px; }
 .result details { color: var(--muted); font-size: 14px; }

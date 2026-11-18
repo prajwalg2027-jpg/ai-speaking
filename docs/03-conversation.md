@@ -120,3 +120,20 @@ first audio 0.45–0.75 s). Before, there were 1.7–4.6 s of silence with no re
 - Stream the tutor's text and start speaking the first sentence while the rest is written.
 - Turn-taking: the answer is only "complete" after Sarvam's silence window (1.2–1.8 s) plus 700 ms grace;
   that's now the biggest part of the wait.
+
+## Assessment: English only, measured not guessed
+- **English only**: word tasks are pictures or English clues (no translating Hindi words, no "Hindi word for
+  library"). An answer in another language (Hindi in any script, including Latin letters, as judged by the
+  understand step) isn't scored the first time: Sakhi asks "Can you try saying that in English?". A second one
+  is scored, with English words, sentences, smoothness and ideas capped at 0.5.
+- **Listening**: Sakhi leads in, then says two fixed sentences (never on screen) and asks one question about them.
+  Repeat says them again more slowly; the second help gives the question in Hindi.
+- **Picture description** for levels 1–2 (opinion questions for 3–4), each with a follow-up.
+- **Fluency from the mic**: Sarvam gives no word timestamps, so the app measures voicing and pauses itself while
+  listening (`stopTiming()` in `public/audio.js`): speaking rate, pauses ≥ 0.25 s, long pauses ≥ 1 s, and words
+  between pauses. These drive the fluency score and are given to the judge.
+- **Pronunciation** is only scored from read-aloud (word accuracy against the sentence). Elsewhere it is left out
+  of the averages instead of a made-up 2/4.
+- **Result in simple words**: levels are Beginner, Basic, Good, Very good ("level 2 of 4, Basic"). The screen shows
+  "What you did well" and "What we'll practise next" (written from their own answers; tips that quote words they
+  never said are dropped) and skills named in everyday words.

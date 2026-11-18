@@ -167,7 +167,7 @@ test('word tasks ask one word at a time, then score both replies together', asyn
   assert.ok(t.trace.some((s) => s.step === 'plan' && s.next === 'ask the second word on its own'));
   assert.ok(!t.trace.some((s) => s.step === 'judge'), 'not scored until both are answered');
   t = await answer(t.sessionId, `I think it is ${[v.expect[1]].flat()[0]}.`, 3);
-  assert.equal(t.task.id, 'q3_read');
+  assert.equal(t.task.id, 'q2_listen');
   assert.deepEqual(t.trace.find((s) => s.step === 'features').vocabHits, [true, true], 'both replies scored together');
 });
 
@@ -185,7 +185,7 @@ test('"I don\'t know" to the first word still asks the second; both words at onc
   t = await answer(t.sessionId, 'I teach English and maths to small children every morning at the school.');
   const w = QUESTIONS[1].variants[t.task.level];
   t = await answer(t.sessionId, `${[w.expect[0]].flat()[0]}, and the other one is ${[w.expect[1]].flat()[0]}.`, 4);
-  assert.equal(t.task.id, 'q3_read');
+  assert.equal(t.task.id, 'q2_listen');
 });
 
 test('each turn reports what the conversation has cost; voice is charged to it, cached lines are free', async () => {
@@ -279,4 +279,66 @@ test('"null" written as text by the model is not a language or a name', async ()
   assert.doesNotMatch(t.say[0].text, /null/);
   const u = t.trace.find((s) => s.step === 'understand');
   assert.equal(u.language, null); assert.equal(u.name, null);
+});
+
+// ---- assessment: English only, listening, fluency timing, result in simple words --------------------------
+
+const toListening = async () => {
+  let t = await post('/api/session', {});
+  t = await answer(t.sessionId, 'I am a teacher and I love walking in the evening with friends near my house in Pune.');
+  t = await answer(t.sessionId, 'I teach English and maths to small children every morning at the school.');
+  const v = QUESTIONS[1].variants[t.task.level];
+  t = await answer(t.sessionId, `It is ${[v.expect[0]].flat()[0]}, and the other is ${[v.expect[1]].flat()[0]}.`, 4);
+  return t;
+};
+
+test('listening: Sakhi leads in, says the two sentences and asks one question; a right answer counts', async () => {
+  let t = await toListening();
+  assert.equal(t.task.id, 'q2_listen');
+  const v = QUESTIONS[2].variants[t.task.level];
+  assert.equal(t.say.length, 3, 'lead-in, sentences, question');
+  assert.equal(t.say[1].text, v.passage);
+  assert.equal(t.say[2].text, v.question);
+  assert.ok(!t.card.text.includes(v.passage), 'the sentences are never on screen');
+  const again = await post('/api/session/turn', { sessionId: t.sessionId, event: 'repeat' });
+  assert.deepEqual(again.say.map((l) => l.text), [PHRASES.listenAgain, v.passage, v.question]);
+  t = await answer(t.sessionId, `I think the answer is ${[v.expect[0]].flat()[0]}.`, 2);
+  assert.equal(t.task.id, 'q3_read');
+  assert.deepEqual(t.trace.find((s) => s.step === 'features').vocabHits, [true]);
+});
+
+test('an answer in another language is not scored the first time: Sakhi asks for English', async () => {
+  let t = await post('/api/session', {});
+  t = await answer(t.sessionId, 'मैं पूरे दिन घर पर काम करता हूँ।');
+  assert.equal(t.task.id, 'q1_intro', 'same question');
+  assert.equal(t.say[0].text, PHRASES.tryEnglish);
+  assert.ok(t.trace.some((s) => s.step === 'plan' && s.next === 'ask them to try in English'));
+  t = await answer(t.sessionId, 'मैं घर पर काम करता हूँ, बहुत काम है।');
+  assert.equal(t.task.id, 'q1_intro_followup', 'second time: scored and moved on');
+  const sc = t.trace.find((s) => s.step === 'english-only').scores;
+  assert.ok(sc.vocabulary <= 0.5 && sc.grammar <= 0.5, 'non-English earns nothing for English words or sentences');
+});
+
+test('pronunciation is only measured from reading; fluency uses the mic timing', async () => {
+  let t = await post('/api/session', {});
+  t = await post('/api/session/turn', { sessionId: t.sessionId, event: 'answer', transcript: 'I work in a shop and I sell vegetables and fruits to people every day.', speechSec: 6,
+    timing: { spanSec: 6, voicedSec: 4.5, pauses: [0.3, 0.6, 1.4] } });
+  const f = t.trace.find((s) => s.step === 'features');
+  assert.equal(f.pauses, 3); assert.equal(f.longPauses, 1); assert.equal(f.meanRun, 3.8);
+  assert.equal(Math.round(f.speechRate), 150);
+  assert.equal(t.trace.find((s) => s.step === 'scores').pronunciation, null);
+});
+
+test('the result says the level in simple words, with what went well and what to practise', async () => {
+  let t = await post('/api/session', {});
+  for (let i = 0; i < 25 && !t.done; i++) {
+    const v = t.task.kind === 'vocab' ? QUESTIONS[1].variants[t.task.level] : t.task.kind === 'listen' ? QUESTIONS[2].variants[t.task.level] : null;
+    const reply = t.task.kind === 'read' ? t.card.text : v ? `It is ${[v.expect.at(-1)].flat()[0]} and ${[v.expect[0]].flat()[0]}.` : 'I work as a teacher in a small school near Pune and I walk with friends in the evening.';
+    t = await answer(t.sessionId, reply, 6);
+  }
+  assert.ok(t.done);
+  assert.ok(['Beginner', 'Basic', 'Good', 'Very good'].includes(t.done.name));
+  assert.equal(t.done.doingWell.length, 2); assert.equal(t.done.practise.length, 2);
+  assert.ok(t.done.dims.pronunciation != null, 'measured from the read-aloud');
+  assert.doesNotMatch(JSON.stringify([t.done.doingWell, t.done.practise]), /fluency|vocabulary|coherence/i);
 });

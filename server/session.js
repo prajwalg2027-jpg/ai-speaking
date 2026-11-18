@@ -9,7 +9,8 @@ import { randomUUID } from 'node:crypto';
 import { QUESTIONS, PHRASES, LEVELS, variantFor } from '../shared/assessment.js';
 import { quickCheck, understandTurn, continuesAnswer, measureAnswer, judgeAnswer } from './turn.js';
 import { speechSeconds } from './sarvam.js';
-import { compose, sayable } from './tutor.js';
+import { compose, sayable, explainResult } from './tutor.js';
+import { SKILL_WORDS } from './prompts.js';
 import { provisionalLevel, finalLevel } from './scoring.js';
 import { makeLedger } from './costs.js';
 import { LANGUAGES, voiceLanguage } from '../shared/languages.js';
@@ -28,11 +29,19 @@ export const line = (text, { pace = 1, preferred = null } = {}) => ({ text, lang
 function makeTask(qIndex, level, { probe = false } = {}) {
   const q = QUESTIONS[qIndex];
   const v = variantFor(q, level);
-  const showCard = q.kind === 'vocab' || q.kind === 'read' || (q.id === 'q4_opinion' && level <= 2);
+  const showCard = q.kind === 'vocab' || q.kind === 'read' || q.kind === 'listen' || (q.id === 'q4_opinion' && level <= 2);
+  if (q.kind === 'listen') {
+    // Listening: Sakhi's lead-in (written by the tutor), then these exact sentences and the question (askLines).
+    return {
+      id: q.id, qIndex, kind: q.kind, variantLevel: Math.min(4, Math.max(1, level)), silenceMs: q.silenceMs, language: q.language || 'auto',
+      scripted: PHRASES.listenLead, simple: PHRASES.listenLead, hindi: v.hindi, passage: v.passage, question: v.question, secret: `${v.passage} ${v.question}`,
+      reference: null, expect: v.expect, tutor: q.tutor, card: { text: v.screen, kind: 'task' }, probe, followUp: false, ask: null,
+    };
+  }
   return {
     id: q.id, qIndex, kind: q.kind, variantLevel: q.variants.any ? level : Math.min(4, Math.max(1, level)),
     silenceMs: q.silenceMs, language: q.language || 'auto',
-    scripted: v.say, simple: v.simple, hindi: v.hindi, reference: q.kind === 'read' ? v.screen : null, expect: v.expect, second: v.second,
+    scripted: v.say, simple: v.simple, hindi: v.hindi, reference: q.kind === 'read' ? v.screen : null, expect: v.expect, second: v.second, scene: v.scene,
     tutor: q.tutor || v.tutor, card: showCard ? { text: v.screen, kind: q.kind === 'read' ? 'read' : 'task' } : null,
     probe, followUp: q.kind === 'open', ask: null,
   };
@@ -57,18 +66,20 @@ function secondQuestion(t) {
   };
 }
 
-const freshAttempt = () => ({ confusions: 0, unheard: 0, meta: 0, neededHindi: false, prior: '', partial: null, askedRest: false, focus: null });
+const freshAttempt = () => ({ confusions: 0, unheard: 0, meta: 0, neededHindi: false, nudgedEnglish: false, prior: '', partial: null, askedRest: false, focus: null });
 
 /** Every scripted line the conversation can say, with the exact pace it's said at (for pre-generation). */
 export function scriptedLines() {
   const out = [line(QUESTIONS[0].variants.any.say)];
   for (const q of QUESTIONS) for (const v of Object.values(q.variants)) {
-    out.push(line(v.say), line(v.say, { pace: 0.8 }));
+    if (v.passage) out.push(line(v.passage, { pace: 0.95 }), line(v.passage, { pace: 0.8 }), line(v.question), line(v.question, { pace: 0.8 }), line(v.passage, { pace: 0.85 }));
+    if (v.say) out.push(line(v.say), line(v.say, { pace: 0.8 }));
     if (v.simple) out.push(line(v.simple, { pace: 0.85 }));
     if (v.hindi) out.push(line(v.hindi, { pace: 0.9 }));
     if (v.second) out.push(line(v.second.say), line(v.second.say, { pace: 0.8 }), line(v.second.simple, { pace: 0.85 }), line(v.second.hindi, { pace: 0.9 }));
   }
   out.push(line(PHRASES.didntHear, { pace: 0.95 }), line(PHRASES.cutOff), line(PHRASES.moveOn), line(PHRASES.followUp), line(PHRASES.hindiOk), line(PHRASES.englishOk),
+    line(PHRASES.tryEnglish), line(PHRASES.tryEnglishHindi), line(PHRASES.listenAgain), line(PHRASES.listenLead),
     line(PHRASES.followUpSimple, { pace: 0.85 }), line(PHRASES.followUpHindi, { pace: 0.9 }), ...PHRASES.backchannels.map((b) => line(b)));
   return out;
 }
@@ -103,6 +114,16 @@ function respond(s, lines, extra = {}) {
   };
 }
 
+/**
+ * The lines that ask a task, with `text` as Sakhi's own words. A listening task adds the two sentences and the
+ * question after her lead-in (always the exact scripted words). Sets the task's `ask` to everything asked.
+ */
+function askLines(task, text, ask = text) {
+  if (task.kind !== 'listen') { task.ask = ask; return [line(text)]; }
+  task.ask = `${ask} ${task.passage} ${task.question}`;
+  return [line(text), line(task.passage, { pace: 0.95 }), line(task.question)];
+}
+
 /** What Sakhi is currently asking: the task, or a word task's second question. */
 const current = (s) => s.att.focus || s.task;
 
@@ -117,10 +138,10 @@ export async function handleTurn(s, input, trace) {
   const heard = input.interrupted && input.event === 'answer' ? noteInterruption(s, input.interrupted, trace) : null;
   if (heard && s.prev && s.prev.kind !== 'read' && (input.transcript || '').trim()
     && await continuesAnswer({ asked: s.prev.asked, previous: s.prev.transcript, heard: heard.text, transcript: input.transcript }, trace)) {
-    const { snap, transcript, speechSec } = s.prev;
+    const { snap, transcript, speechSec } = s.prev, prevTiming = s.prev.timing;
     restore(s, snap);
     trace.add('plan', { next: 'join it to their previous answer', why: 'the learner was still finishing their answer when Sakhi started talking' });
-    return answerTurn(s, { ...input, interrupted: null, transcript: `${transcript} ${input.transcript}`, speechSec: speechSec + (input.speechSec || 0) }, trace, snap);
+    return answerTurn(s, { ...input, interrupted: null, transcript: `${transcript} ${input.transcript}`, speechSec: speechSec + (input.speechSec || 0), timing: mergeTiming(prevTiming, input.timing) }, trace, snap);
   }
   if (s.done) return respond(s, [], { done: s.result });
   if (input.event === 'answer') return answerTurn(s, { ...input, heardOnly: heard && !heard.askHeard ? heard.text : null }, trace, snapshot(s));
@@ -143,13 +164,13 @@ async function answerTurn(s, input, trace, snap) {
   const asked = current(s).ask;
   const c = quickCheck({ task: t, transcript: input.transcript || '', speechSec: input.speechSec, prior: s.att.prior }, trace);
   if (c.action === 'didnt_hear') return didntHear(s, trace);
-  s.prev = { snap, asked, kind: t.kind, transcript: c.transcript, speechSec: input.speechSec || 0 };
+  s.prev = { snap, asked, kind: t.kind, transcript: c.transcript, speechSec: input.speechSec || 0, timing: input.timing };
   s.history.push({ who: 'learner', text: input.transcript, reading: t.kind === 'read' });
   if (c.action === 'cut_off') { s.att.prior = c.transcript; return respond(s, [line(PHRASES.cutOff)], { heard: c.transcript, plan: 'answer looks cut off: asking them to go on' }); }
   // "I don't know" to the first word of a word task: still ask the second word.
   const firstWord = t.kind === 'vocab' && t.second && !s.att.askedRest;
   if (c.action === 'clarify' && !(c.intent === 'dont_know' && firstWord)) return clarify(s, c.intent, trace, c.transcript);
-  return understood(s, { transcript: c.transcript, languageCode: input.languageCode, speechSec: input.speechSec || 0, heardOnly: input.heardOnly }, trace);
+  return understood(s, { transcript: c.transcript, languageCode: input.languageCode, speechSec: input.speechSec || 0, timing: input.timing, heardOnly: input.heardOnly }, trace);
 }
 
 // ---- interruptions ------------------------------------------------------------------
@@ -183,6 +204,13 @@ function noteInterruption(s, { index = 0, heardSec = 0 }, trace) {
   return { text, askHeard };
 }
 
+/** Two replies' mic timings as one (a word task's two answers, or an answer finished after an interruption). */
+function mergeTiming(a, b) {
+  if (!a) return b || null;
+  if (!b) return a;
+  return { spanSec: a.spanSec + b.spanSec, voicedSec: a.voicedSec + b.voicedSec, pauses: [...a.pauses, ...b.pauses] };
+}
+
 /** A copy of the conversation state before a reply, to go back to if the next reply continues it. */
 function snapshot(s) {
   return {
@@ -207,7 +235,8 @@ async function understood(s, ans, trace) {
   // After a word task's second question, score both replies together.
   const full = [att.partial?.transcript, ans.transcript].filter(Boolean).join(' ');
   const speechSec = (att.partial?.speechSec || 0) + ans.speechSec;
-  const measured = measureAnswer({ task: t, transcript: full, speechSec }, trace);
+  const timing = mergeTiming(att.partial?.timing, ans.timing);
+  const measured = measureAnswer({ task: t, transcript: full, speechSec, timing }, trace);
   const level = levelAfter(s, measured);
   const askSecond = needsSecond(s, measured);
   const plan = planAfter(s, measured, askSecond, level);
@@ -238,8 +267,16 @@ async function understood(s, ans, trace) {
     const note = 'The learner talked over you before you got to your question, so they have not heard it. Their last line replies to what they did hear. In the reaction, respond to it in a few words. Then in ask, ask the TASK.';
     const task = current(s);
     const said = sayable(await compose({ history: s.history, level: s.level, profile: s.profile, situation: 'meta', note, task }, trace), s.profile.name);
-    task.ask = said.ask;
-    return respond(s, [line(said.text)], { heard: ans.transcript });
+    return respond(s, askLines(task, said.text, said.ask), { heard: ans.transcript });
+  }
+  // Only English is assessed. An answer in another language (Hindi in any script included) isn't scored the
+  // first time: Sakhi asks them to try it in English. A second one is scored as it is (it earns little).
+  const notEnglish = u ? u.english === 'no' : measured.features.nonLatinRatio > 0.5;
+  if (intent === 'answer' && notEnglish && t.kind !== 'read' && !att.nudgedEnglish) {
+    att.nudgedEnglish = true;
+    trace.add('plan', { next: 'ask them to try in English', why: 'the answer was not in English', discarded: 'the prepared reply and scores' });
+    const help = s.profile.language === 'hi-IN' || s.level <= 1 ? [line(PHRASES.tryEnglishHindi, { pace: 0.95 })] : [];
+    return respond(s, [line(PHRASES.tryEnglish), ...help], { heard: ans.transcript });
   }
   const gaveUp = intent === 'dont_know' || intent === 'skip';
   // "I don't know" to the first word of a word task still goes on to the second word.
@@ -247,7 +284,7 @@ async function understood(s, ans, trace) {
 
   if (plan.partial) {
     const drafted = await drafting;
-    att.partial = { transcript: full, speechSec }; att.askedRest = true;
+    att.partial = { transcript: full, speechSec, timing }; att.askedRest = true;
     const said = sayable(drafted.said, s.profile.name);
     att.focus = { ...drafted.next, ask: said.ask };
     att.confusions = 0; att.unheard = 0; att.meta = 0; // a new question: fresh help ladder
@@ -261,6 +298,12 @@ async function understood(s, ans, trace) {
   const entry = { questionId: t.id, kind: t.kind, variantLevel: t.variantLevel, skipped: false, neededHindi: att.neededHindi, transcript: full, languageCode: ans.languageCode, features: measured.features };
   const scored = judging.then((j) => {
     Object.assign(entry, j);
+    // Not in English (after being asked to try): nothing earned for English words, sentences, fluency or ideas.
+    if (notEnglish && t.kind !== 'read') {
+      for (const d of ['vocabulary', 'grammar', 'fluency', 'coherence']) entry.scores[d] = Math.min(entry.scores[d], 0.5);
+      entry.notEnglish = true;
+      trace.add('english-only', { task: t.id, why: 'answer not in English: capped English words, sentences, smoothness and ideas at 0.5', scores: entry.scores });
+    }
     if (t.id === 'q1_intro') s.level = startLevel(s, provisionalLevel(measured.features, j.scores));
   });
   if (t.probe) {
@@ -298,7 +341,7 @@ function planAfter(s, measured, askSecond, level) {
   if (askSecond) return { partial: true, next: secondQuestion(t), situation: 'next_part' };
   const situation = t.kind === 'read' ? 'read_done' : t.kind === 'vocab' ? 'answered_task' : 'answered';
   if (t.followUp) return { next: makeFollowUp(t), situation };
-  if (t.id === 'q3_read' && !t.probe && measured.features.readAccuracy >= 0.95 && level < 4) return { next: makeTask(2, level + 1, { probe: true }), situation: 'probe' };
+  if (t.id === 'q3_read' && !t.probe && measured.features.readAccuracy >= 0.95 && level < 4) return { next: makeTask(QUESTIONS.findIndex((q) => q.id === 'q3_read'), level + 1, { probe: true }), situation: 'probe' };
   const qIndex = (t.followup ? QUESTIONS.findIndex((q) => t.id === `${q.id}_followup`) : t.qIndex) + 1;
   return qIndex >= QUESTIONS.length ? { finish: true } : { next: { qIndex }, situation };
 }
@@ -313,12 +356,12 @@ async function draft(s, plan, level, trace) {
 /** Move to the drafted task and say its line. */
 function commit(s, { next, said }, heard) {
   const out = sayable(said, s.profile.name);
-  next.ask = out.ask;
+  const lines = askLines(next, out.text, out.ask);
   s.task = next; s.att = freshAttempt();
   // Asked in their language because they wanted it: the task was given with help in their language.
   if (s.profile.language) s.att.neededHindi = true;
   if (!next.followup && next.qIndex != null) s.qIndex = next.qIndex;
-  return respond(s, [line(out.text)], { heard });
+  return respond(s, lines, { heard });
 }
 
 /** Remember what the learner told us (name, facts). Returns the language they asked for, if it's a change. */
@@ -351,26 +394,23 @@ async function switchLanguage(s, wanted, trace, heard) {
     trace.add('plan', { next: 'talk in English from now on', why: 'learner asked for English' });
     const note = 'The learner asked to talk in English from now on. In the reaction, say okay warmly. Then in ask, ask the same task again, in English.';
     const said = await compose({ history: s.history, level: s.level, profile: p, situation: 'meta', note, task: f }, trace);
-    if (said.fallback) { f.ask = f.scripted; return respond(s, [line(PHRASES.englishOk), line(f.scripted)], { heard }); }
+    if (said.fallback) return respond(s, [line(PHRASES.englishOk), ...askLines(f, f.scripted)], { heard });
     const out = sayable(said, p.name);
-    f.ask = out.ask;
-    return respond(s, [line(out.text)], { heard });
+    return respond(s, askLines(f, out.text, out.ask), { heard });
   }
   if (!LANGUAGES[wanted]) {
     trace.add('plan', { next: 'explain, then ask again', why: `learner asked for ${wanted}, which Sakhi can't speak` });
     const note = `The learner asked you to talk in ${wanted}, which you can't speak yet. In the reaction, say sorry kindly and say you can talk in Hindi, English, or another Indian language like Punjabi, Bengali, Marathi, Gujarati, Tamil, Telugu, Kannada, Malayalam or Odia. Then in ask, ask the same task again.`;
     const said = sayable(await compose({ history: s.history, level: s.level, profile: p, situation: 'meta', note, task: f }, trace), p.name);
-    f.ask = said.ask;
-    return respond(s, [line(said.text)], { heard });
+    return respond(s, askLines(f, said.text, said.ask), { heard });
   }
   p.language = wanted;
   s.att.neededHindi = true;
   trace.add('profile', { ...p, facts: [...p.facts] });
   trace.add('plan', { next: `talk in ${LANGUAGES[wanted].name} from now on`, why: `learner asked for ${LANGUAGES[wanted].name}`, countsAsNeedingHindi: true });
-  if (wanted === 'hi-IN') return respond(s, [line(PHRASES.hindiOk), line(f.hindi, { pace: 0.9 })], { heard });
+  if (wanted === 'hi-IN') return respond(s, [line(PHRASES.hindiOk), ...(f.kind === 'listen' ? [line(f.passage, { pace: 0.85 })] : []), line(f.hindi, { pace: 0.9 })], { heard });
   const said = sayable(await compose({ history: s.history, level: s.level, profile: p, situation: 'switch_language', task: f }, trace), p.name);
-  f.ask = said.ask;
-  return respond(s, [line(said.text)], { heard });
+  return respond(s, askLines(f, said.text, said.ask), { heard });
 }
 
 /** The learner said something to Sakhi instead of answering: respond to it, then ask the same thing again. */
@@ -380,8 +420,7 @@ async function metaTurn(s, trace, heard) {
   trace.add('plan', { next: 'respond to what they said, then ask the same thing again', why: 'the reply was not an answer' });
   const task = current(s);
   const said = sayable(await compose({ history: s.history, level: s.level, profile: s.profile, situation: 'meta', task }, trace), s.profile.name);
-  task.ask = said.ask;
-  return respond(s, [line(said.text)], { heard });
+  return respond(s, askLines(task, said.text, said.ask), { heard });
 }
 
 function clarify(s, intent, trace, heard) {
@@ -391,6 +430,14 @@ function clarify(s, intent, trace, heard) {
     return moveOn(s, trace);
   }
   att.confusions++;
+  if (f.kind === 'listen') {
+    // Listening: say the two sentences again, slower (the question in Hindi the second time).
+    const hindi = intent === 'in_hindi' || att.confusions === 2;
+    if (hindi) att.neededHindi = true;
+    trace.add('plan', { next: hindi ? 'the sentences again, slower, with the question in Hindi' : 'the sentences again, slower', why: intent === 'in_hindi' ? 'learner asked for Hindi' : 'learner asked to repeat' });
+    return respond(s, hindi ? [line(f.passage, { pace: 0.85 }), line(f.hindi, { pace: 0.9 })]
+      : [line(PHRASES.listenAgain), line(f.passage, { pace: 0.8 }), line(f.question, { pace: 0.8 })], { heard });
+  }
   if (intent === 'in_hindi' || att.confusions === 2) {
     att.neededHindi = true;
     trace.add('plan', { next: 'simpler English, then Hindi', why: intent === 'in_hindi' ? 'learner asked for Hindi' : 'second request for help', countsAsNeedingHindi: true });
@@ -411,15 +458,15 @@ async function moveOn(s, trace) {
   const t = s.task;
   if (s.att.partial) {
     // They answered part of a two-part task: score that part rather than counting the task as skipped.
-    const { transcript, speechSec } = s.att.partial;
-    const measured = measureAnswer({ task: t, transcript, speechSec }, trace);
+    const { transcript, speechSec, timing } = s.att.partial;
+    const measured = measureAnswer({ task: t, transcript, speechSec, timing }, trace);
     const judged = { ...t, ask: [t.ask, s.att.focus?.ask].filter(Boolean).join(' ') };
     const entry = { questionId: t.id, kind: t.kind, variantLevel: t.variantLevel, skipped: false, neededHindi: s.att.neededHindi, transcript, features: measured.features };
     s.answers.push(entry);
     Object.assign(entry, await judgeAnswer({ task: judged, transcript, measured }, trace));
   } else if (!t.followup && !t.probe) {
     // A missed follow-up or bonus sentence doesn't count against them.
-    s.answers.push({ questionId: t.id, kind: t.kind, variantLevel: t.variantLevel, skipped: true, neededHindi: s.att.neededHindi, features: {}, scores: { comprehension: 0, vocabulary: 0, grammar: 0, fluency: 0, pronunciation: 0, coherence: 0 } });
+    s.answers.push({ questionId: t.id, kind: t.kind, variantLevel: t.variantLevel, skipped: true, neededHindi: s.att.neededHindi, features: {}, scores: { comprehension: 0, vocabulary: 0, grammar: 0, fluency: 0, pronunciation: t.kind === 'read' ? 0 : null, coherence: 0 } });
   }
   if (t.id === 'q1_intro') s.level = 1;
   const qIndex = (t.followup ? QUESTIONS.findIndex((q) => t.id === `${q.id}_followup`) : t.qIndex) + 1;
@@ -431,14 +478,23 @@ async function finish(s, trace, heard) {
   const result = finalLevel(s.answers);
   const L = LEVELS[result.level];
   const dims = Object.entries(result.dims || {}).sort((a, b) => b[1] - a[1]);
+  const levelSaid = `level ${result.level} of 4, ${L.name}`;
+  // Simple words throughout: no skill jargon, no made-up level labels.
   const summaryTask = {
-    id: 'summary', scripted: `You're a ${L.name} speaker! ${L.blurb}`, summary: { levelName: L.name },
-    brief: `Close the conversation warmly in two or three short sentences. Tell them they're a "${L.name}" speaker (use exactly that name, in English). Mention one thing they told you about themselves (from ABOUT THE LEARNER), one strength${dims[0] ? ` (their strongest area was ${dims[0][0]})` : ''}, and one thing you'll work on together${dims.at(-1) ? ` (${dims.at(-1)[0]})` : ''}. No scores or numbers. Don't mention any misunderstanding or anything that went wrong.`,
-    tutor: { mustInclude: [[L.name]], mustNotSay: [] },
+    id: 'summary', scripted: `Thank you! Your English is at ${levelSaid}. ${L.blurb}`, summary: { levelName: L.name },
+    brief: `Close the conversation warmly in two or three short sentences of very simple English (everyday words a beginner knows; never "fluency", "vocabulary", "grammar", "coherence" or "pronunciation"). Tell them their English is at "${levelSaid}" (say exactly that). Say one thing they did well, from what they actually said${dims[0] ? ` (their best skill: ${SKILL_WORDS[dims[0][0]]})` : ''}, and one thing you'll practise together next${dims.at(-1) ? ` (${SKILL_WORDS[dims.at(-1)[0]]})` : ''}. No other numbers. Don't mention any misunderstanding or anything that went wrong.`,
+    tutor: { mustInclude: [[L.name]], mustNotSay: ['fluency', 'vocabulary', 'grammar', 'coherence', 'pronunciation'] },
   };
-  const said = sayable(await compose({ history: s.history, level: result.level, profile: s.profile, situation: 'finish', task: summaryTask }, trace), s.profile.name);
+  const [composed, explained] = await Promise.all([
+    compose({ history: s.history, level: result.level, profile: s.profile, situation: 'finish', task: summaryTask }, trace),
+    explainResult({ answers: s.answers, dims: result.dims, level: result.level }, trace),
+  ]);
+  const said = sayable(composed, s.profile.name);
   s.done = true;
-  s.result = { ...result, name: L.name, blurb: L.blurb, answers: s.answers.map((a) => ({ q: a.questionId, level: a.variantLevel, skipped: a.skipped, transcript: a.transcript, neededHindi: a.neededHindi })) };
+  s.result = {
+    ...result, name: L.name, blurb: L.blurb, ...explained,
+    answers: s.answers.map((a) => ({ q: a.questionId, level: a.variantLevel, skipped: a.skipped, transcript: a.transcript, neededHindi: a.neededHindi, ...(a.notEnglish ? { notEnglish: true } : {}) })),
+  };
   trace.add('plan', { next: 'finish', level: result.level, name: L.name });
   return respond(s, [line(said.text)], { heard, done: s.result });
 }

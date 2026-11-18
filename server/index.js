@@ -48,6 +48,11 @@ async function handleSessionTurn(req, res) {
     event: body.event, transcript: String(body.transcript || ''), languageCode: body.languageCode || null, speechSec: Number(body.speechSec) || 0,
     // Set when the learner talked over Sakhi: which of her lines, and how many seconds of it they heard.
     interrupted: body.interrupted ? { index: Number(body.interrupted.index) || 0, heardSec: Number(body.interrupted.heardSec) || 0 } : null,
+    // Measured from the mic while they spoke (fluency): see features() in scoring.js.
+    timing: body.timing && Number.isFinite(Number(body.timing.spanSec)) ? {
+      spanSec: Number(body.timing.spanSec), voicedSec: Number(body.timing.voicedSec) || 0,
+      pauses: (Array.isArray(body.timing.pauses) ? body.timing.pauses : []).slice(0, 200).map(Number).filter(Number.isFinite),
+    } : null,
   }, trace));
   send(res, 200, { ...turn, trace: trace.list, serverMs: trace.total(), cost: summarize(s.ledger) });
 }

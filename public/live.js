@@ -197,6 +197,7 @@ export class LiveSTT {
     else if (talking != null) this._startStreaming(Math.min(now - PREROLL_AFTER_PROMPT, talking - ONSET_MARGIN), 'the learner was already talking');
     else this._startStreaming(now - PREROLL_AFTER_PROMPT);
     this.bargeInAt = null;
+    this.voice.startTiming(); // pauses and speaking time, for fluency
     return new Promise((resolve) => {
       const t0 = performance.now();
       let done = false, nudged = false, grace = null, safety = null, finishing = false;
@@ -206,10 +207,12 @@ export class LiveSTT {
         clearInterval(tick); clearTimeout(grace); clearTimeout(safety);
         this.listener = null; this.voice.stopListening = null; this.voice.metering = false; this.voice.onLevel(0, 'user');
         this._stopStreaming();
+        const timing = this.voice.stopTiming();
         const spoke = this.accepted.size > 0;
         const why = reason === 'live_failed' || spoke ? reason : 'no_speech';
         log('live', `Answer complete (${why})`, { transcript: this.pending.join(' ').trim(), utterances: this.accepted.size, speechSec: +this.speechSec.toFixed(2) });
-        resolve({ transcript: this.pending.join(' ').trim(), language: this.language, languageConfidence: this.languageConfidence, speechSec: this.speechSec, reason: why });
+        if (timing && spoke) log('live', `Speech timing: ${timing.spanSec} s from first to last word, ${timing.pauses.length} pause${timing.pauses.length === 1 ? '' : 's'}${timing.pauses.length ? ` (longest ${Math.max(...timing.pauses)} s)` : ''}`, timing);
+        resolve({ transcript: this.pending.join(' ').trim(), language: this.language, languageConfidence: this.languageConfidence, speechSec: this.speechSec, timing: spoke ? timing : null, reason: why });
       };
       const requestFinal = (reason) => { // push silence so server VAD closes the utterance now
         log('live', reason === 'max' ? 'Answer hit the 45 s cap: asking Sarvam to finish' : 'Done tapped mid-sentence: asking Sarvam to finish the utterance');

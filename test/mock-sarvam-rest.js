@@ -7,7 +7,8 @@ import { createServer } from 'node:http';
 // A rough stand-in for the "understand" step, enough for the conversation tests.
 function understand(user) {
   const said = user.match(/Learner replied: (.*)/)?.[1] || '';
-  const r = { intent: 'answer', language: null, missing: [], name: null, facts: [] };
+  const r = { intent: 'answer', english: 'yes', language: null, missing: [], name: null, facts: [] };
+  if (/[\u0900-\u097F]/.test(said) || /\b(bahut|maza|kaam|karta|hai)\b/i.test(said)) r.english = 'no';
   const lang = said.match(/(?:speak|talk) in (\w+)/i)?.[1];
   if (/petrol station/.test(said)) Object.assign(r, { language: 'null', name: 'null' }); // the model writing "null" as text
   if (lang) Object.assign(r, { intent: 'language', language: lang });
@@ -32,6 +33,7 @@ export function startMockRest({ transcript = 'my name is ravi i like tea' } = {}
       const msgs = JSON.parse(body).messages, sys = msgs[0].content, user = msgs[1]?.content || '';
       let content;
       if (/understand what a learner just said/.test(sys)) content = JSON.stringify(understand(user));
+      else if (/explain an English speaking check/.test(sys)) content = JSON.stringify({ doingWell: ['You talked about your work.', 'You answered every question.'], practise: ['Try to use longer sentences.', 'Say went for last week, not go.'] });
       else if (/talked over the tutor/.test(sys)) content = JSON.stringify({ continues: /Learner then said: (and|also)\b/i.test(user) });
       else if (/examiner/.test(sys)) content = '{"comprehension":3,"vocabulary":3,"grammar":3,"fluency":3,"pronunciation":3,"coherence":3,"relevant":true,"note":"ok"}';
       else if (/You are Sakhi/.test(sys)) {
@@ -39,6 +41,7 @@ export function startMockRest({ transcript = 'my name is ravi i like tea' } = {}
         const never = (user.match(/MUST NOT SAY: (.*)/)?.[1] || '').match(/"([^"]+)"/)?.[1];
         state.tutorPrompts.push(user);
         let ask = state.tutorMode === 'leak' && never ? `Is it ${never}? Tell me about ${must.join(' and ')}.`
+          : must[0] === 'listen' ? 'Now listen carefully to two short sentences.'
           : /The sentence is on their screen/.test(user) ? 'Please read the sentence on your screen out loud.'
           : /conversation is ending/.test(user) ? `You're a ${must[0]} speaker. It was lovely talking with you.`
           : must.length ? `Let's keep going: tell me about ${must.join(' and ')}?` : 'What else can you tell me about that?';

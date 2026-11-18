@@ -7,6 +7,7 @@ import * as sarvam from './sarvam.js';
 import { config } from './config.js';
 import { normalizeForCompare } from './normalize.js';
 import { LANGUAGES } from '../shared/languages.js';
+import { EXPLAIN_SYSTEM, SKILL_WORDS } from './prompts.js';
 
 export const TUTOR_SYSTEM = `You are Sakhi, a warm and encouraging English tutor in a voice app for learners in India. You are having a friendly spoken conversation. Inside it you are quietly checking the learner's English level, but you never mention tests, levels, scores, questions or how many are left.
 
@@ -46,7 +47,7 @@ const SITUATIONS = {
 // Sakhi stays warm about what was said, never about how well it was said: no corrections, no verdicts.
 // Any sentence (in the reaction or the task line) that matches is dropped before Sakhi speaks. Apologies
 // ("sorry, my mistake") are allowed: Sakhi needs them when the learner corrects her.
-const CORRECTION = /\b(should (?:say|be)|correct(?:ly|ion)?|incorrect|(?:you made|you make|small|little|one|a few|some|no|any) mistakes?|(?:that(?:'s| is)|it(?:'s| is)|answer is|word is) (?:a bit |a little |slightly |not )?(?:wrong|right)|you(?:'re| are) (?:a bit |a little |slightly )?wrong|wrong (?:word|answer)|grammar|instead of|you meant|the right word|right answer|perfect(?:ly)?|exactly( right)?|spot on|well said|well done|did (?:very |really )?well|great (?:job|answer|reading)|good (?:job|answer|reading)|know (?:those|these|the|so many|a lot of|many) (?:english )?words|(?:so|very|really) well|excellent|nailed|clearly|fluen(?:t|cy)|good english|your english|pronunciation|accent)\b/i;
+const CORRECTION = /\b(should (?:say|be)|correct(?:ly|ion)?|incorrect|(?:you made|you make|small|little|one|a few|some|no|any) mistakes?|(?:that(?:'s| is)|it(?:'s| is)|answer is|word is) (?:a bit |a little |slightly |not )?(?:wrong|right)|you(?:'re| are) (?:a bit |a little |slightly )?wrong|wrong (?:word|answer)|grammar|instead of|you meant|the right word|right answer|perfect(?:ly)?|exactly( right)?|spot on|well said|well done|did (?:very |really )?well|great (?:job|answer|reading)|good (?:job|answer|reading)|know (?:those|these|the|so many|a lot of|many) (?:english )?words|(?:so|very|really) well|excellent|nailed|clearly|fluen(?:t|cy)|good english|your english|pronunciation|accent|you used|(?:nice|good|great) use of)\b/i;
 // The same in Hindi and Punjabi ("सही है", "बिल्कुल सही", "ਬਹੁਤ ਵਧੀਆ"…). Not "ग़लती": "sorry, my mistake" is an apology.
 const CORRECTION_HI = /(ਬਹੁਤ ਵਧੀਆ|ਸਹੀ ਹੈ|ਬਿਲਕੁਲ ਸਹੀ|ਸ਼ਾਬਾਸ਼|ਗਲਤ ਹੈ|ਵਿਆਕਰਣ|ਉਚਾਰਣ|ਤੁਹਾਡੀ ਅੰਗਰੇਜ਼ੀ|सही है|सही था|सही जवाब|सही शब्द|बिल्कुल सही|एकदम सही|ग़लत है|गलत है|ग़लत जवाब|गलत जवाब|शाबाश|बहुत बढ़िया|बहुत अच्छा बोल|अच्छा जवाब|बढ़िया जवाब|उच्चारण|व्याकरण|आपकी अंग्रेज़ी|आपकी इंग्लिश)/;
 const sentences = (t) => t.match(/[^.!?।]+[.!?।]*\s*/g) || [t];
@@ -104,9 +105,10 @@ export function checkAsk(ask, task, { language = null } = {}) {
   for (const group of spec.mustInclude || []) {
     if (!group.some((w) => has(ask, w))) return { ok: false, reason: `missing "${group[0]}"` };
   }
-  if (task.reference) {
-    // Read-aloud: Sakhi must not say the sentence (no run of 4 of its words).
-    const ref = normalizeForCompare(task.reference), said = ` ${normalizeForCompare(ask).join(' ')} `;
+  if (task.reference || task.secret) {
+    // Read-aloud: Sakhi must not say the sentence; listening: her lead-in must not give away the sentences or
+    // the question (no run of 4 of their words).
+    const ref = normalizeForCompare(task.reference || task.secret), said = ` ${normalizeForCompare(ask).join(' ')} `;
     for (let i = 0; i + 4 <= ref.length; i++) if (said.includes(` ${ref.slice(i, i + 4).join(' ')} `)) return { ok: false, reason: 'reads the sentence out' };
   }
   if (task.followup && !ask.includes('?')) return { ok: false, reason: 'follow-up is not a question' };
@@ -124,6 +126,7 @@ export function oneQuestion(text, task = {}) {
   let asked = false;
   return sentences(text || '').filter((x) => {
     if (!x.includes('?')) return true;
+    if (task.kind === 'listen') return false; // the lead-in only says "listen": the question comes after the sentences
     if (task.reference && !READ_WORDS.test(x)) return false;
     if (asked) return false;
     asked = true;
@@ -150,6 +153,39 @@ function aboutText(profile = {}) {
     profile.facts?.length ? `- What they've told you (background; mention only when it fits naturally): ${profile.facts.join('; ')}` : '',
   ].filter(Boolean).join('\n');
 }
+
+/**
+ * The result in simple words, from the learner's own answers. → { doingWell: [2], practise: [2] }
+ * Falls back to lines built from their strongest and weakest skills.
+ */
+export async function explainResult({ answers, dims, level }, trace) {
+  const meta = {};
+  const said = answers.filter((a) => !a.skipped && a.transcript).map((a) => `- (${a.kind}) ${a.transcript}`).join('\n');
+  const ranked = Object.entries(dims || {}).sort((a, b) => b[1] - a[1]).map(([k]) => SKILL_WORDS[k]);
+  const user = `Their level: ${level} of 4.\nStrongest to weakest: ${ranked.join('; ')}.\nTheir answers:\n${said || '(none)'}`;
+  const call = sarvam.chatJSON([{ role: 'system', content: EXPLAIN_SYSTEM }, { role: 'user', content: user }], { model: config.sarvam.llmReplyModel, temperature: 0.4, maxTokens: 300, meta, purpose: 'tutor' });
+  const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('took over 5 s')), 5000));
+  const r = await trace.time('explain', () => Promise.race([call, timeout]), (x) => ({ model: meta.model, ...x })).catch(() => null);
+  // Keep sentences that are whole (4+ words, balanced brackets), in simple words, and that only quote words the
+  // learner really said (a tip that "corrects" something they never said is dropped).
+  const theirs = normalizeForCompare(answers.map((a) => a.transcript || '').join(' ')).join(' ');
+  const quotesTheirs = (x) => [...x.matchAll(/'([^']{2,60})'/g)].every(([, q], i, all) => {
+    // In "say 'better' (not 'theirs')", the quote after "not" must be theirs; other quotes may be the better way.
+    const before = x.slice(0, x.indexOf(`'${q}'`)).toLowerCase();
+    return !/\bnot\s*$|\(not\s*$/.test(before) || theirs.includes(normalizeForCompare(q).join(' '));
+  });
+  const good = (x) => typeof x === 'string' && x.split(/\s+/).length >= 4 && x.split(/\s+/).length <= 24 && !BANNED_WORDS.test(x)
+    && (x.match(/\(/g) || []).length === (x.match(/\)/g) || []).length && quotesTheirs(x);
+  const keep = (list) => (Array.isArray(list) ? list.filter(good).slice(0, 2) : []);
+  const doingWell = keep(r?.doingWell), practise = keep(r?.practise);
+  if (doingWell.length && practise.length) return { doingWell, practise };
+  if (r) trace.add('explain-fallback', { reason: 'no usable sentences (jargon, too long, broken, or quoting words they never said)' });
+  return {
+    doingWell: ranked.slice(0, 2).map((w) => `You are good at ${w}.`),
+    practise: ranked.slice(-2).reverse().map((w) => `Next, we will practise ${w}.`),
+  };
+}
+const BANNED_WORDS = /\b(fluency|vocabulary|grammar|coherence|comprehension|pronunciation)\b/i;
 
 /**
  * Write Sakhi's next line. → { reaction, ask, fallback?: reason }  (use sayable() to get the spoken text)
