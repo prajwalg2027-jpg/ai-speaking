@@ -58,3 +58,11 @@ test('Hindi verdicts are removed too, Hindi apologies are not', () => {
   assert.equal(stripVerdicts('ठीक है, यह बिल्कुल सही है। अब library को हिंदी में क्या कहते हैं?'), 'अब library को हिंदी में क्या कहते हैं?');
   assert.equal(stripVerdicts('माफ़ी चाहती हूँ, मुझसे ग़लती हो गई।'), 'माफ़ी चाहती हूँ, मुझसे ग़लती हो गई।');
 });
+
+test('one question per line: later questions are dropped, instructions stay', async () => {
+  const { oneQuestion } = await import('../server/tutor.js');
+  assert.equal(oneQuestion("What food do you enjoy? Try starting with 'I like'."), "What food do you enjoy? Try starting with 'I like'.");
+  assert.equal(oneQuestion('Who did you party with? What did you all do together?'), 'Who did you party with?');
+  assert.equal(oneQuestion('There is a sentence on your screen. Can you read it out loud? Are you ready?', { reference: 'x' }), 'There is a sentence on your screen. Can you read it out loud?');
+  assert.equal(oneQuestion('Please read the sentence on your screen. Are you ready?', { reference: 'x' }), 'Please read the sentence on your screen.');
+});

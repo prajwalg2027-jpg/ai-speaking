@@ -43,7 +43,10 @@ export async function understandTurn({ asked, transcript, profile, heardOnly = n
     `Learner replied: ${transcript}`].filter(Boolean).join('\n');
   const call = sarvam.chatJSON([{ role: 'system', content: UNDERSTAND_SYSTEM }, { role: 'user', content: user }], { temperature: 0, maxTokens: 160, meta, purpose: 'understand' });
   const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('took over 4 s')), 4000));
-  const r = await trace.time('understand', () => Promise.race([call, timeout]), (x) => ({ model: meta.model, ...x })).catch(() => null);
+  // The model sometimes writes "null" as text for an empty field: treat it (and "none", "unknown"…) as empty.
+  const empty = (v) => (typeof v === 'string' && /^\s*(null|none|unknown|n\/a|-)?\s*$/i.test(v) ? null : v);
+  const clean = (x) => x && { ...x, name: empty(x.name), language: empty(x.language) };
+  const r = await trace.time('understand', () => Promise.race([call, timeout]).then(clean), (x) => ({ model: meta.model, ...x })).catch(() => null);
   if (!r) return null;
   const intents = ['answer', 'meta', 'language', 'repeat', 'slower', 'dont_know', 'skip', ...(heardOnly != null ? ['reply'] : [])];
   if (r.intent === 'in_hindi') Object.assign(r, { intent: 'language', language: r.language || 'Hindi' });

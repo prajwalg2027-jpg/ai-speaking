@@ -224,7 +224,7 @@ async function understood(s, ans, trace) {
   drafting?.catch(() => {});
 
   const u = understanding ? await understanding : null;
-  const switched = u ? learn(s, u, trace) : null; // a language they just asked for
+  const switched = u ? learn(s, u, trace) : null; // a language they just asked for (only on a "language" reply)
   const intent = u?.intent || 'answer';
   const dropped = (why) => trace.add('plan', { next: why, why: `the learner's reply was read as "${intent}"`, discarded: 'the prepared reply and scores' });
 
@@ -330,7 +330,7 @@ function learn(s, u, trace) {
   for (const f of reading ? [] : u.facts) if (!p.facts.some((x) => x.toLowerCase() === f.toLowerCase())) p.facts.push(f);
   p.facts = p.facts.slice(-8);
   if (JSON.stringify(p) !== before) trace.add('profile', { ...p, facts: [...p.facts] });
-  const wanted = u.language;
+  const wanted = u.intent === 'language' ? u.language : null;
   return wanted && wanted !== (p.language || 'en-IN') ? wanted : null;
 }
 

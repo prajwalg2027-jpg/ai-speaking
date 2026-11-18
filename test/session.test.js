@@ -271,3 +271,12 @@ test('talking over the closing summary to finish the last answer reopens it, the
   assert.ok(t.done, 'a new summary');
   assert.match(t.done.answers.at(-1).transcript, /movies/);
 });
+
+test('"null" written as text by the model is not a language or a name', async () => {
+  let t = await post('/api/session', {});
+  t = await answer(t.sessionId, 'Every evening I go to the petrol station to do work and it is always empty.');
+  assert.equal(t.task.id, 'q1_intro_followup', 'scored as an answer, no language switch');
+  assert.doesNotMatch(t.say[0].text, /null/);
+  const u = t.trace.find((s) => s.step === 'understand');
+  assert.equal(u.language, null); assert.equal(u.name, null);
+});

@@ -114,6 +114,23 @@ export function checkAsk(ask, task, { language = null } = {}) {
   return { ok: true };
 }
 
+const READ_WORDS = /\bread(?:ing)?\b|पढ़|ਪੜ੍ਹ|পড়|વાંચ|वाच|படி|చదువ|ಓದ|വായി|ପଢ/i;
+/**
+ * One question at a time: the first question stays, any later question is dropped; sentences that aren't
+ * questions stay ("What food do you like? Start with 'I like'."). In a read-aloud line, a question that isn't
+ * about reading ("Are you ready?") is dropped too: it would get an answer instead of the reading.
+ */
+export function oneQuestion(text, task = {}) {
+  let asked = false;
+  return sentences(text || '').filter((x) => {
+    if (!x.includes('?')) return true;
+    if (task.reference && !READ_WORDS.test(x)) return false;
+    if (asked) return false;
+    asked = true;
+    return true;
+  }).join('').trim();
+}
+
 /** A reaction is optional; drop it if it corrects, evaluates, asks or rambles. */
 export function checkReaction(reaction) {
   const r = stripVerdicts(reaction);
@@ -167,10 +184,7 @@ export async function compose({ history, level, profile = {}, situation, note, t
     const reaction = task.summary ? '' : checkReaction(out?.reaction);
     // The summary may say how they did, but it ends the conversation: no questions.
     let proposed = task.summary ? sentences(out?.ask || '').filter((x) => !x.includes('?')).join('').trim() : stripVerdicts(out?.ask);
-    // One question at a time: anything after the first question mark is dropped. A read-aloud line is an
-    // instruction, so it has no question at all ("Are you ready?" would get an answer instead of the reading).
-    if (task.reference && !task.summary) proposed = sentences(proposed).filter((x) => !x.includes('?')).join('').trim();
-    else if (!task.summary && proposed.includes('?')) proposed = proposed.slice(0, proposed.indexOf('?') + 1);
+    if (!task.summary) proposed = oneQuestion(proposed, task);
     return { out, reaction, proposed, check: out ? checkAsk(proposed, task, { language: profile.language }) : { ok: false, reason: 'no reply from the model' } };
   };
   const t0 = performance.now();

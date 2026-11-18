@@ -9,6 +9,7 @@ function understand(user) {
   const said = user.match(/Learner replied: (.*)/)?.[1] || '';
   const r = { intent: 'answer', language: null, missing: [], name: null, facts: [] };
   const lang = said.match(/(?:speak|talk) in (\w+)/i)?.[1];
+  if (/petrol station/.test(said)) Object.assign(r, { language: 'null', name: 'null' }); // the model writing "null" as text
   if (lang) Object.assign(r, { intent: 'language', language: lang });
   else if (/NOTE: the learner talked over/.test(user) && said.split(/\s+/).length < 8) r.intent = 'reply';
   else if (/my name is not|why are you calling me/i.test(said)) r.intent = 'meta';
