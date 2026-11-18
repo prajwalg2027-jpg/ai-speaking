@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readAccuracy, features, heuristicScores, provisionalLevel, finalLevel } from '../server/scoring.js';
+import { readAccuracy, features, heuristicScores, provisionalLevel, finalLevel, CONFIG } from '../server/scoring.js';
 import { detectClarification, isUnintelligible, looksTruncated } from '../server/clarify.js';
 
 test('read-aloud accuracy', () => {
@@ -49,6 +49,6 @@ test('final level: L4 requires strong Q4', () => {
   const high = { comprehension: 4, vocabulary: 4, grammar: 4, fluency: 4, pronunciation: 4, coherence: 4 };
   const a = (id, scores) => ({ questionId: id, variantLevel: 4, features: { devanagariRatio: 0, readAccuracy: 0.98 }, scores });
   assert.equal(finalLevel([a('q1_intro', high), a('q2_vocab', high), a('q3_read', high), a('q4_opinion', high)]).level, 4);
-  const weakQ4 = { ...high, coherence: 2.5, vocabulary: 3 };
+  const weakQ4 = { ...high, coherence: CONFIG.level4Talk - 0.2, vocabulary: CONFIG.level4Talk + 0.3 }; // just under the talk check
   assert.equal(finalLevel([a('q1_intro', high), a('q2_vocab', high), a('q3_read', high), a('q4_opinion', weakQ4)]).level, 3);
 });
