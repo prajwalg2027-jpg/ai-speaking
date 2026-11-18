@@ -4,10 +4,10 @@ import { BANK } from './bank.js';
 
 // Level names are everyday words a learner understands (no "Word-builder"-style labels).
 export const LEVELS = {
-  1: { name: 'Beginner', blurb: "You're starting to speak English. We'll begin with everyday words and short sentences." },
-  2: { name: 'Basic', blurb: 'You know many English words. Next, we will make full sentences with them.' },
-  3: { name: 'Good', blurb: 'You can talk in English about your life. Next, we will make your sentences stronger.' },
-  4: { name: 'Very good', blurb: 'You speak English well and easily. Next, we will work on more advanced words and ideas.' },
+  1: { name: 'Beginner', blurb: "You're starting to speak English. We'll begin with everyday words and short sentences.", hindi: 'आप अंग्रेज़ी बोलना शुरू कर रहे हैं। हम रोज़ के शब्दों और छोटे वाक्यों से शुरुआत करेंगे।' },
+  2: { name: 'Basic', blurb: 'You know many English words. Next, we will make full sentences with them.', hindi: 'आप अंग्रेज़ी के बहुत से शब्द जानते हैं। अब हम इनसे पूरे वाक्य बनाएँगे।' },
+  3: { name: 'Good', blurb: 'You can talk in English about your life. Next, we will make your sentences stronger.', hindi: 'आप अपनी ज़िंदगी के बारे में अंग्रेज़ी में बात कर सकते हैं। अब हम आपके वाक्यों को और मज़बूत बनाएँगे।' },
+  4: { name: 'Very good', blurb: 'You speak English well and easily. Next, we will work on more advanced words and ideas.', hindi: 'आप अंग्रेज़ी अच्छे से और आसानी से बोलते हैं। अब हम और गहरे शब्दों और विचारों पर काम करेंगे।' },
 };
 
 // Everything here tests English only: questions are asked in English (with help in the learner's language if

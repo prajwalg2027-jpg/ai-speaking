@@ -35,7 +35,7 @@ export function render(c) {
   if (!c) return;
   const prev = last;
   last = c;
-  $('costTotal').textContent = inr(c.totalInr ?? 0);
+  $('costTotal').textContent = `Cost ${inr(c.totalInr ?? 0)}`;
   if (!c.stt) return;
   // The three parts, always visible: speech-to-text grows every second while listening; voice and AI grow in
   // steps (a new line spoken, a reply processed). The part that just changed is highlighted.

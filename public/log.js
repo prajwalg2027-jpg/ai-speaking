@@ -51,6 +51,7 @@ function append(el) {
   listEl.append(el);
   while (listEl.childElementCount > MAX_ROWS) listEl.firstElementChild.remove();
   countEl.textContent = `${count} events`;
+  const n = document.getElementById('logsN'); if (n) n.textContent = count;
   if (follow) listEl.scrollTop = listEl.scrollHeight;
 }
 
@@ -90,7 +91,7 @@ function setHidden(hidden) {
 export function initLogPanel(root) {
   root.innerHTML = `
     <div class="logs-head">
-      <strong>Live logs</strong>
+      <strong>Developer log · <span id="logsN">0</span></strong>
       <span class="logs-count" id="logsCount">0 events</span>
       <input id="logsFilter" type="search" placeholder="Filter (e.g. llm, error, v4)" aria-label="Filter logs">
       <div class="logs-actions">

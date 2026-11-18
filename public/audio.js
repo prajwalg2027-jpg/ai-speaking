@@ -99,14 +99,16 @@ export class Voice {
    * words. If the voice stays up for 300 ms (the loud counter drains slowly, so dips inside words don't reset
    * it), she stops: a barge-in. If it was just a cough or a bump, her volume comes back after 600 ms.
    * Resolves { stoppedBy: 'barge-in' | 'stopped by app' | null, heardSec } when playback ends or stops.
+   * onProgress({ played, total, complete }) is called every frame: seconds heard so far, seconds received so far,
+   * and whether the whole clip has arrived (the screen reveals Sakhi's words with it).
    */
-  async playPcm(chunks, rate = 24000) {
+  async playPcm(chunks, rate = 24000, { onProgress } = {}) {
     if (this.ctx.state !== 'running') await this.ctx.resume();
     const nodes = [];
     const gain = this.ctx.createGain();
     gain.connect(this.botAnalyser);
     let at = this.ctx.currentTime + 0.05, total = 0, leftover = null;
-    let raf, loud = 0, stoppedBy = null, duckedAt = null, result = null;
+    let raf, loud = 0, stoppedBy = null, duckedAt = null, result = null, complete = false;
     const stopAll = () => { for (const n of nodes) { try { n.stop(); } catch {} } };
     const setVolume = (v) => gain.gain.setTargetAtTime(v, this.ctx.currentTime, 0.015);
     const data = new Uint8Array(this.botAnalyser.fftSize);
@@ -114,6 +116,7 @@ export class Voice {
       this.botAnalyser.getByteTimeDomainData(data);
       let s = 0; for (const v of data) s += ((v - 128) / 128) ** 2;
       this.onLevel(Math.min(1, Math.sqrt(s / data.length) * 4), 'bot');
+      if (onProgress && !stoppedBy) onProgress({ played: Math.max(0, this.ctx.currentTime - started - 0.05 - (this.ctx.outputLatency || 0)), total, complete });
       raf = requestAnimationFrame(tick);
     };
     this._frameHook = (rms, ms) => {
@@ -151,6 +154,7 @@ export class Voice {
         node.start(at); at += buf.duration; total += buf.duration;
         nodes.push(node);
       }
+      complete = true;
       while (!stoppedBy && this.ctx.currentTime < at) await new Promise((r) => setTimeout(r, 40));
     } finally {
       cancelAnimationFrame(raf); this.playing = false; this.stopPlayback = null; this._frameHook = null;
@@ -161,7 +165,7 @@ export class Voice {
       else log('tts', `Sakhi finished speaking (${total.toFixed(1)} s)`);
       if (duckedAt != null && !stoppedBy) log('tts', 'Lowered Sakhi\'s volume for a moment (a sound that wasn\'t an interruption)');
       setTimeout(() => gain.disconnect(), 200);
-      result = { stoppedBy: stoppedBy?.startsWith('barge-in') ? 'barge-in' : stoppedBy, heardSec: +played.toFixed(2) };
+      result = { stoppedBy: stoppedBy?.startsWith('barge-in') ? 'barge-in' : stoppedBy, heardSec: +played.toFixed(2), totalSec: +total.toFixed(2) };
     }
     return result;
   }

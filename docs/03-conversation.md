@@ -149,3 +149,18 @@ The questions live in `shared/bank.js`: 91 approved in review (review page `/rev
 pool, so retakes rarely repeat: 3 openings; word pairs 5/2/5/6 (levels 1-4); listening 6 per level; read-aloud
 6/6/6/5; speaking 5/6/6/6. Help lines (simpler English, Hindi) were drafted with Sarvam-105B and checked by hand.
 `docs/question-bank.xlsx` lists every item. Result tips ("what to practise") come only from open answers.
+
+## The app screen (mobile-first)
+
+The default view is the customer view, built from the design handoff: the Molten orb (tap to start, tap to
+interrupt Sakhi, tap to say you're done), Sakhi's lines revealed word by word in step with her voice, a live
+"Listening" bubble for your words, the fanned hint card (emoji / word / sentence) for word tasks, and the result
+card with the level ring, a Hindi line and simple tips. Light and dark follow the phone's setting (`?theme=dark`
+forces dark; `?rm=1` forces reduced motion).
+
+The team view adds the developer log, the Sarvam cost counter and the help chips (Done speaking, Repeat, Hindi
+mein, Skip). Open it with `/?internal=1`; the choice is remembered on that browser until `/?internal=0`.
+
+Code: `public/index.html`, `styles.css` (tokens and layout), `orb.js` (the orb animation loop), `ui.js` (screen
+parts), `app.js` (the conversation flow). The server sends `cue` (show, deal or remove the card) and the card's
+look with each turn.

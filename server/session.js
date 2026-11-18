@@ -26,6 +26,25 @@ setInterval(() => { const now = Date.now(); for (const [id, s] of sessions) if (
 export const line = (text, { pace = 1, preferred = null } = {}) => ({ text, lang: voiceLanguage(text, preferred), pace });
 
 // ---- tasks ----------------------------------------------------------------------
+/**
+ * What the task card shows: the text, how it looks (a big picture, a word, or a sentence) and the instruction
+ * in English and Hindi, which the card alternates between (the learner's own words never appear on it).
+ */
+function cardFor(kind, text, level) {
+  const card = (look, en, hi) => ({ text, kind: kind === 'read' ? 'read' : 'task', look, band: { en, hi } });
+  if (kind === 'read') return card('sentence', 'Read this sentence out loud.', 'इस वाक्य को ज़ोर से पढ़िए।');
+  if (kind === 'listen') return { ...card('emoji', 'Listen, then answer in English.', 'ध्यान से सुनिए, फिर अंग्रेज़ी में जवाब दीजिए।'), text: '👂' };
+  if (kind === 'vocab') {
+    if (/ vs /.test(text)) return card('word', 'Say how these are different, in English.', 'इनमें क्या अंतर है, अंग्रेज़ी में बताइए।');
+    if (/means/.test(text)) return card('word', 'Say what this word means, in English.', 'इस शब्द का मतलब अंग्रेज़ी में बताइए।');
+    if (/_/.test(text)) return card('word', 'Find the word. Say it in English.', 'शब्द ढूँढिए। अंग्रेज़ी में बोलिए।');
+    return level >= 2
+      ? card('emoji', 'What is the person doing? Say it in English.', 'यह व्यक्ति क्या कर रहा है? अंग्रेज़ी में बोलिए।')
+      : card('emoji', 'What is this? Say it in English.', 'यह क्या है? अंग्रेज़ी में बोलिए।');
+  }
+  return card('sentence', 'Start your answer like this, in English.', 'अपना जवाब अंग्रेज़ी में ऐसे शुरू कीजिए।');
+}
+
 function makeTask(qIndex, level, { probe = false } = {}) {
   const q = QUESTIONS[qIndex];
   const v = variantFor(q, level);
@@ -35,14 +54,14 @@ function makeTask(qIndex, level, { probe = false } = {}) {
     return {
       id: q.id, qIndex, kind: q.kind, variantLevel: Math.min(4, Math.max(1, level)), silenceMs: q.silenceMs, language: q.language || 'auto',
       scripted: PHRASES.listenLead, simple: PHRASES.listenLead, hindi: v.hindi, passage: v.passage, question: v.question, secret: `${v.passage} ${v.question}`,
-      reference: null, expect: v.expect, tutor: q.tutor, card: { text: v.screen, kind: 'task' }, probe, followUp: false, ask: null, item: v.id,
+      reference: null, expect: v.expect, tutor: q.tutor, card: cardFor('listen', v.screen, level), probe, followUp: false, ask: null, item: v.id,
     };
   }
   return {
     id: q.id, qIndex, kind: q.kind, variantLevel: q.variants.any ? level : Math.min(4, Math.max(1, level)),
     silenceMs: q.silenceMs, language: q.language || 'auto',
     scripted: v.say, simple: v.simple, hindi: v.hindi, reference: q.kind === 'read' ? v.screen : null, expect: v.expect, second: v.second, scene: v.scene,
-    tutor: q.tutor || v.tutor, card: showCard ? { text: v.screen, kind: q.kind === 'read' ? 'read' : 'task' } : null,
+    tutor: q.tutor || v.tutor, card: showCard ? cardFor(q.kind, v.screen, level) : null,
     probe, followUp: q.kind === 'open', ask: null, item: v.id, // which question from the pool
   };
 }
@@ -62,7 +81,7 @@ function secondQuestion(t) {
   return {
     ...t, focus: true, brief: q.tutor.brief,
     tutor: { mustInclude: q.tutor.mustInclude, mustNotSay: [...(t.tutor?.mustNotSay || []), ...(q.tutor.mustNotSay || [])] },
-    scripted: q.say, simple: q.simple, hindi: q.hindi, card: { text: q.screen, kind: 'task' }, ask: null,
+    scripted: q.say, simple: q.simple, hindi: q.hindi, card: cardFor('vocab', q.screen, t.variantLevel), ask: null,
   };
 }
 
@@ -109,6 +128,9 @@ function respond(s, lines, extra = {}) {
   for (const l of lines) s.history.push({ who: 'sakhi', text: l.text });
   return {
     sessionId: s.id, say: lines, card: s.done ? null : current(s).card,
+    // Where the card should appear: the word in Sakhi's lines where she starts asking (the "cue").
+    cue: cueOf(lines, s.done ? null : current(s).ask),
+    learnerLanguage: s.profile.language, // for the hint's second line (null: Hindi)
     listen: s.done ? null : { silenceMs: s.task.silenceMs, language: s.task.language },
     task: s.done ? null : { id: s.task.id, level: s.task.variantLevel, kind: s.task.kind, item: s.task.item },
     ...extra,
@@ -123,6 +145,17 @@ function askLines(task, text, ask = text) {
   if (task.kind !== 'listen') { task.ask = ask; return [line(text)]; }
   task.ask = `${ask} ${task.passage} ${task.question}`;
   return [line(text), line(task.passage, { pace: 0.95 }), line(task.question)];
+}
+
+/** { line, word }: where in `lines` the question `ask` starts (the card appears on that word). */
+function cueOf(lines, ask) {
+  if (!ask || !lines.length) return { line: 0, word: 0 };
+  const head = ask.slice(0, 24);
+  for (let i = 0; i < lines.length; i++) {
+    const at = lines[i].text.indexOf(head);
+    if (at >= 0) return { line: i, word: lines[i].text.slice(0, at).split(/\s+/).filter(Boolean).length };
+  }
+  return { line: lines.length - 1, word: 0 };
 }
 
 /** What Sakhi is currently asking: the task, or a word task's second question. */
@@ -493,7 +526,7 @@ async function finish(s, trace, heard) {
   const said = sayable(composed, s.profile.name);
   s.done = true;
   s.result = {
-    ...result, name: L.name, blurb: L.blurb, ...explained,
+    ...result, name: L.name, blurb: L.blurb, hindi: L.hindi, ...explained,
     answers: s.answers.map((a) => ({ q: a.questionId, level: a.variantLevel, skipped: a.skipped, transcript: a.transcript, neededHindi: a.neededHindi, ...(a.notEnglish ? { notEnglish: true } : {}) })),
   };
   trace.add('plan', { next: 'finish', level: result.level, name: L.name });
