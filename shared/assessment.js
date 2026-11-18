@@ -91,6 +91,10 @@ export const PHRASES = {
   tryEnglishHindi: 'क्या आप यही बात अंग्रेज़ी में बोलने की कोशिश करेंगे? थोड़े शब्द भी ठीक हैं।',
   listenLead: "Now listen carefully. I'll say two short sentences, and then ask you one question.",
   listenAgain: "Okay, I'll say it again. Listen carefully.",
+  listenLeadHindi: 'अब ध्यान से सुनिए। मैं अंग्रेज़ी में दो छोटे वाक्य बोलूँगी, फिर उनके बारे में एक सवाल पूछूँगी।',
+  // The bonus reading sentence (after a first sentence read very well).
+  probeRead: "Let's try one more. Please read the new sentence out loud.",
+  probeReadHindi: 'एक और कोशिश करते हैं। स्क्रीन पर लिखा नया वाक्य ज़ोर से पढ़िए।',
   // Played the moment the learner finishes, while Sakhi's real reply is being prepared.
   backchannels: ['Okay.', 'Right.', 'I see.', 'Hmm, okay.', 'Got it.'],
 };

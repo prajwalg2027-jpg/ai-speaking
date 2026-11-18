@@ -16,6 +16,11 @@ import { makeLedger } from './costs.js';
 import { LANGUAGES, voiceLanguage } from '../shared/languages.js';
 import { BANK } from '../shared/bank.js';
 
+// Common English words: a reply in English letters with almost none of these is likely Hindi typed in English.
+const COMMON_EN = new Set(('i me my we you your he she it they them the a an is am are was were be been do does did have has had '
+  + 'and or but so because to of in on at for with from this that these those there here what who where when why how '
+  + 'not no yes very like go going went come want can will would like play work home school day time people good').split(' '));
+
 const BANK_OPEN_HINDI = BANK.open.map((o) => o.hindi).filter(Boolean);
 
 const sessions = new Map();
@@ -56,7 +61,7 @@ function makeTask(qIndex, level, { probe = false } = {}) {
     // Listening: Sakhi's lead-in (written by the tutor), then these exact sentences and the question (askLines).
     return {
       id: q.id, qIndex, kind: q.kind, variantLevel: Math.min(4, Math.max(1, level)), silenceMs: q.silenceMs, language: q.language || 'auto',
-      scripted: PHRASES.listenLead, simple: PHRASES.listenLead, hindi: v.hindi, passage: v.passage, question: v.question, secret: `${v.passage} ${v.question}`,
+      scripted: PHRASES.listenLead, simple: PHRASES.listenLead, leadHindi: PHRASES.listenLeadHindi, hindi: v.hindi, passage: v.passage, question: v.question, secret: `${v.passage} ${v.question}`,
       reference: null, expect: v.expect, tutor: q.tutor, card: cardFor('listen', v.screen, level), probe, followUp: false, ask: null, item: v.id,
     };
   }
@@ -66,6 +71,7 @@ function makeTask(qIndex, level, { probe = false } = {}) {
     scripted: v.say, simple: v.simple, hindi: v.hindi, reference: q.kind === 'read' ? v.screen : null, expect: v.expect, second: v.second, scene: v.scene,
     tutor: q.tutor || v.tutor, card: showCard ? cardFor(q.kind, v.screen, level) : null,
     probe, followUp: q.kind === 'open', ask: null, item: v.id, // which question from the pool
+    ...(probe ? { scripted: PHRASES.probeRead, hindi: PHRASES.probeReadHindi } : {}),
   };
 }
 
@@ -73,7 +79,9 @@ function makeFollowUp(parent) {
   return {
     id: `${parent.id}_followup`, kind: 'open', variantLevel: parent.variantLevel, silenceMs: parent.silenceMs, language: 'auto',
     scripted: PHRASES.followUp, simple: PHRASES.followUpSimple, hindi: PHRASES.followUpHindi, reference: null, expect: null, card: null,
-    brief: 'Ask ONE natural follow-up question about something specific the learner told you about their life, to get them talking more. Keep it easy to answer at their level.',
+    brief: parent.id === 'q4_opinion' && parent.variantLevel >= 3
+      ? 'Ask ONE short follow-up about the opinion they just gave: ask why, or for an example from their own life. Stay on the same topic. Keep it easy to answer out loud.'
+      : 'Ask ONE short, natural follow-up question about something specific the learner just told you, to get them talking more. Keep it easy to answer at their level.',
     tutor: { mustInclude: [], mustNotSay: [] }, followup: true, followUp: false, ask: null,
   };
 }
@@ -103,7 +111,7 @@ export function scriptedLines() {
     if (v.second) out.push(line(v.second.say));
   }
   out.push(line(PHRASES.didntHear, { pace: 0.95 }), line(PHRASES.cutOff), line(PHRASES.moveOn), line(PHRASES.followUp), line(PHRASES.hindiOk), line(PHRASES.englishOk),
-    line(PHRASES.tryEnglish), line(PHRASES.tryEnglishHindi), line(PHRASES.welcome), line(PHRASES.noEnglishOk), ...BANK_OPEN_HINDI.map((t) => line(t)), line(PHRASES.listenAgain), line(PHRASES.listenLead), ...PHRASES.backchannels.map((b) => line(b)));
+    line(PHRASES.tryEnglish), line(PHRASES.tryEnglishHindi), line(PHRASES.listenLeadHindi), line(PHRASES.probeRead), line(PHRASES.probeReadHindi), line(PHRASES.welcome), line(PHRASES.noEnglishOk), ...BANK_OPEN_HINDI.map((t) => line(t)), line(PHRASES.listenAgain), line(PHRASES.listenLead), ...PHRASES.backchannels.map((b) => line(b)));
   return [...new Map(out.map((l) => [`${l.text}|${l.pace}`, l])).values()];
 }
 
@@ -148,10 +156,12 @@ function respond(s, lines, extra = {}) {
  * The lines that ask a task, with `text` as Sakhi's own words. A listening task adds the two sentences and the
  * question after her lead-in (always the exact scripted words). Sets the task's `ask` to everything asked.
  */
-function askLines(task, text, ask = text) {
+function askLines(task, text, ask = text, support = 'en') {
   if (task.kind !== 'listen') { task.ask = ask; return [line(text)]; }
   task.ask = `${ask} ${task.passage} ${task.question}`;
-  return [line(text), line(task.passage, { pace: 0.95 }), line(task.question)];
+  // In the Hindi part of the conversation, the question about the sentences is asked in Hindi as well.
+  const hindi = support === 'hi' && task.hindi ? [line(task.hindi, { pace: 0.95 })] : [];
+  return [line(text), line(task.passage, { pace: 0.95 }), line(task.question), ...hindi];
 }
 
 /** { line, word }: where in `lines` the question `ask` starts (the card appears on that word). */
@@ -311,11 +321,16 @@ async function understood(s, ans, trace) {
     const note = 'The learner talked over you before you got to your question, so they have not heard it. Their last line replies to what they did hear. In the reaction, respond to it in a few words. Then in ask, ask the TASK.';
     const task = current(s);
     const said = sayable(await compose({ history: s.history, level: s.level, profile: s.profile, situation: 'meta', note, task }, trace), s.profile.name);
-    return respond(s, askLines(task, said.text, said.ask), { heard: ans.transcript });
+    return respond(s, askLines(task, said.text, said.ask, s.profile.support), { heard: ans.transcript });
   }
   // Only English is assessed. An answer in another language (Hindi in any script included) isn't scored the
   // first time: Sakhi asks them to try it in English. A second one is scored as it is (it earns little).
-  const notEnglish = u ? u.english === 'no' : measured.features.nonLatinRatio > 0.5;
+  // The reading model's "not English" is sometimes wrong for plain English ("irritable", "The man is going to
+  // market"), so it needs support from the words themselves: a reply in Indian script, or a longer reply in
+  // English letters with few common English words (Hindi typed in English letters: "bahut maza aata hai").
+  const f0 = measured.features, said = (full || '').toLowerCase().match(/[a-z']+/g) || [];
+  const englishy = said.length ? said.filter((w) => COMMON_EN.has(w)).length / said.length : 0;
+  const notEnglish = f0.nonLatinRatio > 0.5 || (u?.english === 'no' && said.length >= 3 && englishy < 0.2);
   if (intent === 'answer' && notEnglish && t.kind !== 'read' && !att.nudgedEnglish) {
     att.nudgedEnglish = true;
     trace.add('plan', { next: 'ask them to try in English', why: 'the answer was not in English', discarded: 'the prepared reply and scores' });
@@ -386,7 +401,7 @@ function needsSecond(s, measured) {
 function planAfter(s, measured, askSecond, level) {
   const t = s.task;
   if (askSecond) return { partial: true, next: secondQuestion(t), situation: 'next_part' };
-  const situation = t.kind === 'read' ? 'read_done' : t.kind === 'vocab' ? 'answered_task' : 'answered';
+  const situation = t.kind === 'read' ? 'read_done' : t.kind === 'vocab' || t.kind === 'listen' ? 'answered_task' : 'answered';
   if (t.followUp) return { next: makeFollowUp(t), situation };
   if (t.id === 'q3_read' && !t.probe && measured.features.readAccuracy >= 0.95 && level < 4) return { next: makeTask(QUESTIONS.findIndex((q) => q.id === 'q3_read'), level + 1, { probe: true }), situation: 'probe' };
   const qIndex = (t.followup ? QUESTIONS.findIndex((q) => t.id === `${q.id}_followup`) : t.qIndex) + 1;
@@ -403,7 +418,7 @@ async function draft(s, plan, level, trace) {
 /** Move to the drafted task and say its line. */
 function commit(s, { next, said }, heard) {
   const out = sayable(said, s.profile.name);
-  const lines = askLines(next, out.text, out.ask);
+  const lines = askLines(next, out.text, out.ask, s.profile.support);
   s.task = next; s.att = freshAttempt();
   // Asked in their language because they wanted it: the task was given with help in their language.
   if (s.profile.language) s.att.neededHindi = true;
@@ -441,15 +456,15 @@ async function switchLanguage(s, wanted, trace, heard) {
     trace.add('plan', { next: 'talk in English from now on', why: 'learner asked for English' });
     const note = 'The learner asked to talk in English from now on. In the reaction, say okay warmly. Then in ask, ask the same task again, in English.';
     const said = await compose({ history: s.history, level: s.level, profile: p, situation: 'meta', note, task: f }, trace);
-    if (said.fallback) return respond(s, [line(PHRASES.englishOk), ...askLines(f, f.scripted)], { heard });
+    if (said.fallback) return respond(s, [line(PHRASES.englishOk), ...askLines(f, f.scripted, f.scripted, s.profile.support)], { heard });
     const out = sayable(said, p.name);
-    return respond(s, askLines(f, out.text, out.ask), { heard });
+    return respond(s, askLines(f, out.text, out.ask, s.profile.support), { heard });
   }
   if (!LANGUAGES[wanted]) {
     trace.add('plan', { next: 'explain, then ask again', why: `learner asked for ${wanted}, which Sakhi can't speak` });
     const note = `The learner asked you to talk in ${wanted}, which you can't speak yet. In the reaction, say sorry kindly and say you can talk in Hindi, English, or another Indian language like Punjabi, Bengali, Marathi, Gujarati, Tamil, Telugu, Kannada, Malayalam or Odia. Then in ask, ask the same task again.`;
     const said = sayable(await compose({ history: s.history, level: s.level, profile: p, situation: 'meta', note, task: f }, trace), p.name);
-    return respond(s, askLines(f, said.text, said.ask), { heard });
+    return respond(s, askLines(f, said.text, said.ask, s.profile.support), { heard });
   }
   p.language = wanted; if (wanted === 'hi-IN') p.support = 'hi';
   s.att.neededHindi = true;
@@ -457,7 +472,7 @@ async function switchLanguage(s, wanted, trace, heard) {
   trace.add('plan', { next: `talk in ${LANGUAGES[wanted].name} from now on`, why: `learner asked for ${LANGUAGES[wanted].name}`, countsAsNeedingHindi: true });
   if (wanted === 'hi-IN') return respond(s, [line(PHRASES.hindiOk), ...(f.kind === 'listen' ? [line(f.passage, { pace: 0.85 })] : []), line(f.hindi, { pace: 0.9 })], { heard });
   const said = sayable(await compose({ history: s.history, level: s.level, profile: p, situation: 'switch_language', task: f }, trace), p.name);
-  return respond(s, askLines(f, said.text, said.ask), { heard });
+  return respond(s, askLines(f, said.text, said.ask, s.profile.support), { heard });
 }
 
 /** The learner said something to Sakhi instead of answering: respond to it, then ask the same thing again. */
@@ -467,7 +482,7 @@ async function metaTurn(s, trace, heard) {
   trace.add('plan', { next: 'respond to what they said, then ask the same thing again', why: 'the reply was not an answer' });
   const task = current(s);
   const said = sayable(await compose({ history: s.history, level: s.level, profile: s.profile, situation: 'meta', task }, trace), s.profile.name);
-  return respond(s, askLines(task, said.text, said.ask), { heard });
+  return respond(s, askLines(task, said.text, said.ask, s.profile.support), { heard });
 }
 
 /**
@@ -477,6 +492,7 @@ async function metaTurn(s, trace, heard) {
  */
 function noEnglish(s, trace, heard) {
   const att = s.att, f = current(s);
+  s.profile.englishRun = 0;
   if (att.noEnglish) { trace.add('plan', { next: 'move on', why: "said again that they don't know English" }); return moveOn(s, trace); }
   att.noEnglish = true; att.neededHindi = true;
   if (s.profile.support !== 'hi') trace.add('support', { from: s.profile.support, to: 'hi', why: "learner said they don't know English" });
@@ -492,9 +508,14 @@ function supportAfter(s, measured, level) {
   const t = s.task, f = measured.features, now = s.profile.support;
   if (t.kind === 'read' || s.profile.language) return now;
   const inEnglish = (f.nonLatinRatio ?? 0) < 0.3 && (f.englishWordCount ?? 0) >= 3;
-  if (!inEnglish) return now;
+  // Answers that are tasks (a word, a listening answer) are short by nature: only real talking moves it on.
+  const talk = t.kind === 'open';
+  if (!inEnglish) { s.att.englishRun = 0; s.profile.englishRun = 0; return now; }
   if (t.id === 'q1_intro' && level >= 3) return 'en';
-  return now === 'hi' ? 'mix' : 'en';
+  if (now === 'hi') return 'mix';
+  // Mixed → English: two fuller English answers in a row (five words or more), so it happens as confidence grows.
+  if (now === 'mix' && (f.englishWordCount ?? 0) >= 5 && (talk || t.kind === 'listen')) s.profile.englishRun = (s.profile.englishRun || 0) + 1;
+  return now === 'mix' && s.profile.englishRun >= 2 ? 'en' : now;
 }
 
 function clarify(s, intent, trace, heard) {
@@ -533,6 +554,7 @@ async function moveOn(s, trace) {
   const t = s.task;
   // Couldn't answer: a step back towards Hindi for the next question.
   const back = { en: 'mix', mix: 'hi', hi: 'hi' }[s.profile.support];
+  s.profile.englishRun = 0;
   if (back !== s.profile.support && t.kind !== 'read') { trace.add('support', { from: s.profile.support, to: back, why: "couldn't answer" }); s.profile.support = back; }
   if (s.att.partial) {
     // They answered part of a two-part task: score that part rather than counting the task as skipped.
@@ -560,14 +582,24 @@ async function finish(s, trace, heard) {
   // Simple words throughout: no skill jargon, no made-up level labels.
   const summaryTask = {
     id: 'summary', scripted: `Thank you! Your English is at ${levelSaid}. ${L.blurb}`, summary: { levelName: L.name },
-    brief: `Close the conversation warmly in two or three short sentences of very simple English (everyday words a beginner knows; never "fluency", "vocabulary", "grammar", "coherence" or "pronunciation"). Tell them their English is at "${levelSaid}" (say exactly that). Say one thing they did well, from what they actually said${dims[0] ? ` (their best skill: ${SKILL_WORDS[dims[0][0]]})` : ''}, and one thing you'll practise together next${dims.at(-1) ? ` (${SKILL_WORDS[dims.at(-1)[0]]})` : ''}. No other numbers. Don't mention any misunderstanding or anything that went wrong.`,
+    brief: `Close the conversation warmly in two or three short sentences of very simple English (everyday words a beginner knows; never "fluency", "vocabulary", "grammar", "coherence" or "pronunciation"). Start with "Your English is at ${levelSaid}." (exactly those words, talking to them as "you"). Say one thing they did well, from what they actually said${dims[0] ? ` (their best skill: ${SKILL_WORDS[dims[0][0]]})` : ''}, and one thing you'll practise together next${dims.at(-1) ? ` (${SKILL_WORDS[dims.at(-1)[0]]})` : ''}. No other numbers. Don't mention any misunderstanding or anything that went wrong.`,
     tutor: { mustInclude: [[L.name]], mustNotSay: ['fluency', 'vocabulary', 'grammar', 'coherence', 'pronunciation'] },
   };
+  // In English, the level is said first in fixed words; the model adds what went well and what's next.
+  const english = !LANGUAGES[s.profile.language];
+  const opening = `Thank you! Your English is at ${levelSaid}.`;
+  if (english) Object.assign(summaryTask, {
+    scripted: L.blurb,
+    brief: `Sakhi has just said "${opening}" Now add two short sentences of very simple English (everyday words a beginner knows; never "fluency", "vocabulary", "grammar", "coherence" or "pronunciation"), talking to them as "you": one thing they did well, from what they actually said${dims[0] ? ` (their best skill: ${SKILL_WORDS[dims[0][0]]})` : ''}, then one thing you'll practise together next${dims.at(-1) ? ` (${SKILL_WORDS[dims.at(-1)[0]]})` : ''}. Don't say the level again. No numbers. Don't mention any misunderstanding or anything that went wrong.`,
+    summary: { levelName: null }, tutor: { mustInclude: [], mustNotSay: summaryTask.tutor.mustNotSay },
+  });
+  // In English, Sakhi says the level, then the first "went well" and "practise next" lines from the result
+  // card (written and checked once, so what she says matches what they read).
   const [composed, explained] = await Promise.all([
-    compose({ history: s.history, level: result.level, profile: s.profile, situation: 'finish', task: summaryTask }, trace),
+    english ? null : compose({ history: s.history, level: result.level, profile: s.profile, situation: 'finish', task: summaryTask }, trace),
     explainResult({ answers: s.answers, dims: result.dims, level: result.level }, trace),
   ]);
-  const said = sayable(composed, s.profile.name);
+  const said = english ? { text: [opening, explained.doingWell?.[0], explained.practise?.[0]].filter(Boolean).join(' ') } : sayable(composed, s.profile.name);
   s.done = true;
   s.result = {
     ...result, name: L.name, blurb: L.blurb, hindi: L.hindi, ...explained,

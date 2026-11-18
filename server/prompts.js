@@ -37,7 +37,7 @@ export const EXPLAIN_SYSTEM = `You explain an English speaking check to a learne
 Base everything on what the learner actually said in their answers (you may quote a few of their words).
 Reply with ONLY JSON: {"doingWell": ["...", "..."], "practise": ["...", "..."]}
 - doingWell: two things they can already do in English, each one sentence under 16 words. Name the ability, then you may add a few of their own words in single quotes.
-- practise: two things to practise next, each one sentence under 18 words. When you correct something, quote their exact words in single quotes, then the better way. Only point to mistakes that are really in their answers.
+- practise: two things to practise next, each one sentence under 18 words, said kindly. Prefer a clear next step that grows from their answers (for example: using 'because' to give reasons, joining two ideas, telling a story in the past). Only correct something if it is clearly wrong English (like 'he need' or 'I go yesterday'): then quote only the wrong words and give the better way in the same sentence, like: Say 'he needs' instead of 'he need'. Correct, natural English is never a mistake: don't swap it for other words.
 Use single quotes inside the sentences, never double quotes.`;
 
 export const CONTINUE_SYSTEM = `A learner in a voice English lesson answered the tutor, paused, and the tutor started replying. The learner then talked over the tutor. Decide whether the learner was still adding to their previous answer (finishing their thought), or was replying to what the tutor had just started saying. Reply with ONLY JSON: {"continues": true|false}`;

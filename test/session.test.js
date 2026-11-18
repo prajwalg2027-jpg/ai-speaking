@@ -2,6 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startMockRest } from './mock-sarvam-rest.js';
 import { QUESTIONS, PHRASES } from '../shared/assessment.js';
+import { BANK } from '../shared/bank.js';
 
 /** The question the session picked from the pool (each conversation picks one at random). */
 const picked = (t, qIndex) => [QUESTIONS[qIndex].variants[t.task.level]].flat().find((v) => v.id === t.task.item);
@@ -82,8 +83,9 @@ test('a line that gives away the answer is replaced by the scripted one', async 
     t = await answer(t.sessionId, 'I am a teacher and I love walking in the evening with friends near my house in Pune.');
     t = await answer(t.sessionId, 'I teach English and maths to small children every morning at the school.');
     assert.equal(t.task.id, 'q2_vocab');
-    const fallback = t.trace.find((s) => s.step === 'tutor-fallback');
-    assert.match(fallback.reason, /gives away/);
+    // Word tasks are asked in their reviewed words, so the model can't give the answer away in the question.
+    const item = Object.values(BANK.vocab).flat().find((v) => v.id === t.task.item);
+    assert.ok(t.say.at(-1).text.endsWith(item.say), 'the reviewed question, word for word');
     assert.doesNotMatch(t.say[0].text, /\b(responsibility|umbrella|apple|self-reliant)\b/i);
   } finally { mock.state.tutorMode = 'good'; }
 });
@@ -154,7 +156,7 @@ test('Sakhi only uses the name the learner gave', async () => {
     assert.match(mock.state.tutorPrompts.at(-1), /Name: not known/);
     t = await answer(t.sessionId, 'My name is Prajwal and I sell tea and biscuits at the shop.');
     assert.match(mock.state.tutorPrompts.at(-1), /Name: not known/, 'learned while that line was written');
-    t = await answer(t.sessionId, 'I do not know this one, sorry, can we go on please?');
+    t = await post('/api/session/turn', { sessionId: t.sessionId, event: 'skip' });
     assert.match(mock.state.tutorPrompts.at(-1), /Name: Prajwal/, 'the name they said is remembered');
   } finally { mock.state.tutorMode = 'good'; }
 });

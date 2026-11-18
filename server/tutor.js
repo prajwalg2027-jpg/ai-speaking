@@ -12,10 +12,10 @@ import { EXPLAIN_SYSTEM, SKILL_WORDS } from './prompts.js';
 export const TUTOR_SYSTEM = `You are Sakhi, a warm and encouraging English tutor in a voice app for learners in India. You are having a friendly spoken conversation. Inside it you are quietly checking the learner's English level, but you never mention tests, levels, scores, questions or how many are left.
 
 Write what Sakhi says next as JSON: {"reaction": "...", "ask": "..."}
-- reaction: one short sentence reacting to the learner's LAST line only. Warm and natural; you can pick up a detail from that line. Don't bring back details from earlier in the conversation. React to WHAT they said, never to HOW WELL they said it: no corrections and no verdicts ("perfect", "correct", "exactly", "well said", "good grammar", "your English is"). Never ask a question here. Use "" when there is nothing to react to.
-- ask: what Sakhi says next to move the conversation on, ending with what the TASK below asks for (never say the word "task"). Connect it naturally to what they said when you can. One to three short sentences. Ask exactly one question, never two at once (no "and also…"). Don't teach, explain or introduce words.
+- reaction: one short, simple sentence (at most 12 words) responding to the learner's LAST line, the way a friend would on a phone call: pick up one concrete thing from their last line, in your own fresh words (vary how you start; not always "… sounds fun"). Don't bring back things from earlier in the conversation. Don't comment on whether their answer fit the question, on changes of topic, or on how they said it: no corrections and no verdicts ("nice one", "perfect", "correct", "exactly", "well said", "good grammar", "your English is"). No empty fillers ("I hear you", "That's interesting", "I see what you mean"). Never ask a question here. Use "" when there is nothing to react to.
+- ask: what Sakhi says next, ending with what the TASK below asks for (never say the word "task"). Usually just the question itself: one short, simple sentence (at most 15 words), easy to answer out loud. Ask exactly one thing: no second question, no "or" choices ("…, or do you…?"), no "and also". Don't repeat what they said back to them, don't teach, explain or introduce words.
 Names: use the learner's name only if it is given under ABOUT THE LEARNER, and only now and then. If no name is given there, don't use any name, and never guess or invent one. Names in a sentence they read from the screen are not their name.
-Speak like a person: short sentences, contractions, everyday words. No lists, no emojis, no markdown, nothing hard to say out loud.
+Speak like a person talking, not writing: short sentences, contractions (what's, I'm, don't), everyday words, and each sentence must follow on from the one before. No lists, no emojis, no markdown, nothing hard to say out loud.
 Follow LANGUAGE exactly. Never say anything on the MUST NOT SAY list, and never give away the answer to the task.`;
 
 const LANGUAGE_RULES = {
@@ -49,7 +49,7 @@ const SITUATIONS = {
 // Sakhi stays warm about what was said, never about how well it was said: no corrections, no verdicts.
 // Any sentence (in the reaction or the task line) that matches is dropped before Sakhi speaks. Apologies
 // ("sorry, my mistake") are allowed: Sakhi needs them when the learner corrects her.
-const CORRECTION = /\b(should (?:say|be)|correct(?:ly|ion)?|incorrect|(?:you made|you make|small|little|one|a few|some|no|any) mistakes?|(?:that(?:'s| is)|it(?:'s| is)|answer is|word is) (?:a bit |a little |slightly |not )?(?:wrong|right)|you(?:'re| are) (?:a bit |a little |slightly )?wrong|wrong (?:word|answer)|grammar|instead of|you meant|the right word|right answer|perfect(?:ly)?|exactly( right)?|spot on|well said|well done|did (?:very |really )?well|great (?:job|answer|reading)|good (?:job|answer|reading)|know (?:those|these|the|so many|a lot of|many) (?:english )?words|(?:so|very|really) well|excellent|nailed|clearly|fluen(?:t|cy)|good english|your english|pronunciation|accent|you used|(?:nice|good|great) use of)\b/i;
+const CORRECTION = /\b(should (?:say|be)|correct(?:ly|ion)?|incorrect|(?:you made|you make|small|little|one|a few|some|no|any) mistakes?|(?:that(?:'s| is)|it(?:'s| is)|answer is|word is) (?:a bit |a little |slightly |not )?(?:wrong|right)|you(?:'re| are) (?:a bit |a little |slightly )?wrong|wrong (?:word|answer)|grammar|instead of|you meant|the right word|right answer|perfect(?:ly)?|exactly( right)?|spot on|well said|well done|did (?:very |really )?well|great (?:job|answer|reading)|good (?:job|answer|reading)|know (?:those|these|the|so many|a lot of|many) (?:english )?words|(?:so|very|really) well|excellent|nailed|clearly|fluen(?:t|cy)|good english|your english|pronunciation|accent|you used|(?:nice|good|great) use of|(?:nice|good|great) one|you got it|that's it|that's right|bingo)\b/i;
 // The same in Hindi and Punjabi ("सही है", "बिल्कुल सही", "ਬਹੁਤ ਵਧੀਆ"…). Not "ग़लती": "sorry, my mistake" is an apology.
 const CORRECTION_HI = /(ਬਹੁਤ ਵਧੀਆ|ਸਹੀ ਹੈ|ਬਿਲਕੁਲ ਸਹੀ|ਸ਼ਾਬਾਸ਼|ਗਲਤ ਹੈ|ਵਿਆਕਰਣ|ਉਚਾਰਣ|ਤੁਹਾਡੀ ਅੰਗਰੇਜ਼ੀ|सही है|सही था|सही जवाब|सही शब्द|बिल्कुल सही|एकदम सही|ग़लत है|गलत है|ग़लत जवाब|गलत जवाब|शाबाश|बहुत बढ़िया|बहुत अच्छा बोल|अच्छा जवाब|बढ़िया जवाब|उच्चारण|व्याकरण|आपकी अंग्रेज़ी|आपकी इंग्लिश)/;
 const sentences = (t) => t.match(/[^.!?।]+[.!?।]*\s*/g) || [t];
@@ -64,7 +64,8 @@ const NOT_NAMES = new Set(('sakhi okay ok now so well yes no oh ah aha hmm great
   + 'wow hey hi hello namaste look listen then next first also and but right cool good lovely haha ji sorry arre chalo haan '
   + 'hindi english friend dear wonderful awesome amazing interesting true fine perfect indeed yeah yep anyway see tell try let '
   + 'oops wah waah shabash ooh today tomorrow yesterday sunday monday tuesday wednesday thursday friday saturday everyone there '
-  + 'go come say read think imagine guess remember tea chai india delhi mumbai').split(/\s+/));
+  + 'go come say read think imagine guess remember tea chai india delhi mumbai '
+  + 'beginner basic level').split(/\s+/)); // level names: "…level 2 of 4, Basic." is not a name
 const isNameLike = (w, known) => {
   const lw = w.toLowerCase();
   if (known && known.toLowerCase().split(/\s+/).includes(lw)) return false;
@@ -89,9 +90,20 @@ export function stripInventedNames(text, knownName) {
 
 /** The line Sakhi says, with the name check applied (the name may have been learned while it was written). */
 export function sayable(said, knownName) {
-  const reaction = stripInventedNames(said.reaction, knownName);
-  const ask = stripInventedNames(said.ask, knownName);
+  const reaction = fixContractions(stripInventedNames(said.reaction, knownName));
+  const ask = fixContractions(stripInventedNames(said.ask, knownName));
   return { text: [reaction, ask].filter(Boolean).join(' '), ask };
+}
+
+/** The model sometimes drops the apostrophe in JSON ("what s the difference", "I m"): put it back. */
+export function fixContractions(t) {
+  if (!t) return t;
+  return t
+    .replace(/\b(what|that|it|there|here|let|he|she|who|where|how|everyone|today)\s+s\b/gi, "$1's")
+    .replace(/\b(don|doesn|didn|can|won|isn|aren|wasn|weren|haven|hasn|couldn|wouldn|shouldn)\s+t\b/gi, "$1't")
+    .replace(/\bI\s+m\b/g, "I'm").replace(/\b(you|we|they)\s+re\b/gi, "$1're")
+    .replace(/\b(I|you|we|they)\s+(ll|ve|d)\b/g, "$1'$2")
+    .replace(/\btell me s\b/gi, "tell me what's");
 }
 
 /** Does a proposed task line keep the task intact? → { ok, reason } */
@@ -114,7 +126,7 @@ export function checkAsk(ask, task, { language = null } = {}) {
     for (let i = 0; i + 4 <= ref.length; i++) if (said.includes(` ${ref.slice(i, i + 4).join(' ')} `)) return { ok: false, reason: 'reads the sentence out' };
   }
   if (task.followup && !ask.includes('?')) return { ok: false, reason: 'follow-up is not a question' };
-  if (task.summary && !has(ask, task.summary.levelName)) return { ok: false, reason: 'summary lacks the level name' };
+  if (task.summary?.levelName && !has(ask, task.summary.levelName)) return { ok: false, reason: 'summary lacks the level name' };
   return { ok: true };
 }
 
@@ -125,13 +137,15 @@ const READ_WORDS = /\bread(?:ing)?\b|पढ़|ਪੜ੍ਹ|পড়|વાં�
  * about reading ("Are you ready?") is dropped too: it would get an answer instead of the reading.
  */
 export function oneQuestion(text, task = {}) {
-  let asked = false;
+  let asked = false, askedLatin = false;
   return sentences(text || '').filter((x) => {
     if (!x.includes('?')) return true;
+    // The same question again in Hindi, after the English one (the mixed stage): not a second question.
+    if (asked && askedLatin && /[\u0900-\u097F]/.test(x)) { askedLatin = false; return true; }
     if (task.kind === 'listen') return false; // the lead-in only says "listen": the question comes after the sentences
     if (task.reference && !READ_WORDS.test(x)) return false;
     if (asked) return false;
-    asked = true;
+    asked = true; askedLatin = !/[\u0900-\u097F]/.test(x);
     return true;
   }).join('').trim();
 }
@@ -145,14 +159,15 @@ export function checkReaction(reaction) {
 }
 
 function historyText(history) {
-  return history.slice(-12).map((h) => (h.who === 'sakhi' ? `Sakhi: ${h.text}`
+  return history.slice(-8).map((h) => (h.who === 'sakhi' ? `Sakhi: ${h.text}`
     : h.reading ? `Learner (reading a sentence from the screen, not their own words): ${h.text}` : `Learner: ${h.text}`)).join('\n') || '(nothing yet)';
 }
 
-function aboutText(profile = {}) {
+function aboutText(profile = {}, { facts = false } = {}) {
   return [
     profile.name ? `- Name: ${profile.name}` : '- Name: not known. Do not use any name.',
-    profile.facts?.length ? `- What they've told you (background; mention only when it fits naturally): ${profile.facts.join('; ')}` : '',
+    // Earlier facts only help a question about their life; elsewhere the model drags them back in oddly.
+    facts && profile.facts?.length ? `- What they've told you before (don't repeat these back; you may build the question on one): ${profile.facts.join('; ')}` : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -195,25 +210,52 @@ const BANNED_WORDS = /\b(fluency|vocabulary|grammar|coherence|comprehension|pron
  * task: { brief | tutor.brief, tutor: { mustInclude, mustNotSay }, scripted, hindi?, reference?, followup?, summary? }
  */
 /** How Sakhi talks: in the language they asked for, else by how far into English the conversation has moved. */
-function ruleFor(profile, level) {
+function ruleFor(profile, level, task = {}) {
+  // The closing summary is always simple English (the result card shows the Hindi line).
+  if (task.summary && !LANGUAGES[profile.language]) return LANGUAGE_RULES[Math.min(2, level)];
   if (LANGUAGES[profile.language]) return languageRule(profile.language);
   if (profile.support === 'hi') return HINDI_LEAD_RULE;
-  if (profile.support === 'mix') return LANGUAGE_RULES[1];
+  if (profile.support === 'mix') return 'The learner is just starting to speak English. Write the reaction in simple, short English. Write "ask" as the question in very simple English, then the same question again in simple Hindi (Devanagari script, the polite आप form), so they surely understand. Keep the key task words in English. Never give away the answer.';
   return LANGUAGE_RULES[level] || LANGUAGE_RULES[2];
 }
 const talksIn = (profile) => profile.language || (profile.support === 'hi' ? 'hi-IN' : null);
 
+// Word puzzles, pictures, listening and reading are asked in their reviewed words: the model's rewrites of them
+// were garbled too often ("tell me s the difference between but, however and simple"). The model only writes the
+// reaction before them. Open questions about the learner's life are still the model's own.
+const NEUTRAL = { en: ['Okay.', 'Alright.', 'Thank you.', 'Got it.'], hi: ['ठीक है।', 'अच्छा।', 'धन्यवाद।'] };
+const ackFor = (profile) => { const l = NEUTRAL[talksIn(profile) === 'hi-IN' ? 'hi' : 'en']; return l[Math.floor(Math.random() * l.length)]; };
+/** The exact words for a fixed task in the language Sakhi is using, or null when the model has to write it. */
+export function fixedAsk(task, profile = {}) {
+  if (task.followup || task.summary || !task.scripted) return null;
+  const lang = talksIn(profile);
+  if (lang && lang !== 'hi-IN') return null; // no reviewed lines in other languages
+  if (task.kind === 'listen') return lang === 'hi-IN' ? (task.leadHindi || task.scripted) : profile.support === 'mix' && task.leadHindi ? `${task.scripted} ${task.leadHindi}` : task.scripted;
+  if (lang === 'hi-IN') return task.hindi || task.scripted;
+  // The first question's English version opens with a greeting: asked again, it's just the question.
+  const en = task.id === 'q1_intro' ? task.simple || task.scripted : task.scripted;
+  return profile.support === 'mix' && task.hindi ? `${en} ${task.hindi}` : en;
+}
+// After a word task or a reading, the reaction is only an acknowledgement: no need to ask the model for it.
+const ACK_ONLY = new Set(['answered_task', 'next_part', 'read_done', 'probe']);
+
 export async function compose({ history, level, profile = {}, situation, note, task }, trace) {
+  const fixed = fixedAsk(task, profile);
+  if (fixed && ACK_ONLY.has(situation) && !note) {
+    trace.add('tutor', { situation, task: task.id, reaction: '(acknowledgement)', ask: '(reviewed question)' });
+    return { reaction: ackFor(profile), ask: fixed };
+  }
   const spec = task.tutor || {};
   const quote = (w) => `"${w}"`;
   const user = [
     `LEARNER LEVEL: ${level} of 4 (1 = beginner, 4 = very fluent)`,
-    `LANGUAGE: ${ruleFor(profile, level)}`,
-    `ABOUT THE LEARNER:\n${aboutText(profile)}`,
+    `LANGUAGE: ${ruleFor(profile, level, task)}`,
+    `ABOUT THE LEARNER:\n${aboutText(profile, { facts: !fixed && task.kind === 'open' })}`,
     `CONVERSATION SO FAR:\n${historyText(history)}`,
     `WHAT JUST HAPPENED: ${note || SITUATIONS[situation] || SITUATIONS.answered}`,
-    `TASK: ${task.brief || spec.brief}`,
-    spec.mustInclude?.length ? `MUST INCLUDE (from each group, use at least one of these exact words, naturally): ${spec.mustInclude.map((g) => g.map(quote).join(' or ')).join('; ')}` : '',
+    fixed ? `NEXT: right after your reaction, Sakhi says exactly this (you don't write it): "${fixed}"\nWrite only the reaction, and set "ask" to "". The reaction must lead naturally into that line and must not ask anything.`
+      : `TASK: ${task.brief || spec.brief}`,
+    !fixed && spec.mustInclude?.length ? `MUST INCLUDE (from each group, use at least one of these exact words, naturally): ${spec.mustInclude.map((g) => g.map(quote).join(' or ')).join('; ')}` : '',
     spec.mustNotSay?.length ? `MUST NOT SAY: ${spec.mustNotSay.map(quote).join(', ')}` : '',
     task.reference ? 'The sentence is on their screen. Do not say any part of it.' : '',
   ].filter(Boolean).join('\n');
@@ -229,11 +271,23 @@ export async function compose({ history, level, profile = {}, situation, note, t
     const out = await trace.time('tutor', () => Promise.race([reply, timeout]),
       (r) => ({ model: meta.model, situation, task: task.id, ...(extra ? { retry: true } : {}), reaction: r?.reaction, ask: r?.ask, usage: meta.usage })).catch(() => null);
     // The closing summary has no reaction, and it is allowed to say how they did; every other line isn't.
-    const reaction = task.summary ? '' : checkReaction(out?.reaction);
+    let reaction = task.summary ? '' : checkReaction(out?.reaction);
+    // The reaction mustn't give the answer away either (it comes right before the question).
+    if (reaction && (spec.mustNotSay || []).some((w) => has(reaction, w))) { trace.add('tutor-reaction-dropped', { why: 'gave away the answer' }); reaction = ''; }
+    if (fixed) return { out, reaction, proposed: fixed, check: { ok: true } };
     // The summary may say how they did, but it ends the conversation: no questions.
-    let proposed = task.summary ? sentences(out?.ask || '').filter((x) => !x.includes('?')).join('').trim() : stripVerdicts(out?.ask);
+    // The summary has no separate reaction: anything the model put there is part of it.
+    let proposed = task.summary ? sentences([out?.reaction, out?.ask].filter(Boolean).join(' ')).filter((x) => !x.includes('?') && (profile.language || !/[\u0900-\u097F]/.test(x))).join('').trim() : stripVerdicts(out?.ask);
     if (!task.summary) proposed = oneQuestion(proposed, task);
-    return { out, reaction, proposed, check: out ? checkAsk(proposed, task, { language: talksIn(profile) }) : { ok: false, reason: 'no reply from the model' } };
+    let check = out ? checkAsk(proposed, task, { language: talksIn(profile) }) : { ok: false, reason: 'no reply from the model' };
+    // Between Hindi and English: simple English, then the same in Hindi, so the learner still follows.
+    if (check.ok && profile.support === 'mix' && !profile.language && !task.summary && !/[\u0900-\u097F]/.test(proposed)) check = { ok: false, reason: 'no Hindi sentence after the English' };
+    // The Hindi half must be this question, not an earlier line copied from the conversation.
+    if (check.ok && !task.summary) {
+      const hindi = sentences(proposed).filter((x) => /[\u0900-\u097F]/.test(x)).map((x) => x.trim()).filter((x) => x.length > 12);
+      if (hindi.some((x) => history.some((h) => h.who === 'sakhi' && h.text.includes(x)))) check = { ok: false, reason: 'the Hindi repeats an earlier question instead of this one' };
+    }
+    return { out, reaction, proposed, check };
   };
   const t0 = performance.now();
   let r = await attempt();
@@ -243,7 +297,7 @@ export async function compose({ history, level, profile = {}, situation, note, t
   }
   const { reaction, proposed, check, out } = r;
   // Scripted fallback: in Hindi if the learner asked for Hindi (there are no scripted lines in other languages).
-  const ask = check.ok ? proposed : (talksIn(profile) === 'hi-IN' && task.hindi) || task.scripted;
+  const ask = check.ok ? proposed : (talksIn(profile) === 'hi-IN' && task.hindi) || (profile.support === 'mix' && task.hindi ? `${task.scripted} ${task.hindi}` : task.scripted);
   if (!check.ok) trace.add('tutor-fallback', { task: task.id, reason: check.reason, using: 'scripted line' });
   return { reaction, ask, ...(check.ok ? {} : { fallback: out ? check.reason : 'no reply' }) };
 }

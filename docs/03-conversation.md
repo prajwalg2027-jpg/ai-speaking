@@ -183,3 +183,17 @@ Hindi does (as before).
 
 "I don't know English" (`no_english`, in Hindi, Hinglish or English) is not answered with "say it in English":
 Sakhi says that's fine and asks the same question in Hindi. Said again on the same question, she moves on.
+
+## How Sakhi's lines are written (natural flow)
+
+- Reviewed questions (word puzzles, pictures, listening, reading, the opinion question) are always said in their
+  reviewed words (`fixedAsk` in `server/tutor.js`). The AI only writes a short reaction before them. After a word
+  task, listening answer or reading, the reaction is a plain acknowledgement ("Okay.", "Got it.") with no AI call.
+- The AI writes follow-up questions about the learner's life: one short, simple question, no "or" choices.
+- What the learner said about themselves earlier is only given to the AI when it writes such a question, so it
+  doesn't drag old details into reactions. Only the last 8 lines of the conversation are sent.
+- In the mixed stage, each AI question is followed by the same question in Hindi (checked; a copied earlier
+  question is rejected).
+- Dropped apostrophes from the AI ("what s") are repaired; "Basic" is no longer removed as if it were a name.
+- The closing line: "Thank you! Your English is at level N of 4, Name." then the first "went well" and
+  "practise next" lines from the result card.
