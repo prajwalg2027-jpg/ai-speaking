@@ -5,7 +5,7 @@
     "level3": 2.2,
     "level2": 1.3
   },
-  "difficultyBonus": 0.35,
+  "difficultyBonus": 0.2,
   "level4Talk": 2.5,
   "readAccuracyCap": 0.7,
   "hindiHelpCap": 2,
@@ -19,7 +19,7 @@
     "vocabulary": 1,
     "grammar": 1,
     "fluency": 1,
-    "pronunciation": 1,
+    "pronunciation": 0.4,
     "coherence": 1
   },
   "editedAt": "2026-11-18T19:07:16.839Z"
