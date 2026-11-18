@@ -164,3 +164,10 @@ mein, Skip). Open it with `/?internal=1`; the choice is remembered on that brows
 Code: `public/index.html`, `styles.css` (tokens and layout), `orb.js` (the orb animation loop), `ui.js` (screen
 parts), `app.js` (the conversation flow). The server sends `cue` (show, deal or remove the card) and the card's
 look with each turn.
+
+## Level cut-offs
+
+Every number that decides the level (the overall-score cut-offs, the harder-question bonus, the level-4 talk
+check, the read-aloud and Hindi-help limits, the first-answer guess, and how much the AI judge counts per skill)
+lives in `shared/scoring-config.json`. Edit them at `/cutoffs.html` (also linked from the developer log), download
+the file, and replace `shared/scoring-config.json` with it. The server reads it at start.

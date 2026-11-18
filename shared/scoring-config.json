@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "levelCutoffs": { "level4": 3.1, "level3": 2.2, "level2": 1.2 },
+  "difficultyBonus": 0.35,
+  "level4Talk": 3.0,
+  "readAccuracyCap": 0.6,
+  "hindiHelpCap": 2,
+  "firstGuess": { "level4Score": 3.2, "level4Words": 35, "level3Score": 2.2 },
+  "judgeWeight": { "comprehension": 0.6, "vocabulary": 0.7, "grammar": 0.8, "fluency": 0.5, "pronunciation": 0.6, "coherence": 0.8 }
+}

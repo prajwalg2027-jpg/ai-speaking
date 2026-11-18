@@ -1,7 +1,12 @@
 // Deterministic speaking features + final level computation.
 // The LLM judge is one input; the level decision itself is made here, in code.
 
+import { readFileSync } from 'node:fs';
 import { normalizeForCompare } from './normalize.js';
+
+// Every number that decides the level lives in shared/scoring-config.json (edited at /cutoffs.html).
+export const CONFIG = JSON.parse(readFileSync(new URL('../shared/scoring-config.json', import.meta.url), 'utf8'));
+const C = CONFIG;
 
 const FILLERS = /\b(um+|uh+|erm|hmm+|like|matlab|basically|you know|wo|woh|toh)\b/gi;
 const DEVANAGARI = /[ऀ-ॿ]/g;
@@ -107,7 +112,6 @@ export function heuristicScores(f, kind) {
   return s;
 }
 
-const L4_TALK = 3.0; // level-4 check on the longer answers (see finalLevel)
 const DIMS = ['comprehension', 'vocabulary', 'grammar', 'fluency', 'pronunciation', 'coherence'];
 
 /**
@@ -115,7 +119,7 @@ const DIMS = ['comprehension', 'vocabulary', 'grammar', 'fluency', 'pronunciatio
  * lean on the judge: the word-counting features can't tell a fluent C1 answer from a long B1 one (their ceiling
  * is about 2.5 without textbook linking words). Fluency keeps half from the real mic timing.
  */
-export const JUDGE_WEIGHT = { comprehension: 0.6, vocabulary: 0.7, grammar: 0.8, fluency: 0.5, pronunciation: 0.6, coherence: 0.8 };
+export const JUDGE_WEIGHT = C.judgeWeight;
 
 /** Blend LLM and heuristic scores per skill (JUDGE_WEIGHT). */
 export function blend(llm, heur) {
@@ -132,8 +136,8 @@ export function blend(llm, heur) {
 export function provisionalLevel(f, scores) {
   if ((f.nonLatinRatio ?? f.devanagariRatio) > 0.5 || f.englishWordCount < 3) return 1;
   const avg = (scores.vocabulary + scores.grammar + scores.fluency + scores.coherence) / 4;
-  if (avg >= 3.2 && f.wordCount >= 35) return 4;
-  if (avg >= 2.2) return 3;
+  if (avg >= C.firstGuess.level4Score && f.wordCount >= C.firstGuess.level4Words) return 4;
+  if (avg >= C.firstGuess.level3Score) return 3;
   return 2;
 }
 
@@ -156,27 +160,28 @@ export function finalLevel(answers) {
   const difficulty = all.reduce((s, a) => s + (a.variantLevel ?? 2), 0) / all.length;
   const measured = Object.values(dims);
   const overall = measured.reduce((x, y) => x + y, 0) / measured.length;
-  const adjusted = overall + (difficulty - 2) * 0.35;
+  const adjusted = overall + (difficulty - 2) * C.difficultyBonus;
 
-  let level = adjusted >= 3.1 ? 4 : adjusted >= 2.2 ? 3 : adjusted >= 1.2 ? 2 : 1;
+  const cut = C.levelCutoffs;
+  let level = adjusted >= cut.level4 ? 4 : adjusted >= cut.level3 ? 3 : adjusted >= cut.level2 ? 2 : 1;
   const reasons = [];
 
   const q1 = by.q1_intro, q2 = by.q2_vocab, q3 = by.q3_read, q4 = by.q4_opinion;
   if (q1 && (q1.features.nonLatinRatio ?? q1.features.devanagariRatio) > 0.5 && q2 && q2.variantLevel === 1 && !(q2.features.vocabHits || []).some(Boolean)) {
     level = 1; reasons.push('Answered in Hindi and missed the basic vocabulary items');
   }
-  if (q3?.features.readAccuracy != null && q3.features.readAccuracy < 0.6 && level > 2) {
-    level = 2; reasons.push('Read-aloud accuracy below 60%');
+  if (q3?.features.readAccuracy != null && q3.features.readAccuracy < C.readAccuracyCap && level > 2) {
+    level = 2; reasons.push(`Read-aloud accuracy below ${Math.round(C.readAccuracyCap * 100)}%`);
   }
   // Level 4 needs strong English words and joining of ideas when speaking at length: averaged over the opinion
   // answer and its follow-up (one short answer shouldn't decide it).
   const talk = answers.filter((a) => (a.questionId === 'q4_opinion' || a.questionId === 'q4_opinion_followup') && !a.skipped);
   const avg = (d) => (talk.length ? talk.reduce((x, a) => x + (a.scores[d] ?? 0), 0) / talk.length : 0);
-  if (level === 4 && !(avg('coherence') >= L4_TALK && avg('vocabulary') >= L4_TALK)) {
+  if (level === 4 && !(avg('coherence') >= C.level4Talk && avg('vocabulary') >= C.level4Talk)) {
     level = 3; reasons.push('Level 4 needs strong words and well-joined ideas in the longer answers');
   }
-  if (answers.filter((a) => a.neededHindi).length >= 2 && level > 2) {
-    level = 2; reasons.push('Needed Hindi instructions on two or more questions');
+  if (answers.filter((a) => a.neededHindi).length >= C.hindiHelpCap && level > 2) {
+    level = 2; reasons.push(`Needed Hindi instructions on ${C.hindiHelpCap} or more questions`);
   }
   return { level, overall: +adjusted.toFixed(2), dims, reasons, talk: { coherence: +avg('coherence').toFixed(2), vocabulary: +avg('vocabulary').toFixed(2) } };
 }

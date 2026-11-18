@@ -98,6 +98,7 @@ export function initLogPanel(root) {
         <a href="/mic-test.html" target="_blank" rel="noopener">Mic test</a>
         <a href="/stt-lab.html" target="_blank" rel="noopener">STT lab</a>
         <a href="/review.html" target="_blank" rel="noopener">Review questions</a>
+        <a href="/cutoffs.html" target="_blank" rel="noopener">Level cut-offs</a>
         <button type="button" id="logsCopy">Copy</button>
         <button type="button" id="logsClear">Clear</button>
         <button type="button" id="logsHide">Hide</button>
