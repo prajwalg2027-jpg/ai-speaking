@@ -137,3 +137,8 @@ first audio 0.45–0.75 s). Before, there were 1.7–4.6 s of silence with no re
 - **Result in simple words**: levels are Beginner, Basic, Good, Very good ("level 2 of 4, Basic"). The screen shows
   "What you did well" and "What we'll practise next" (written from their own answers; tips that quote words they
   never said are dropped) and skills named in everyday words.
+
+## Haptics
+On Android the phone vibrates when it's the learner's turn to speak (45 ms) and gives a lighter tap (18 ms) when
+their answer is complete and being processed. No "your turn" buzz after an interruption (they're already talking).
+iPhones don't support web vibration. `?haptics=0` in the URL turns it off.

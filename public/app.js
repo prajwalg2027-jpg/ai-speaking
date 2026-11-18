@@ -83,8 +83,20 @@ function backchannel() {
   return voice.playPcm([b.pcm], b.rate);
 }
 
+// ---------- haptics ----------
+// The phone vibrates when it's the learner's turn to speak, and a lighter tap when Sakhi has their answer and is
+// working on it. Android supports this (navigator.vibrate); iPhones ignore it. ?haptics=0 in the URL turns it off.
+const HAPTICS = { 'your-turn': [45], 'got-it': [18] };
+const hapticsOn = new URLSearchParams(location.search).get('haptics') !== '0';
+function haptic(kind) {
+  if (!hapticsOn || !navigator.vibrate) return;
+  try { if (navigator.vibrate(HAPTICS[kind])) log('app', `Vibrate: ${kind === 'your-turn' ? "your turn to speak" : 'got your answer'}`); } catch { /* not allowed */ }
+}
+
 // ---------- listening ----------
 async function listen({ silenceMs, language }) {
+  // No "your turn" buzz after an interruption: they're already talking.
+  if (live.bargeInAt == null) haptic('your-turn');
   ui.state('listening'); ui.hint('Listening…');
   if (!(await live.ensureConnected())) {
     log('error', 'Could not reconnect to Sarvam Realtime', live.reason);
@@ -92,6 +104,7 @@ async function listen({ silenceMs, language }) {
     return { reason: 'live_failed', transcript: '', speechSec: 0 };
   }
   const r = await live.listen({ silenceMs, language, onNudge: () => ui.hint(PHRASES.nudge), onPartial: (t) => ui.hearing(t) });
+  if (r.transcript) haptic('got-it'); // they finished speaking; the answer is being processed
   ui.hint('');
   return r;
 }
