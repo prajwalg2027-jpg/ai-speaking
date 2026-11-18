@@ -14,6 +14,9 @@ import { SKILL_WORDS } from './prompts.js';
 import { provisionalLevel, finalLevel } from './scoring.js';
 import { makeLedger } from './costs.js';
 import { LANGUAGES, voiceLanguage } from '../shared/languages.js';
+import { BANK } from '../shared/bank.js';
+
+const BANK_OPEN_HINDI = BANK.open.map((o) => o.hindi).filter(Boolean);
 
 const sessions = new Map();
 const TTL_MS = 2 * 60 * 60 * 1000;
@@ -100,7 +103,7 @@ export function scriptedLines() {
     if (v.second) out.push(line(v.second.say));
   }
   out.push(line(PHRASES.didntHear, { pace: 0.95 }), line(PHRASES.cutOff), line(PHRASES.moveOn), line(PHRASES.followUp), line(PHRASES.hindiOk), line(PHRASES.englishOk),
-    line(PHRASES.tryEnglish), line(PHRASES.tryEnglishHindi), line(PHRASES.listenAgain), line(PHRASES.listenLead), ...PHRASES.backchannels.map((b) => line(b)));
+    line(PHRASES.tryEnglish), line(PHRASES.tryEnglishHindi), line(PHRASES.welcome), line(PHRASES.noEnglishOk), ...BANK_OPEN_HINDI.map((t) => line(t)), line(PHRASES.listenAgain), line(PHRASES.listenLead), ...PHRASES.backchannels.map((b) => line(b)));
   return [...new Map(out.map((l) => [`${l.text}|${l.pace}`, l])).values()];
 }
 
@@ -112,13 +115,17 @@ export function startSession() {
     id: randomUUID(), at: Date.now(), level: 2, qIndex: 0, history: [], answers: [],
     // What the learner has told us. The name is only ever what they said (never guessed).
     // language: the language they asked Sakhi to talk in (null = English).
-    profile: { name: null, facts: [], language: null },
+    // support: how much Hindi Sakhi uses unasked. 'hi' (she starts in Hindi, so everyone understands), then 'mix'
+    // (simple English, restated in Hindi), then 'en', one step per answer given in English; a step back when
+    // they couldn't answer.
+    profile: { name: null, facts: [], language: null, support: 'hi' },
     task: makeTask(0, 2), att: freshAttempt(), done: false,
     ledger: makeLedger(), // Sarvam charges for this conversation (server/costs.js)
   };
   sessions.set(s.id, s);
-  s.task.ask = s.task.scripted; // the opening line is the same for everyone (and cached)
-  return respond(s, [line(s.task.ask)], { plan: 'opening' });
+  // The opening is in Hindi, so everyone understands what this is: a short talk to find their English level.
+  s.task.ask = s.task.hindi || s.task.scripted; // the same lines for everyone (and cached)
+  return respond(s, [line(PHRASES.welcome), line(s.task.ask)], { plan: 'opening' });
 }
 
 function respond(s, lines, extra = {}) {
@@ -274,6 +281,8 @@ async function understood(s, ans, trace) {
   const level = levelAfter(s, measured);
   const askSecond = needsSecond(s, measured);
   const plan = planAfter(s, measured, askSecond, level);
+  const support = supportAfter(s, measured, level);
+  if (support !== s.profile.support) { trace.add('support', { from: s.profile.support, to: support, why: 'answered in English' }); s.profile.support = support; }
 
   // A real reading attempt doesn't need reading for meaning; anything else does.
   const reading = t.kind === 'read' && (measured.features.readAccuracy ?? 0) >= 0.5;
@@ -292,6 +301,7 @@ async function understood(s, ans, trace) {
   const dropped = (why) => trace.add('plan', { next: why, why: `the learner's reply was read as "${intent}"`, discarded: 'the prepared reply and scores' });
 
   if (intent === 'meta') { dropped('respond to what they said, then ask again'); return metaTurn(s, trace, ans.transcript); }
+  if (intent === 'no_english') { dropped('switch to Hindi'); return noEnglish(s, trace, ans.transcript); }
   if (intent === 'language' || switched) { dropped('switch language'); return switchLanguage(s, u.language, trace, ans.transcript); }
   if (intent === 'repeat' || intent === 'slower') { dropped('repeat more slowly'); return clarify(s, 'repeat', trace, ans.transcript); }
   // They talked over Sakhi before her question and replied to what they heard, not to the question (a reply
@@ -309,8 +319,11 @@ async function understood(s, ans, trace) {
   if (intent === 'answer' && notEnglish && t.kind !== 'read' && !att.nudgedEnglish) {
     att.nudgedEnglish = true;
     trace.add('plan', { next: 'ask them to try in English', why: 'the answer was not in English', discarded: 'the prepared reply and scores' });
-    const help = s.profile.language === 'hi-IN' || s.level <= 1 ? [line(PHRASES.tryEnglishHindi, { pace: 0.95 })] : [];
-    return respond(s, [line(PHRASES.tryEnglish), ...help], { heard: ans.transcript });
+    // In the Hindi part of the conversation, ask in Hindi (asking in English only would make no sense to them).
+    const sup = s.profile.language === 'hi-IN' ? 'hi' : s.profile.support;
+    const lines = sup === 'hi' ? [line(PHRASES.tryEnglishHindi, { pace: 0.95 })]
+      : sup === 'mix' || s.level <= 1 ? [line(PHRASES.tryEnglish), line(PHRASES.tryEnglishHindi, { pace: 0.95 })] : [line(PHRASES.tryEnglish)];
+    return respond(s, lines, { heard: ans.transcript });
   }
   const gaveUp = intent === 'dont_know' || intent === 'skip';
   // "I don't know" to the first word of a word task still goes on to the second word.
@@ -423,7 +436,7 @@ async function switchLanguage(s, wanted, trace, heard) {
     return metaTurn(s, trace, heard);
   }
   if (wanted === 'en-IN') {
-    p.language = null;
+    p.language = null; p.support = 'en';
     trace.add('profile', { ...p, facts: [...p.facts] });
     trace.add('plan', { next: 'talk in English from now on', why: 'learner asked for English' });
     const note = 'The learner asked to talk in English from now on. In the reaction, say okay warmly. Then in ask, ask the same task again, in English.';
@@ -438,7 +451,7 @@ async function switchLanguage(s, wanted, trace, heard) {
     const said = sayable(await compose({ history: s.history, level: s.level, profile: p, situation: 'meta', note, task: f }, trace), p.name);
     return respond(s, askLines(f, said.text, said.ask), { heard });
   }
-  p.language = wanted;
+  p.language = wanted; if (wanted === 'hi-IN') p.support = 'hi';
   s.att.neededHindi = true;
   trace.add('profile', { ...p, facts: [...p.facts] });
   trace.add('plan', { next: `talk in ${LANGUAGES[wanted].name} from now on`, why: `learner asked for ${LANGUAGES[wanted].name}`, countsAsNeedingHindi: true });
@@ -457,8 +470,36 @@ async function metaTurn(s, trace, heard) {
   return respond(s, askLines(task, said.text, said.ask), { heard });
 }
 
+/**
+ * The learner said they don't know English. Asking them to "say it in English" would make no sense: Sakhi says
+ * that's fine, asks the same question in Hindi, and carries on in Hindi until they answer in English. Said
+ * again on the same question: move on.
+ */
+function noEnglish(s, trace, heard) {
+  const att = s.att, f = current(s);
+  if (att.noEnglish) { trace.add('plan', { next: 'move on', why: "said again that they don't know English" }); return moveOn(s, trace); }
+  att.noEnglish = true; att.neededHindi = true;
+  if (s.profile.support !== 'hi') trace.add('support', { from: s.profile.support, to: 'hi', why: "learner said they don't know English" });
+  s.profile.support = 'hi';
+  trace.add('plan', { next: 'say it is fine, ask the same question in Hindi', why: "learner said they don't know English", countsAsNeedingHindi: true });
+  const hindi = f.hindi || (f.followup ? PHRASES.followUpHindi : f.ask);
+  if (f.kind === 'listen') return respond(s, [line(PHRASES.noEnglishOk), line(f.passage, { pace: 0.85 }), line(hindi, { pace: 0.9 })], { heard });
+  return respond(s, [line(PHRASES.noEnglishOk), line(hindi, { pace: 0.9 })], { heard });
+}
+
+/** One step towards English after an answer in English (the first answer can go straight to English). */
+function supportAfter(s, measured, level) {
+  const t = s.task, f = measured.features, now = s.profile.support;
+  if (t.kind === 'read' || s.profile.language) return now;
+  const inEnglish = (f.nonLatinRatio ?? 0) < 0.3 && (f.englishWordCount ?? 0) >= 3;
+  if (!inEnglish) return now;
+  if (t.id === 'q1_intro' && level >= 3) return 'en';
+  return now === 'hi' ? 'mix' : 'en';
+}
+
 function clarify(s, intent, trace, heard) {
   const att = s.att, f = current(s);
+  if (intent === 'no_english') return noEnglish(s, trace, heard);
   if (intent === 'skip' || intent === 'dont_know' || att.confusions >= 2) {
     trace.add('plan', { next: 'move on', why: intent === 'dont_know' ? "learner doesn't know" : intent === 'skip' ? 'learner asked to skip' : 'third request for help' });
     return moveOn(s, trace);
@@ -490,6 +531,9 @@ function didntHear(s, trace) {
 
 async function moveOn(s, trace) {
   const t = s.task;
+  // Couldn't answer: a step back towards Hindi for the next question.
+  const back = { en: 'mix', mix: 'hi', hi: 'hi' }[s.profile.support];
+  if (back !== s.profile.support && t.kind !== 'read') { trace.add('support', { from: s.profile.support, to: back, why: "couldn't answer" }); s.profile.support = back; }
   if (s.att.partial) {
     // They answered part of a two-part task: score that part rather than counting the task as skipped.
     const { transcript, speechSec, timing } = s.att.partial;

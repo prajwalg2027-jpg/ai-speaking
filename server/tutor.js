@@ -26,6 +26,8 @@ const LANGUAGE_RULES = {
 };
 // The learner asked to talk in another language: this replaces the level rule for the rest of the conversation.
 const HINDI_RULE = 'The learner asked to talk in Hindi. Speak in simple, friendly Hindi (Devanagari script, the polite आप form: बताइए, पढ़िए, कीजिए; never बताओ). Keep the task\'s key words in English, exactly as given. When the task is to talk about something, invite them to try it in English (Hindi is fine too). Never give away the answer.';
+// The conversation starts in Hindi and moves to English as the learner answers in English (session.js: support).
+const HINDI_LEAD_RULE = 'Speak in simple, friendly Hindi (Devanagari script, the polite आप form: बताइए, पढ़िए, कीजिए; never बताओ), so the learner surely understands. Keep the task\'s key words in English, exactly as given. When the task is to talk about something, ask them to answer in English (a few words is fine). Never give away the answer.';
 const languageRule = (code) => {
   if (code === 'hi-IN') return HINDI_RULE;
   const l = LANGUAGES[code];
@@ -192,12 +194,21 @@ const BANNED_WORDS = /\b(fluency|vocabulary|grammar|coherence|comprehension|pron
  * Write Sakhi's next line. → { reaction, ask, fallback?: reason }  (use sayable() to get the spoken text)
  * task: { brief | tutor.brief, tutor: { mustInclude, mustNotSay }, scripted, hindi?, reference?, followup?, summary? }
  */
+/** How Sakhi talks: in the language they asked for, else by how far into English the conversation has moved. */
+function ruleFor(profile, level) {
+  if (LANGUAGES[profile.language]) return languageRule(profile.language);
+  if (profile.support === 'hi') return HINDI_LEAD_RULE;
+  if (profile.support === 'mix') return LANGUAGE_RULES[1];
+  return LANGUAGE_RULES[level] || LANGUAGE_RULES[2];
+}
+const talksIn = (profile) => profile.language || (profile.support === 'hi' ? 'hi-IN' : null);
+
 export async function compose({ history, level, profile = {}, situation, note, task }, trace) {
   const spec = task.tutor || {};
   const quote = (w) => `"${w}"`;
   const user = [
     `LEARNER LEVEL: ${level} of 4 (1 = beginner, 4 = very fluent)`,
-    `LANGUAGE: ${LANGUAGES[profile.language] ? languageRule(profile.language) : LANGUAGE_RULES[level] || LANGUAGE_RULES[2]}`,
+    `LANGUAGE: ${ruleFor(profile, level)}`,
     `ABOUT THE LEARNER:\n${aboutText(profile)}`,
     `CONVERSATION SO FAR:\n${historyText(history)}`,
     `WHAT JUST HAPPENED: ${note || SITUATIONS[situation] || SITUATIONS.answered}`,
@@ -222,7 +233,7 @@ export async function compose({ history, level, profile = {}, situation, note, t
     // The summary may say how they did, but it ends the conversation: no questions.
     let proposed = task.summary ? sentences(out?.ask || '').filter((x) => !x.includes('?')).join('').trim() : stripVerdicts(out?.ask);
     if (!task.summary) proposed = oneQuestion(proposed, task);
-    return { out, reaction, proposed, check: out ? checkAsk(proposed, task, { language: profile.language }) : { ok: false, reason: 'no reply from the model' } };
+    return { out, reaction, proposed, check: out ? checkAsk(proposed, task, { language: talksIn(profile) }) : { ok: false, reason: 'no reply from the model' } };
   };
   const t0 = performance.now();
   let r = await attempt();
@@ -232,7 +243,7 @@ export async function compose({ history, level, profile = {}, situation, note, t
   }
   const { reaction, proposed, check, out } = r;
   // Scripted fallback: in Hindi if the learner asked for Hindi (there are no scripted lines in other languages).
-  const ask = check.ok ? proposed : (profile.language === 'hi-IN' && task.hindi) || task.scripted;
+  const ask = check.ok ? proposed : (talksIn(profile) === 'hi-IN' && task.hindi) || task.scripted;
   if (!check.ok) trace.add('tutor-fallback', { task: task.id, reason: check.reason, using: 'scripted line' });
   return { reaction, ask, ...(check.ok ? {} : { fallback: out ? check.reason : 'no reply' }) };
 }

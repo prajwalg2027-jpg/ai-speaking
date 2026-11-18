@@ -41,7 +41,9 @@ test('the conversation opens with the same greeting and listens with auto langua
   const t = await post('/api/session', {});
   assert.equal(t.status, 200);
   assert.match(t.sessionId, /^[0-9a-f-]{36}$/);
-  assert.match(t.say[0].text, /I'm Sakhi/);
+  assert.equal(t.say[0].text, PHRASES.welcome, 'opens in Hindi: a five-minute talk to find their English level');
+  assert.match(t.say[0].text, /पाँच मिनट/);
+  assert.ok(t.say.every((l) => l.lang === 'hi-IN'), 'the first question is in Hindi too');
   assert.deepEqual(t.listen, { silenceMs: 1400, language: 'auto' });
   assert.equal(t.card, null);
 });
@@ -88,7 +90,7 @@ test('a line that gives away the answer is replaced by the scripted one', async 
 
 test('help requests climb the ladder: repeat slower, then Hindi, then move on', async () => {
   let t = await post('/api/session', {});
-  const ask = t.say[0].text;
+  const ask = t.say.at(-1).text;
   t = await post('/api/session/turn', { sessionId: t.sessionId, event: 'repeat' });
   assert.equal(t.say[0].text, ask); assert.equal(t.say[0].pace, 0.8);
   t = await post('/api/session/turn', { sessionId: t.sessionId, event: 'no_speech' });
@@ -314,12 +316,29 @@ test('an answer in another language is not scored the first time: Sakhi asks for
   let t = await post('/api/session', {});
   t = await answer(t.sessionId, 'मैं पूरे दिन घर पर काम करता हूँ।');
   assert.equal(t.task.id, 'q1_intro', 'same question');
-  assert.equal(t.say[0].text, PHRASES.tryEnglish);
+  assert.equal(t.say[0].text, PHRASES.tryEnglishHindi, 'asked in Hindi: the conversation is still in its Hindi part');
   assert.ok(t.trace.some((s) => s.step === 'plan' && s.next === 'ask them to try in English'));
   t = await answer(t.sessionId, 'मैं घर पर काम करता हूँ, बहुत काम है।');
   assert.equal(t.task.id, 'q1_intro_followup', 'second time: scored and moved on');
   const sc = t.trace.find((s) => s.step === 'english-only').scores;
   assert.ok(sc.vocabulary <= 0.5 && sc.grammar <= 0.5, 'non-English earns nothing for English words or sentences');
+});
+
+test('"I don\'t know English" gets the question in Hindi, not "say it in English"', async () => {
+  let t = await post('/api/session', {});
+  const ask = t.say.at(-1).text;
+  t = await answer(t.sessionId, 'मेरे को English नहीं आती है।');
+  assert.equal(t.task.id, 'q1_intro', 'same question');
+  assert.equal(t.say[0].text, PHRASES.noEnglishOk);
+  assert.equal(t.say[1].text, ask);
+  assert.ok(!t.say.some((l) => l.text === PHRASES.tryEnglish));
+});
+
+test('Sakhi moves from Hindi towards English as the learner answers in English', async () => {
+  let t = await post('/api/session', {});
+  t = await answer(t.sessionId, 'I work in a shop and I sell vegetables and fruits to people every day.');
+  const step = t.trace.find((s) => s.step === 'support');
+  assert.ok(step && step.from === 'hi' && step.to !== 'hi', 'an English answer moves Sakhi off Hindi-only');
 });
 
 test('pronunciation is only measured from reading; fluency uses the mic timing', async () => {

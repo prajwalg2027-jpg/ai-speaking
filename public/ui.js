@@ -115,6 +115,7 @@ export function createUI(app, { onRestart } = {}) {
    * the first frame; reveal(n) shows the first n words as she says them. → { reveal(n), cut(n), words }
    */
   function sakhiLine(text, voiceLang) {
+    clearTimeout(sentTimer); sentTimer = null;
     const words = text.split(/\s+/).filter(Boolean);
     let msg;
     if (thinkRow) { msg = thinkRow.querySelector('.msg'); msg.classList.remove('think'); thinkRow = null; }
@@ -153,6 +154,7 @@ export function createUI(app, { onRestart } = {}) {
 
   /** The learner's live bubble: "Listening…" with a fill that grows with what's heard. */
   function youLive() {
+    clearTimeout(sentTimer); sentTimer = null;
     const msg = el('div', 'msg you live');
     msg.dataset.tier = 'focus';
     msg.innerHTML = '<span class="fill"></span><div class="label"><span><span>Listening</span><span class="dots small"><i></i><i></i><i></i></span></span></div><span class="text">…</span>';
@@ -176,7 +178,9 @@ export function createUI(app, { onRestart } = {}) {
   }
 
   /** On send: Sakhi's line becomes history, then "…" while she thinks. */
-  function sent() { later(() => { focusSakhi().forEach(demote); thinking(); }, 380); }
+  // A reply that's already here (a quick scripted line) must not be followed by a late "…" bubble.
+  let sentTimer = null;
+  function sent() { clearTimeout(sentTimer); sentTimer = later(() => { sentTimer = null; focusSakhi().forEach(demote); thinking(); }, 380); }
 
   // ---------- task card ----------
   let cardNow = null, swapTimer = null, frontEl = null, cardHindiLock = false;

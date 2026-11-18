@@ -79,6 +79,10 @@ export const PHRASES = {
   followUp: 'Tell me a little more about that.',
   followUpSimple: 'Tell me more.',
   followUpHindi: 'इसके बारे में थोड़ा और बताइए।',
+  // The opening, in Hindi: what this is (then the first question, in Hindi).
+  welcome: 'नमस्ते! मैं सखी हूँ। चलिए, पाँच मिनट की एक छोटी-सी बातचीत करते हैं। इससे मैं आपकी अंग्रेज़ी का लेवल समझूँगी, और बताऊँगी कि आपको किन बातों पर और काम करना है।',
+  // When the learner says they don't know English (then the task, in Hindi).
+  noEnglishOk: 'कोई बात नहीं! मैं हिंदी में पूछती हूँ। अंग्रेज़ी के जो भी शब्द आते हैं, बस वही बोलिए। थोड़े शब्द भी काफ़ी हैं।',
   // When the learner says they'd like to talk in Hindi (then the task, in Hindi).
   hindiOk: 'ज़रूर! हम हिंदी में बात कर सकते हैं। आप जब चाहें, अंग्रेज़ी में भी बोल सकते हैं।',
   englishOk: "Sure! Let's talk in English.",

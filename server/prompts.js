@@ -47,6 +47,7 @@ export const UNDERSTAND_SYSTEM = `You help a voice English tutor understand what
 intent, one of:
 - "answer": they tried to answer, even if the answer is wrong, off-topic, short, broken, or partly in Hindi. Anything they say about themselves or their life is an answer.
 - "meta": instead of answering, they spoke to the tutor about the conversation itself: corrected the tutor, complained about something the tutor said, or asked the tutor a question
+- "no_english": they said they don't know, speak or understand English (e.g. "mujhe English nahi aati", "मेरे को English नहीं आती", "I can't speak English")
 - "language": they asked the tutor to talk in a particular language (Hindi, Punjabi, Tamil, Marathi, English…), or said they want to speak in it
 - "repeat": they asked to hear it again, or said they didn't understand
 - "slower": they asked the tutor to speak more slowly

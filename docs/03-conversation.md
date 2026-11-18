@@ -171,3 +171,15 @@ Every number that decides the level (the overall-score cut-offs, the harder-ques
 check, the read-aloud and Hindi-help limits, the first-answer guess, and how much the AI judge counts per skill)
 lives in `shared/scoring-config.json`. Edit them at `/cutoffs.html` (also linked from the developer log), download
 the file, and replace `shared/scoring-config.json` with it. The server reads it at start.
+
+## Starting in Hindi, moving to English
+
+Sakhi opens in Hindi: she says this is a five-minute talk to find the learner's English level and what to work
+on, then asks the first question in Hindi (asking for the answer in English). How much Hindi she uses after that
+is `profile.support`: `hi` (Hindi, task words in English) → `mix` (simple English, restated in Hindi) → `en`.
+Each answer in English moves one step towards English (a strong first answer goes straight to `en`); a question
+they couldn't answer moves one step back. This is help Sakhi offers, so it doesn't lower the level; asking for
+Hindi does (as before).
+
+"I don't know English" (`no_english`, in Hindi, Hinglish or English) is not answered with "say it in English":
+Sakhi says that's fine and asks the same question in Hindi. Said again on the same question, she moves on.

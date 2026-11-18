@@ -2,6 +2,8 @@
 // Layer 1: fast lexical match (English / Hinglish / Devanagari). Layer 2 (in index.js): LLM fallback.
 
 const PATTERNS = [
+  // "I don't know English" (said in Hindi, Hinglish or English): Sakhi switches to Hindi, not "say it in English".
+  ['no_english', /(english|inglish|angrezi|angreji|इंग्लिश|अंग्रेज़ी|अंग्रेजी)\s*(?:(?:bilkul|zyada|jyada|thodi|bhi|बिल्कुल|ज़्यादा|ज्यादा|भी|थोड़ी)\s*)*(nahi|nahin|nai|नहीं|नही)\s*(aati|ati|aata|ata|bol|samajh|samaj|आती|आता|बोल|समझ)|\b(?:i\s+)?(?:don'?t|do not|can'?t|cannot)\s+(?:know|speak|understand)\s+(?:much\s+|any\s+)?english\b|\bno english\b/i],
   ['in_hindi', /\b(hindi (me|mein|main)|in hindi)\b|हिंदी में|हिन्दी में/i],
   ['slower', /\b(slow(ly|er)?|dheere|dheere|dhire)\b|धीरे/i],
   ['dont_know', /\b(i ?don'?t know|no idea|pata nahi|pata nahin|nahi pata|maloom nahi)\b|पता नहीं|मालूम नहीं/i],
@@ -9,7 +11,7 @@ const PATTERNS = [
 ];
 
 /**
- * @returns {null | 'repeat' | 'slower' | 'in_hindi' | 'dont_know'}
+ * @returns {null | 'no_english' | 'repeat' | 'slower' | 'in_hindi' | 'dont_know'}
  * Only short utterances are treated as clarification requests: a long answer
  * that happens to contain "again" is still an answer.
  */

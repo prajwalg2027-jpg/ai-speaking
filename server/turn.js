@@ -48,7 +48,7 @@ export async function understandTurn({ asked, transcript, profile, heardOnly = n
   const clean = (x) => x && { ...x, name: empty(x.name), language: empty(x.language) };
   const r = await trace.time('understand', () => Promise.race([call, timeout]).then(clean), (x) => ({ model: meta.model, ...x })).catch(() => null);
   if (!r) return null;
-  const intents = ['answer', 'meta', 'language', 'repeat', 'slower', 'dont_know', 'skip', ...(heardOnly != null ? ['reply'] : [])];
+  const intents = ['answer', 'meta', 'no_english', 'language', 'repeat', 'slower', 'dont_know', 'skip', ...(heardOnly != null ? ['reply'] : [])];
   if (r.intent === 'in_hindi') Object.assign(r, { intent: 'language', language: r.language || 'Hindi' });
   // A long reply is an answer, whatever they had heard: never set it aside.
   if (r.intent === 'reply' && transcript.trim().split(/\s+/).length >= 12) r.intent = 'answer';
