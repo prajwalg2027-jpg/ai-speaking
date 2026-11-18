@@ -69,7 +69,10 @@ test('a whole conversation: follow-ups after open answers, cards for tasks, a sp
   // Tutor lines passed the guardrails (no fallbacks with a well-behaved model).
   const steps = turns.flatMap((t) => t.trace || []).map((s) => s.step);
   assert.ok(steps.includes('tutor'));
-  assert.ok(!steps.includes('tutor-fallback'));
+  // The test model writes English only, so in the mixed stage (English + the same in Hindi) its question is
+  // replaced by the reviewed one; any other fallback is a failure.
+  const fallbacks = turns.flatMap((t) => t.trace || []).filter((s) => s.step === 'tutor-fallback');
+  assert.ok(fallbacks.every((f) => /no Hindi sentence/.test(f.reason)), JSON.stringify(fallbacks));
   const end = turns.at(-1);
   assert.ok(end.done && end.done.level >= 1 && end.done.level <= 4);
   assert.match(end.say[0].text, new RegExp(end.done.name));
@@ -85,7 +88,7 @@ test('a line that gives away the answer is replaced by the scripted one', async 
     assert.equal(t.task.id, 'q2_vocab');
     // Word tasks are asked in their reviewed words, so the model can't give the answer away in the question.
     const item = Object.values(BANK.vocab).flat().find((v) => v.id === t.task.item);
-    assert.ok(t.say.at(-1).text.endsWith(item.say), 'the reviewed question, word for word');
+    assert.ok(t.say.at(-1).text.includes(item.say), 'the reviewed question, word for word');
     assert.doesNotMatch(t.say[0].text, /\b(responsibility|umbrella|apple|self-reliant)\b/i);
   } finally { mock.state.tutorMode = 'good'; }
 });
