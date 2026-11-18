@@ -73,7 +73,9 @@
 <script>
 // Review draft questions: mark each Yes or No (optional note), then download a CSV.
 // Choices are kept in this browser (localStorage) until downloaded, so you can stop and come back.
-const KEY = 'sakhi-review-v1';
+// ?batch=batch-2 reviews a later batch (its own saved choices and CSV); default: the first batch.
+const BATCH = (new URLSearchParams(location.search).get('batch') || 'candidates').replace(/[^\w-]/g, '');
+const KEY = BATCH === 'candidates' ? 'sakhi-review-v1' : `sakhi-review-${BATCH}`;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
@@ -86,7 +88,7 @@ const HELP = {
   'Word pair': 'Two words, asked one at a time. Answers in grey are what counts as right. We need 2 per level.',
   'Listening': 'Sakhi says the sentences (never on screen), then asks the question. We need 2 per level.',
   'Read aloud': 'The learner reads the sentence on screen. We need 2 per level.',
-  'Speaking': 'Levels 1–2 describe a picture (emoji stand in for an illustration); 3–4 give an opinion. An AI follow-up comes after. We need 2 per level.',
+  'Speaking': 'An open question; an AI follow-up comes after. Level 1 shows a sentence starter on screen. We need 2 per level.',
 };
 
 function field(label, html) { return html ? `<div class="field"><span>${label}</span><span>${html}</span></div>` : ''; }
@@ -96,7 +98,7 @@ function render() {
   const decided = items.filter((i) => state[i.id]?.decision).length;
   $('progress').textContent = `${decided} of ${items.length} decided`;
   $('bar').style.width = `${(decided / items.length) * 100}%`;
-  $('tabs').innerHTML = CATS.map((c) => {
+  $('tabs').innerHTML = CATS.filter((c) => items.some((i) => i.category === c)).map((c) => {
     const all = items.filter((i) => i.category === c), done = all.filter((i) => state[i.id]?.decision).length;
     const yes = all.filter((i) => state[i.id]?.decision === 'yes').length;
     return `<button role="tab" aria-selected="${c === tab}" data-tab="${c}">${c}<small>${done}/${all.length} · ${yes} yes</small></button>`;
@@ -112,7 +114,7 @@ function render() {
       ${it.passage ? `${field('Sakhi says', `“${esc(it.passage)}”`)}${field('Then asks', esc(it.question))}`
         : `<div class="q">${esc(it.question)}</div>`}
       ${it.category === 'Read aloud' ? field('On screen', `<strong>${esc(it.card)}</strong>`) : field('On screen', it.card ? `<span class="card">${esc(it.card)}</span>` : '')}
-      ${field('Picture shows', esc(it.scene))}
+      ${field(it.category === 'Speaking' && !/ (is|are) /.test(it.scene || '') ? 'Kind' : 'Picture shows', esc(it.scene))}
       ${field('Right answer', answers(it.answers))}
       ${it.second_question ? `<div class="second">${field('Then asks', esc(it.second_question))}${field('On screen', `<span class="card">${esc(it.second_card)}</span>`)}${field('Right answer', answers(it.second_answers))}</div>` : ''}
       <div class="decide">
@@ -170,12 +172,15 @@ $('download').addEventListener('click', () => {
   const blob = new Blob(['﻿' + [COLS.join(','), ...rows].join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `sakhi-question-review-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `sakhi-question-review${BATCH === 'candidates' ? '' : `-${BATCH}`}-${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 
-fetch('/review/candidates.json').then((r) => r.json()).then((d) => { items = d.items; tab = CATS[0]; render(); })
+fetch(`/review/${BATCH}.json`).then((r) => r.json()).then((d) => {
+  items = d.items; tab = CATS.find((c) => items.some((i) => i.category === c)); render();
+  if (BATCH !== 'candidates') document.querySelector('h1').textContent = `Question review: ${BATCH}`;
+})
   .catch((e) => { $('list').innerHTML = `<p class="empty">Couldn't load the questions: ${esc(e.message)}</p>`; });
 </script>
 </body>

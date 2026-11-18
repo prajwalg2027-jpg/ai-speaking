@@ -1,0 +1,221 @@
+{
+ "version": 2,
+ "note": "Batch 2: level-2 action pictures; level 1-2 speaking (for review).",
+ "items": [
+  {
+   "id": "WORD-L2-ACT-1",
+   "category": "Word pair",
+   "level": 2,
+   "question": "Look at the picture. What is the person doing?",
+   "card": "🏊",
+   "answers": [
+    "swim",
+    "swimming"
+   ],
+   "second_question": "And in this picture? What is the person doing?",
+   "second_card": "💃",
+   "second_answers": [
+    "dance",
+    "dancing"
+   ]
+  },
+  {
+   "id": "WORD-L2-ACT-2",
+   "category": "Word pair",
+   "level": 2,
+   "question": "Look at the picture. What is the person doing?",
+   "card": "🚴",
+   "answers": [
+    "cycle",
+    "cycling",
+    "ride",
+    "riding a bicycle",
+    "riding a bike"
+   ],
+   "second_question": "And in this picture? What is the person doing?",
+   "second_card": "🧑‍💻",
+   "second_answers": [
+    "type",
+    "typing",
+    "work",
+    "working",
+    "using a computer",
+    "using a laptop"
+   ]
+  },
+  {
+   "id": "WORD-L2-ACT-3",
+   "category": "Word pair",
+   "level": 2,
+   "question": "Look at the picture. What is the person doing?",
+   "card": "🧗",
+   "answers": [
+    "climb",
+    "climbing"
+   ],
+   "second_question": "And in this picture? What is the person doing?",
+   "second_card": "🧑‍🎤",
+   "second_answers": [
+    "sing",
+    "singing"
+   ]
+  },
+  {
+   "id": "WORD-L2-ACT-4",
+   "category": "Word pair",
+   "level": 2,
+   "question": "Look at the picture. What is the person doing?",
+   "card": "🧑‍🍳",
+   "answers": [
+    "cook",
+    "cooking"
+   ],
+   "second_question": "And in this picture? What is the person doing?",
+   "second_card": "🛌",
+   "second_answers": [
+    "sleep",
+    "sleeping",
+    "rest",
+    "resting"
+   ]
+  },
+  {
+   "id": "WORD-L2-ACT-5",
+   "category": "Word pair",
+   "level": 2,
+   "question": "Look at the picture. What is the person doing?",
+   "card": "🏋️",
+   "answers": [
+    "lift",
+    "lifting weights",
+    "exercise",
+    "exercising",
+    "workout",
+    "gym"
+   ],
+   "second_question": "And in this picture? What is the person doing?",
+   "second_card": "🧘",
+   "second_answers": [
+    "yoga",
+    "doing yoga",
+    "meditate",
+    "meditating"
+   ]
+  },
+  {
+   "id": "WORD-L2-ACT-6",
+   "category": "Word pair",
+   "level": 2,
+   "question": "Look at the picture. What is the person doing?",
+   "card": "🏃",
+   "answers": [
+    "run",
+    "running",
+    "jog",
+    "jogging"
+   ],
+   "second_question": "And in this picture? What is the person doing?",
+   "second_card": "🚶",
+   "second_answers": [
+    "walk",
+    "walking"
+   ]
+  },
+  {
+   "id": "SPEAK-L1-ME-1",
+   "category": "Speaking",
+   "level": 1,
+   "question": "What food do you like? Start with 'I like'…",
+   "card": "I like ______ 🍛",
+   "scene": "About you, with a sentence starter"
+  },
+  {
+   "id": "SPEAK-L1-ME-2",
+   "category": "Speaking",
+   "level": 1,
+   "question": "What do you do in the morning? Start with 'In the morning, I'…",
+   "card": "In the morning, I ______ ☀️",
+   "scene": "About you, with a sentence starter"
+  },
+  {
+   "id": "SPEAK-L1-ME-3",
+   "category": "Speaking",
+   "level": 1,
+   "question": "Who is in your family? Start with 'In my family, there is'…",
+   "card": "In my family, there is ______ 👨‍👩‍👧",
+   "scene": "About you, with a sentence starter"
+  },
+  {
+   "id": "SPEAK-L1-ME-4",
+   "category": "Speaking",
+   "level": 1,
+   "question": "What is your favourite festival? Start with 'My favourite festival is'…",
+   "card": "My favourite festival is ______ 🪔",
+   "scene": "About you, with a sentence starter"
+  },
+  {
+   "id": "SPEAK-L1-ME-5",
+   "category": "Speaking",
+   "level": 1,
+   "question": "Where do you live? Start with 'I live in'…",
+   "card": "I live in ______ 🏠",
+   "scene": "About you, with a sentence starter"
+  },
+  {
+   "id": "SPEAK-L1-ME-6",
+   "category": "Speaking",
+   "level": 1,
+   "question": "What do you like to drink? Start with 'I like to drink'…",
+   "card": "I like to drink ______ ☕",
+   "scene": "About you, with a sentence starter"
+  },
+  {
+   "id": "SPEAK-L2-NEW-1",
+   "category": "Speaking",
+   "level": 2,
+   "question": "What did you do last weekend?",
+   "card": "Last weekend, I… 📅",
+   "scene": "About you: past tense"
+  },
+  {
+   "id": "SPEAK-L2-NEW-2",
+   "category": "Speaking",
+   "level": 2,
+   "question": "Tell me about your best friend.",
+   "card": "My best friend… 🧑‍🤝‍🧑",
+   "scene": "Describe someone"
+  },
+  {
+   "id": "SPEAK-L2-NEW-3",
+   "category": "Speaking",
+   "level": 2,
+   "question": "Your friend is coming to your house. Tell them how to get there from the bus stop.",
+   "card": "From the bus stop… 🚏",
+   "scene": "Real-life task: giving directions"
+  },
+  {
+   "id": "SPEAK-L2-NEW-4",
+   "category": "Speaking",
+   "level": 2,
+   "question": "What did you eat yesterday?",
+   "card": "Yesterday, I ate… 🍽️",
+   "scene": "About you: past tense"
+  },
+  {
+   "id": "SPEAK-L2-NEW-5",
+   "category": "Speaking",
+   "level": 2,
+   "question": "Tell me about your home.",
+   "card": "My home… 🏠",
+   "scene": "Describe somewhere"
+  },
+  {
+   "id": "SPEAK-L2-NEW-6",
+   "category": "Speaking",
+   "level": 2,
+   "question": "You left your phone in a shop. What do you say to the shopkeeper?",
+   "card": "At the shop… 📱",
+   "scene": "Real-life task: asking for help"
+  }
+ ]
+}
