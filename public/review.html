@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Question Review</title>
+  <style>
+    :root {
+      --bg: #f7f7f5; --fg: #16181d; --muted: #6b6f78; --card: #fff; --line: #e4e4e0;
+      --yes: #0f7a4a; --yes-bg: #e6f4ec; --no: #b42318; --no-bg: #fdecea; --accent: #1f5fe0; --chip: #eef1f6;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #0e0f11; --fg: #eceef2; --muted: #9aa0aa; --card: #17191d; --line: #2a2d33;
+        --yes: #4ade80; --yes-bg: #10261a; --no: #ff8a80; --no-bg: #2c1513; --accent: #7aa7ff; --chip: #23262d; }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--fg);
+      font: 15px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Noto Color Emoji", sans-serif; }
+    header { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line);
+      padding: 12px max(16px, env(safe-area-inset-left)) 10px; }
+    .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; max-width: 860px; margin: 0 auto; }
+    h1 { font-size: 17px; margin: 0; flex: 1; }
+    .progress { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+    .bar { height: 4px; background: var(--line); border-radius: 2px; max-width: 860px; margin: 8px auto 0; overflow: hidden; }
+    .bar b { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+    button { font: inherit; color: inherit; cursor: pointer; }
+    .download { background: var(--accent); color: #fff; border: 0; border-radius: 10px; padding: 8px 14px; font-weight: 600; }
+    .tabs { display: flex; gap: 6px; overflow-x: auto; max-width: 860px; margin: 10px auto 0; padding-bottom: 2px; }
+    .tabs button { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 6px 12px; white-space: nowrap; font-size: 14px; }
+    .tabs button[aria-selected="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+    .tabs small { opacity: .7; margin-left: 4px; font-variant-numeric: tabular-nums; }
+    .tools { display: flex; gap: 14px; align-items: center; max-width: 860px; margin: 8px auto 0; font-size: 13px; color: var(--muted); }
+    main { max-width: 860px; margin: 0 auto; padding: 8px max(16px, env(safe-area-inset-left)) 80px; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 22px 0 8px; }
+    .item { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin: 10px 0; }
+    .item.yes { border-color: var(--yes); background: linear-gradient(var(--yes-bg), var(--yes-bg)) left / 4px 100% no-repeat, var(--card); }
+    .item.no { border-color: var(--no); background: linear-gradient(var(--no-bg), var(--no-bg)) left / 4px 100% no-repeat, var(--card); }
+    .id { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .q { font-size: 16px; margin: 4px 0 8px; }
+    .field { display: grid; grid-template-columns: 110px 1fr; gap: 8px; font-size: 14px; margin: 4px 0; }
+    .field span:first-child { color: var(--muted); }
+    .card { display: inline-block; background: var(--chip); border-radius: 8px; padding: 2px 8px; font-size: 18px; }
+    .ans { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+    .ans i { font-style: normal; background: var(--chip); border-radius: 6px; padding: 1px 7px; font-size: 13px; }
+    .second { border-top: 1px dashed var(--line); margin-top: 10px; padding-top: 8px; }
+    .decide { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+    .decide button { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 9px 18px; font-weight: 600; min-width: 84px; min-height: 44px; }
+    .decide button.yes[aria-pressed="true"] { background: var(--yes); border-color: var(--yes); color: #fff; }
+    .decide button.no[aria-pressed="true"] { background: var(--no); border-color: var(--no); color: #fff; }
+    .decide input { flex: 1; min-width: 0; border: 1px solid var(--line); background: transparent; color: var(--fg); border-radius: 10px; padding: 9px 10px; font: inherit; font-size: 14px; }
+    .empty { color: var(--muted); text-align: center; padding: 40px 0; }
+    @media (max-width: 560px) {
+      .field { grid-template-columns: 1fr; gap: 0; } .field span:first-child { font-size: 12px; }
+      .decide { flex-wrap: wrap; } .decide input { flex-basis: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="row">
+      <h1>Question review</h1>
+      <span class="progress" id="progress"></span>
+      <button class="download" id="download">Download CSV</button>
+    </div>
+    <div class="bar"><b id="bar"></b></div>
+    <nav class="tabs" id="tabs" role="tablist"></nav>
+    <div class="tools">
+      <label><input type="checkbox" id="undecided" /> Show only undecided</label>
+      <span>Keys: Y yes · N no · J/K next/previous</span>
+    </div>
+  </header>
+  <main id="list"></main>
+<script>
+// Review draft questions: mark each Yes or No (optional note), then download a CSV.
+// Choices are kept in this browser (localStorage) until downloaded, so you can stop and come back.
+const KEY = 'sakhi-review-v1';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} };
+let items = [], state = load(), tab = null, focusIdx = 0;
+
+const CATS = ['Opening', 'Word pair', 'Listening', 'Read aloud', 'Speaking'];
+const HELP = {
+  'Opening': 'Sakhi’s first line (everyone hears it). We need 1.',
+  'Word pair': 'Two words, asked one at a time. Answers in grey are what counts as right. We need 2 per level.',
+  'Listening': 'Sakhi says the sentences (never on screen), then asks the question. We need 2 per level.',
+  'Read aloud': 'The learner reads the sentence on screen. We need 2 per level.',
+  'Speaking': 'Levels 1–2 describe a picture (emoji stand in for an illustration); 3–4 give an opinion. An AI follow-up comes after. We need 2 per level.',
+};
+
+function field(label, html) { return html ? `<div class="field"><span>${label}</span><span>${html}</span></div>` : ''; }
+const answers = (a) => a?.length ? `<span class="ans">${a.map((x) => `<i>${esc(x)}</i>`).join('')}</span>` : '';
+
+function render() {
+  const decided = items.filter((i) => state[i.id]?.decision).length;
+  $('progress').textContent = `${decided} of ${items.length} decided`;
+  $('bar').style.width = `${(decided / items.length) * 100}%`;
+  $('tabs').innerHTML = CATS.map((c) => {
+    const all = items.filter((i) => i.category === c), done = all.filter((i) => state[i.id]?.decision).length;
+    const yes = all.filter((i) => state[i.id]?.decision === 'yes').length;
+    return `<button role="tab" aria-selected="${c === tab}" data-tab="${c}">${c}<small>${done}/${all.length} · ${yes} yes</small></button>`;
+  }).join('');
+  const onlyUndecided = $('undecided').checked;
+  const shown = items.filter((i) => i.category === tab && (!onlyUndecided || !state[i.id]?.decision));
+  let html = `<p class="id" style="margin-top:14px">${esc(HELP[tab])}</p>`, level = null;
+  for (const it of shown) {
+    if (it.level !== level) { level = it.level; html += `<h2>${level === 'All' ? 'Everyone' : `Level ${level}`}</h2>`; }
+    const st = state[it.id] || {};
+    html += `<article class="item ${st.decision || ''}" data-id="${it.id}" tabindex="-1">
+      <div class="id">${esc(it.id)}</div>
+      ${it.passage ? `${field('Sakhi says', `“${esc(it.passage)}”`)}${field('Then asks', esc(it.question))}`
+        : `<div class="q">${esc(it.question)}</div>`}
+      ${it.category === 'Read aloud' ? field('On screen', `<strong>${esc(it.card)}</strong>`) : field('On screen', it.card ? `<span class="card">${esc(it.card)}</span>` : '')}
+      ${field('Picture shows', esc(it.scene))}
+      ${field('Right answer', answers(it.answers))}
+      ${it.second_question ? `<div class="second">${field('Then asks', esc(it.second_question))}${field('On screen', `<span class="card">${esc(it.second_card)}</span>`)}${field('Right answer', answers(it.second_answers))}</div>` : ''}
+      <div class="decide">
+        <button class="yes" data-d="yes" aria-pressed="${st.decision === 'yes'}">Yes</button>
+        <button class="no" data-d="no" aria-pressed="${st.decision === 'no'}">No</button>
+        <input placeholder="Note (optional): what to change" value="${esc(st.note)}" />
+      </div>
+    </article>`;
+  }
+  $('list').innerHTML = shown.length ? html : `<p class="empty">Nothing left to decide here.</p>`;
+}
+
+function decide(id, d) {
+  const st = (state[id] ||= {});
+  st.decision = st.decision === d ? '' : d; // tap again to undo
+  save(); render();
+}
+
+$('tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (b) { tab = b.dataset.tab; focusIdx = 0; render(); window.scrollTo(0, 0); } });
+$('undecided').addEventListener('change', render);
+$('list').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-d]'); if (!b) return;
+  const art = b.closest('[data-id]');
+  decide(art.dataset.id, b.dataset.d);
+});
+$('list').addEventListener('input', (e) => {
+  if (e.target.tagName !== 'INPUT') return;
+  const id = e.target.closest('[data-id]').dataset.id;
+  (state[id] ||= {}).note = e.target.value; save();
+});
+// Keyboard: J/K move between questions, Y/N decide the focused one.
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  const arts = [...document.querySelectorAll('article[data-id]')];
+  if (!arts.length) return;
+  const k = e.key.toLowerCase();
+  if (k === 'j' || k === 'k') { focusIdx = Math.max(0, Math.min(arts.length - 1, focusIdx + (k === 'j' ? 1 : -1))); arts[focusIdx].focus(); arts[focusIdx].scrollIntoView({ block: 'center' }); }
+  if (k === 'y' || k === 'n') {
+    const art = arts[Math.min(focusIdx, arts.length - 1)];
+    decide(art.dataset.id, k === 'y' ? 'yes' : 'no');
+    const next = [...document.querySelectorAll('article[data-id]')];
+    focusIdx = Math.min(focusIdx + ($('undecided').checked ? 0 : 1), next.length - 1);
+    next[focusIdx]?.focus(); next[focusIdx]?.scrollIntoView({ block: 'center' });
+  }
+});
+
+// CSV: one row per question, every field, with the decision and note. UTF-8 with BOM so Excel shows
+// Hindi and emoji correctly.
+const COLS = ['id', 'category', 'level', 'decision', 'note', 'question', 'card', 'answers', 'passage', 'scene', 'second_question', 'second_card', 'second_answers'];
+const cell = (v) => { const s = Array.isArray(v) ? v.join(' | ') : String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+$('download').addEventListener('click', () => {
+  const undecided = items.filter((i) => !state[i.id]?.decision).length;
+  if (undecided && !confirm(`${undecided} question${undecided === 1 ? ' is' : 's are'} still undecided. Download anyway?`)) return;
+  const rows = items.map((i) => COLS.map((c) => cell(c === 'decision' ? state[i.id]?.decision : c === 'note' ? state[i.id]?.note : i[c])).join(','));
+  const blob = new Blob(['﻿' + [COLS.join(','), ...rows].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `sakhi-question-review-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
+fetch('/review/candidates.json').then((r) => r.json()).then((d) => { items = d.items; tab = CATS[0]; render(); })
+  .catch((e) => { $('list').innerHTML = `<p class="empty">Couldn't load the questions: ${esc(e.message)}</p>`; });
+</script>
+</body>
+</html>
