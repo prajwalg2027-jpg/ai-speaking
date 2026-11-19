@@ -11,7 +11,7 @@ plugins {
 val localProps = Properties().apply { rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) } }
 fun setting(name: String, env: String): String? = (findProperty(name) as String?) ?: System.getenv(env) ?: localProps.getProperty(name)
 val debugServer = setting("sakhi.serverUrl", "SAKHI_DEBUG_SERVER_URL") ?: "http://10.0.2.2:3000" // emulator → host machine
-val releaseServer = setting("sakhi.releaseServerUrl", "SAKHI_SERVER_URL") ?: "https://sakhi.example.invalid"
+val releaseServer = setting("sakhi.releaseServerUrl", "SAKHI_SERVER_URL") ?: "https://adam-nfgw4g4xwa-el.a.run.app" // later: https://api.adamspeaks.in
 
 // Phone login (Firebase). Its settings come from google-services.json (Firebase console › Project settings ›
 // Your apps), placed at app/google-services.json (not committed) or given to CI as GOOGLE_SERVICES_JSON.
