@@ -74,7 +74,16 @@ gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:${RUN
 gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:${RUNTIME_SA}" --role=roles/firebaseauth.admin --condition=None --quiet >/dev/null
 gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" --member="serviceAccount:${RUNTIME_SA}" --role=roles/storage.objectAdmin --quiet >/dev/null
 
+# Organizations created recently have "secure by default" policies: Google's own build account no longer gets
+# permissions automatically, so building from source needs this grant (Google's documented fix).
+PROJECT_NUMBER="$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')"
+gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role=roles/run.builder --condition=None --quiet >/dev/null
+
 # ---- Deploy -------------------------------------------------------------------------------------------
+# Public: the app calls the server directly (every request is checked by the server's own phone-login check).
+# --no-invoker-iam-check makes it public without granting "allUsers", which a secure-by-default organization
+# policy (domain-restricted sharing) forbids.
 # One instance: conversations are kept in the server's memory, so every request of a conversation must reach
 # the same instance. One instance comfortably handles dozens of conversations at once (it mostly waits on
 # Sarvam). To scale past that, conversations move to the database first.
@@ -83,7 +92,7 @@ gcloud run deploy "$SERVICE" \
   --source . \
   --region "$REGION" \
   --service-account "$RUNTIME_SA" \
-  --allow-unauthenticated \
+  --no-invoker-iam-check \
   --add-cloudsql-instances "${PROJECT}:${REGION}:${DB_INSTANCE}" \
   --set-secrets "SARVAM_API_KEY=sarvam-api-key:latest,DATABASE_URL=adam-database-url:latest" \
   --set-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${PROJECT},RECORDINGS_BUCKET=${BUCKET},SAKHI_DAILY_BUDGET_INR=${BUDGET_INR}" \
