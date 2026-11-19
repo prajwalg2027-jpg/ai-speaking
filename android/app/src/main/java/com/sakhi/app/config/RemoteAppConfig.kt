@@ -1,5 +1,6 @@
 package com.sakhi.app.config
 
+import androidx.core.content.edit
 import com.sakhi.app.net.SakhiJson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,7 +47,7 @@ class RemoteAppConfig(
 
     fun apply(cfg: AppConfig) {
         cfg.serverUrl?.trim()?.trimEnd('/')?.let { if (acceptable(it)) server.published = it }
-        prefs.edit().putInt(MIN_VERSION, cfg.minVersionCode).apply()
+        prefs.edit { putInt(MIN_VERSION, cfg.minVersionCode) }
         _updateRequired.value = versionCode < cfg.minVersionCode
     }
 

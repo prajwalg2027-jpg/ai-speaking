@@ -27,6 +27,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -120,9 +121,9 @@ class MainActivity : ComponentActivity() {
 }
 
 private fun ComponentActivity.openPlayStore() {
-    val market = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName"))
+    val market = Intent(Intent.ACTION_VIEW, "market://details?id=$packageName".toUri())
     runCatching { startActivity(market) }.onFailure {
-        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$packageName")))
+        startActivity(Intent(Intent.ACTION_VIEW, "https://play.google.com/store/apps/details?id=$packageName".toUri()))
     }
 }
 
