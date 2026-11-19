@@ -43,7 +43,7 @@ android {
     defaultConfig {
         // The published app ID (permanent once on Google Play). The code package (namespace) stays
         // com.sakhi.app: it is internal, users never see it, and `in` is a reserved word in Kotlin.
-        applicationId = "in.adam.app"
+        applicationId = "in.adamspeaks.app"
         minSdk = 26
         targetSdk = 36
         versionCode = (findProperty("sakhi.versionCode") as String?)?.toInt() ?: 1
@@ -66,14 +66,14 @@ android {
         debug {
             applicationIdSuffix = ".dev"
             buildConfigField("String", "SERVER_URL", "\"$debugServer\"")
-            firebase("in.adam.app.dev")
+            firebase("in.adamspeaks.app.dev")
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "SERVER_URL", "\"$releaseServer\"")
-            firebase("in.adam.app")
+            firebase("in.adamspeaks.app")
             signingConfig = signingConfigs.findByName("release")
         }
     }

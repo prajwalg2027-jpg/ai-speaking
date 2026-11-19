@@ -28,7 +28,7 @@ Adam's phone OTP login uses Firebase Authentication in the **same Google Cloud p
 1. [console.firebase.google.com](https://console.firebase.google.com) → **Add project** → choose your existing
    Google Cloud project (don't create a new one).
 2. **Build › Authentication › Get started › Sign-in method › Phone** → Enable. (Only phone; leave the others off.)
-3. **Project settings › Your apps › Add app › Android**: package name `in.adam.app` (and `in.adam.app.dev`
+3. **Project settings › Your apps › Add app › Android**: package name `in.adamspeaks.app` (and `in.adamspeaks.app.dev`
    for the test build), plus the app's SHA-256 signing fingerprints (`./gradlew signingReport` prints them; for
    the Play release, copy the "App signing key" fingerprint from Play Console). Download `google-services.json`
    and send it to the developer, or add it as the GitHub secret `GOOGLE_SERVICES_JSON`.
