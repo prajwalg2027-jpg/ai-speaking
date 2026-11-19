@@ -1,0 +1,75 @@
+# Adam — handoff for a new Claude session
+
+Read this first. It says what exists, where it runs, how to release and check it, and what's pending.
+Work on the branch **`tutor-conversation`** (never push to `main`). Last updated 19 Nov 2026.
+
+## How to work with Prajwal (the founder)
+
+- Explain in **simple, non-technical words**; give **step-by-step** instructions and one ready-to-paste
+  command per code block. Prefer doing things yourself over asking him to.
+- Never ask him to paste secrets (keys, passwords) into chat; secrets go into Secret Manager or the
+  environment's settings by him.
+- Commit messages end with the attribution lines your session gives you; never put a model name in commits.
+- Commit and push finished work. Run the tests first.
+
+## What Adam is
+
+A voice-first English **placement test** for Indian learners, as an Android app. The tutor inside is called
+**Sakhi** (female voice, Hindi-first, moves to English as the learner gains confidence); the app and brand are
+**Adam** (`adamspeaks.in`). Speech, voice and AI are all **Sarvam** (Saaras v4 realtime STT, Bulbul v4 Flash
+voice, Sarvam-105B). The server holds the Sarvam key and all conversation logic; the app only talks and listens.
+
+## What runs where
+
+| Thing | Where |
+|---|---|
+| Google Cloud project | `cool-arch-515210-b0` ("My First Project", number 209464958247), region `asia-south1` (Mumbai) |
+| Server | Cloud Run service `adam`: `https://adam-nfgw4g4xwa-el.a.run.app` (one always-on instance) |
+| Database | Cloud SQL PostgreSQL 16 `adam-db`, database `adam`, user `adam` (URL in Secret Manager `adam-database-url`) |
+| Voice recordings | bucket `cool-arch-515210-b0-adam-recordings` (private, no soft delete; kept until erasure) |
+| Sakhi's fixed voice lines | bucket `cool-arch-515210-b0-adam-voice` (saves ~₹15 per server start) |
+| Secrets | Secret Manager: `sarvam-api-key`, `adam-database-url` |
+| Server's account | `adam-runtime@cool-arch-515210-b0.iam.gserviceaccount.com` (only these resources) |
+| Phone login | Firebase Authentication in the same project; phone only; SMS to India only; test number +91 99999 00000 / 123456 |
+| Android apps | `in.adamspeaks.app` (release), `in.adamspeaks.app.dev` (test build; shared signing key `android/app/debug.keystore`) |
+| Website | `adamspeaks.in` on Firebase Hosting, built from branch `claude/dazzling-cray-ni75q7` folder `website/` (DNS at GoDaddy) |
+| App settings file | `https://adamspeaks.in/app-config.json` (server address, minimum app version; the app reads it at start) |
+
+## Releasing and checking
+
+- **Release the server from GitHub** (no upload needed; works from a connector or Cloud Shell):
+  `gcloud builds submit https://github.com/prajwalg2027-jpg/ai-speaking --git-source-revision=tutor-conversation --config=deploy/cloudbuild.yaml --region=asia-south1 --project=cool-arch-515210-b0`
+- **Full setup / infrastructure changes:** `deploy/cloudrun.sh` (idempotent; see `deploy/README.md`).
+- **Firebase setup:** `deploy/firebase-setup.sh`.
+- **Start-up log:** `gcloud run services logs read adam --region=asia-south1 --project=cool-arch-515210-b0 --limit=50`
+  (look for `Pre-generated … (124 from the voice store, 0 new)`).
+- **Health:** `GET /api/health` (Cloud Run reserves `/healthz`).
+- **Data:** Cloud SQL Studio on `adam-db`. Tables: `users` (flexible `attributes` jsonb; allowed keys in
+  `attribute_definitions`), `attribute_history`, `consents`, `assessments`, `assessment_answers`, `recordings`,
+  `level_history`, `events` (transaction log), `erasures`. Migrations in `server/db/migrations`, applied at start.
+- **Android:** `cd android && ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug`. Test APK goes to
+  Prajwal as a file; he installs it on his phone (no adb). Release bundle via CI once signing secrets exist.
+- **Tests:** server `npm test` (database tests need `TEST_DATABASE_URL`); CI runs everything on push.
+
+## Production rules (server/guard.js, server/auth.js)
+
+Phone login required on every request and on the live speech socket; consents (terms, privacy, 18+, recordings)
+before a test; limits per address and per conversation; daily Sarvam spend cap ₹3,000 (`SAKHI_DAILY_BUDGET_INR`);
+team tools (question review, cut-off editor, STT lab) are off in production — use `npm start` locally.
+A shared "team pass" that bypasses login was refused by the safety check; don't build one.
+
+## Pending (as of the handoff)
+
+Needs Prajwal: Google Play account type (personal → 14-day closed test with 12 testers); lawyer review of the
+privacy policy and terms; Sarvam rate limits; domain email (`prajwal@adamspeaks.in`) and the stray `_dmarc`
+record at GoDaddy; what to improve on the result screen; the tutor's final name.
+For Claude: release signing + Play bundle + store listing + data-safety form (after the Play account);
+rewrite Sakhi's AI instructions with example turns (approved, not built); re-tune level-4 cut-offs with real
+results; optionally move the project under the adamspeaks.in organization; load balancer only if needed later.
+
+## Where things are in the code
+
+`server/` (index.js routes, session.js conversation, tutor.js Sakhi's lines, scoring.js levels with
+`shared/scoring-config.json`, accounts.js/store.js customer data, live.js speech relay, recordings.js,
+voicecache.js), `shared/` (question bank, phrases), `public/` (web client, team tools), `android/` (Kotlin app,
+README inside), `deploy/` (scripts, README), `docs/` (design notes, this file).

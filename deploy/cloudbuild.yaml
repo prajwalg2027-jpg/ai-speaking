@@ -1,0 +1,35 @@
+# Releases the Adam server from GitHub with Cloud Build (no code upload from anyone's machine):
+#
+#   gcloud builds submit https://github.com/prajwalg2027-jpg/ai-speaking --git-source-revision=tutor-conversation \
+#     --config=deploy/cloudbuild.yaml --region=asia-south1 --project=cool-arch-515210-b0
+#
+# Builds the Dockerfile at that commit, pushes the image, and points the Cloud Run service at it. Everything
+# else about the service (secrets, database, scaling, account) stays as deploy/cloudrun.sh set it up.
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args: [build, -t, '${_IMAGE}', .]
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args: [push, '${_IMAGE}']
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args: [run, deploy, '${_SERVICE}', --image, '${_IMAGE}', --region, '${_REGION}', --quiet]
+  - id: check
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        url="$$(gcloud run services describe ${_SERVICE} --region ${_REGION} --format='value(status.url)')"
+        for i in 1 2 3 4 5 6; do curl -fsS "$${url}/api/health" && exit 0; sleep 10; done; exit 1
+substitutions:
+  _SERVICE: adam
+  _REGION: asia-south1
+  _IMAGE: ${_REGION}-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/${_SERVICE}:${BUILD_ID}
+images: ['${_IMAGE}']
+options:
+  dynamicSubstitutions: true
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1200s

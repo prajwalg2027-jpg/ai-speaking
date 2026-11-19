@@ -87,6 +87,12 @@ gcloud storage buckets add-iam-policy-binding "gs://${VOICE_BUCKET}" --member="s
 PROJECT_NUMBER="$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')"
 gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
   --role=roles/run.builder --condition=None --quiet >/dev/null
+# Releases from GitHub (deploy/cloudbuild.yaml) run as that same account: it may update the service and run it
+# as the server's own account, nothing more.
+gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role=roles/run.developer --condition=None --quiet >/dev/null
+gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SA" --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role=roles/iam.serviceAccountUser --quiet >/dev/null
 
 # ---- Deploy -------------------------------------------------------------------------------------------
 # Public: the app calls the server directly (every request is checked by the server's own phone-login check).
