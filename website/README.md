@@ -13,8 +13,7 @@ Static files, with no cookies, analytics or third-party requests. Hosted on **Fi
 Google Cloud project as the app's server and phone login.
 
 ## 1. Fill in `site.config.json`
-`COMPANY_NAME`, `COMPANY_ADDRESS`, `GRIEVANCE_OFFICER`, `COURTS_CITY`, and check `SUPPORT_EMAIL`.
-The build refuses to run while any of them is blank.
+Contact email (`SUPPORT_EMAIL`) and the policy date. Every value must be filled in.
 Preview locally: `node build.mjs --preview && npx serve dist`.
 
 ## 2. Deploy (Google Cloud Shell)
@@ -31,7 +30,7 @@ Firebase console → Hosting → **Add custom domain** → `adamspeaks.in`, then
 at whoever hosts the domain's DNS. SSL is automatic.
 
 - Leave **`api.adamspeaks.in` alone**. It's reserved for the app's server, and this site uses only `@` and `www`.
-- Email for `support@adamspeaks.in`: add your mail provider's `MX` and SPF `TXT` records on `@`
+- Email for `prajwal@adamspeaks.in`: add your mail provider's `MX` and SPF `TXT` records on `@`
   (for example, ImprovMX forwarding to Gmail: `MX mx1.improvmx.com 10`, `MX mx2.improvmx.com 20`,
   `TXT v=spf1 include:spf.improvmx.com ~all`).
 
