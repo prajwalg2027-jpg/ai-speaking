@@ -40,11 +40,17 @@ const context = new AsyncLocalStorage();
 export const withLedger = (ledger, fn) => context.run(ledger, fn);
 const current = () => context.getStore() || shared;
 
-export function addSpeechToText(ledger, seconds) { ledger.sttSec += seconds; }
+// Spend across every conversation today (India time), for the production daily cap (server/guard.js).
+const today = () => new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10);
+const daily = { day: today(), inr: 0 };
+function charge(inr) { const d = today(); if (d !== daily.day) { daily.day = d; daily.inr = 0; } daily.inr += inr; }
+export function spentToday() { charge(0); return daily.inr; }
+
+export function addSpeechToText(ledger, seconds) { ledger.sttSec += seconds; charge((seconds / 3600) * PRICES.sttPerHour); }
 
 export function addVoice(chars, { cached }) {
   const t = current().tts;
-  if (cached) { t.cachedCalls++; t.cachedChars += chars; } else { t.calls++; t.chars += chars; }
+  if (cached) { t.cachedCalls++; t.cachedChars += chars; } else { t.calls++; t.chars += chars; charge((chars / 10_000) * PRICES.ttsPer10kChars); }
 }
 
 export function addChat(usage, purpose = 'other') {
@@ -57,6 +63,7 @@ export function addChat(usage, purpose = 'other') {
   p.cached += cached;
   p.output += usage.completion_tokens || 0;
   p.reasoning += usage.completion_tokens_details?.reasoning_tokens || 0;
+  charge(llmInr({ input: (usage.prompt_tokens || 0) - cached, cached, output: usage.completion_tokens || 0 }));
 }
 
 const llmInr = (p) => (p.input * PRICES.llmPerMillion.input + p.cached * PRICES.llmPerMillion.cached + p.output * PRICES.llmPerMillion.output) / 1e6;

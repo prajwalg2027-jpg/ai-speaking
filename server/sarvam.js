@@ -5,6 +5,15 @@ import { addVoice, addChat } from './costs.js';
 import { config } from './config.js';
 
 const S = config.sarvam;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Sarvam is busy (429) or briefly down (5xx): how long to wait before trying again (honours Retry-After, max 5 s). */
+export function retryWait(res, attempt) {
+  const after = Number(res.headers?.get?.('retry-after'));
+  const base = Number.isFinite(after) && after > 0 ? after * 1000 : 400 * 2 ** attempt;
+  return Math.min(5_000, base) + Math.random() * 300;
+}
+const retryable = (status) => status === 429 || status >= 500;
 
 async function call(path, { body, json, timeout }, attempt = 0) {
   const ctrl = new AbortController();
@@ -16,9 +25,9 @@ async function call(path, { body, json, timeout }, attempt = 0) {
       body: json ? JSON.stringify(json) : body,
       signal: ctrl.signal,
     });
-    if ((res.status === 429 || res.status >= 500) && attempt === 0) {
-      await new Promise((r) => setTimeout(r, 400 + Math.random() * 400));
-      return call(path, { body, json, timeout }, 1);
+    if (retryable(res.status) && attempt < 2) {
+      await sleep(retryWait(res, attempt));
+      return call(path, { body, json, timeout }, attempt + 1);
     }
     if (!res.ok) throw new Error(`Sarvam ${path} ${res.status}: ${(await res.text()).slice(0, 300)}`);
     return res.json();
@@ -52,7 +61,21 @@ export async function transcribe(wav, overrides = {}) {
 // about 2 s for the whole clip from /text-to-speech). Finished clips are cached by content, so scripted
 // lines, generated when the server starts, play instantly.
 export const TTS_RATE = 24000;
-const pcmCache = new Map();  // key → Buffer (complete PCM)
+const pcmCache = new Map();  // key → Buffer (complete PCM), oldest first
+const pinned = new Set();    // keys of fixed lines (generated at start): never dropped
+let cachedBytes = 0;
+const CACHE_BYTES = Number(process.env.SAKHI_VOICE_CACHE_MB || 150) * 1024 * 1024;
+/** Keep a finished clip. Generated lines are dropped oldest-first past CACHE_BYTES, so memory stays bounded. */
+function remember(key, buf, pin) {
+  if (pcmCache.has(key)) cachedBytes -= pcmCache.get(key).length;
+  pcmCache.delete(key); pcmCache.set(key, buf); cachedBytes += buf.length;
+  if (pin) pinned.add(key);
+  for (const [k, b] of pcmCache) {
+    if (cachedBytes <= CACHE_BYTES) break;
+    if (pinned.has(k)) continue;
+    pcmCache.delete(k); cachedBytes -= b.length;
+  }
+}
 const pending = new Map();   // key → Promise of a generation in progress
 
 const ttsKey = (text, lang, pace) => createHash('sha1').update([text, lang, pace, S.ttsSpeaker, S.ttsModel, TTS_RATE].join('|')).digest('hex');
@@ -61,10 +84,10 @@ const ttsKey = (text, lang, pace) => createHash('sha1').update([text, lang, pace
  * Speak `text`, calling onChunk(Buffer) as audio arrives. Resolves { cached, bytes, firstByteMs }.
  * Identical requests share one generation.
  */
-export async function streamSpeech(text, { lang = 'en-IN', pace = 1.0 } = {}, onChunk = () => {}) {
+export async function streamSpeech(text, { lang = 'en-IN', pace = 1.0, pin = false } = {}, onChunk = () => {}) {
   const key = ttsKey(text, lang, pace);
   // A cached line (or one another request is already generating) costs this conversation nothing.
-  if (pcmCache.has(key)) { const b = pcmCache.get(key); addVoice(text.length, { cached: true }); onChunk(b); return { cached: true, bytes: b.length, firstByteMs: 0 }; }
+  if (pcmCache.has(key)) { const b = pcmCache.get(key); remember(key, b, pin); addVoice(text.length, { cached: true }); onChunk(b); return { cached: true, bytes: b.length, firstByteMs: 0 }; }
   if (pending.has(key)) { await pending.get(key).catch(() => {}); if (pcmCache.has(key)) return streamSpeech(text, { lang, pace }, onChunk); }
 
   const t0 = performance.now();
@@ -73,11 +96,19 @@ export async function streamSpeech(text, { lang = 'en-IN', pace = 1.0 } = {}, on
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 20_000);
     try {
-      const res = await fetch(`${S.baseUrl}/text-to-speech/stream`, {
-        method: 'POST', signal: ctrl.signal,
-        headers: { 'api-subscription-key': S.apiKey, 'content-type': 'application/json' },
-        body: JSON.stringify({ text, language_code: lang, speaker: S.ttsSpeaker, model: S.ttsModel, pace, speech_sample_rate: TTS_RATE, output_audio_codec: 'linear16' }),
-      });
+      // Busy or briefly down: try again (up to twice) before any audio has been sent, so the learner only
+      // notices a short pause.
+      let res;
+      for (let attempt = 0; ; attempt++) {
+        res = await fetch(`${S.baseUrl}/text-to-speech/stream`, {
+          method: 'POST', signal: ctrl.signal,
+          headers: { 'api-subscription-key': S.apiKey, 'content-type': 'application/json' },
+          body: JSON.stringify({ text, language_code: lang, speaker: S.ttsSpeaker, model: S.ttsModel, pace, speech_sample_rate: TTS_RATE, output_audio_codec: 'linear16' }),
+        });
+        if (!retryable(res.status) || attempt >= 2) break;
+        await res.body?.cancel().catch(() => {});
+        await sleep(retryWait(res, attempt));
+      }
       if (!res.ok) throw new Error(`Sarvam /text-to-speech/stream ${res.status}: ${(await res.text()).slice(0, 300)}`);
       addVoice(text.length, { cached: false }); // billed per character sent
       const parts = [];
@@ -88,7 +119,7 @@ export async function streamSpeech(text, { lang = 'en-IN', pace = 1.0 } = {}, on
         onChunk(b);
       }
       const all = Buffer.concat(parts);
-      if (all.length) pcmCache.set(key, all);
+      if (all.length) remember(key, all, pin);
       return all;
     } finally { clearTimeout(timer); }
   })();
@@ -105,15 +136,21 @@ export function speechSeconds(text, { lang = 'en-IN', pace = 1.0 } = {}) {
   return b ? b.length / 2 / TTS_RATE : null;
 }
 
-/** Generate lines ahead of time (two at a time). */
-export async function pregenerate(lines) {
-  let done = 0, failed = 0;
-  const queue = [...lines];
-  await Promise.all([0, 1].map(async () => {
-    for (let l; (l = queue.shift());) {
-      try { await streamSpeech(l.text, l); done++; } catch { failed++; }
+/**
+ * Generate the fixed lines ahead of time, one at a time, so a server start doesn't burst into Sarvam's rate
+ * limit while learners are being served. If Sarvam is busy, wait and carry on; lines still missing are
+ * generated the first time a learner needs them.
+ */
+export async function pregenerate(lines, { gapMs = 100, busyWaitMs = 15_000 } = {}) {
+  let done = 0, failed = 0, busyInARow = 0;
+  for (const l of lines) {
+    try { await streamSpeech(l.text, { ...l, pin: true }); done++; busyInARow = 0; }
+    catch (e) {
+      failed++;
+      if (/ 429/.test(e.message)) { if (++busyInARow >= 3) break; await sleep(busyWaitMs); }
     }
-  }));
+    await sleep(gapMs);
+  }
   return { done, failed };
 }
 

@@ -90,12 +90,12 @@ export function upstreamUrl({ silenceMs = 1200, ...overrides } = {}) {
  * Attach the relay to an http.Server: /api/live for the app (fixed settings), /api/lab/live for the
  * STT lab (any realtime option, passed as query parameters, plus raw Sarvam events both ways).
  */
-export function attachLiveRelay(server, { enabled = () => true, onAudio = () => {} } = {}) {
+export function attachLiveRelay(server, { enabled = () => true, onAudio = () => {}, lab: labAllowed = true } = {}) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
 
   server.on('upgrade', (req, socket, head) => {
     const u = new URL(req.url, 'http://x');
-    if (u.pathname === '/api/lab/live') {
+    if (u.pathname === '/api/lab/live' && labAllowed) {
       const { params, rejected } = sanitizeRealtimeOptions(Object.fromEntries(u.searchParams));
       return wss.handleUpgrade(req, socket, head, (client) => relay(client, enabled(), { lab: true, params, rejected, onAudio }));
     }
@@ -138,8 +138,12 @@ async function relay(client, enabled, { lab = false, params = {}, rejected = [],
   let sessionId = null;
   const sendAudio = (pcm) => {
     if (upstream.readyState !== WebSocket.OPEN) return;
+    // onAudio returns false when this audio isn't allowed (no conversation, or its listening time is used up).
+    if (onAudio(sessionId, pcm.length / 2 / SAMPLE_RATE) === false) {
+      if (!closed) { closed = true; toClient({ type: 'closed', code: 4003, reason: 'listening limit reached' }); client.close(4003, 'limit'); }
+      return;
+    }
     sentBytes += pcm.length;
-    onAudio(sessionId, pcm.length / 2 / SAMPLE_RATE);
     upstream.send(JSON.stringify({ event: 'audio_input', audio: Buffer.from(pcm).toString('base64') }));
   };
 

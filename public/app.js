@@ -211,7 +211,7 @@ async function run() {
   let turn = await api('/api/session', {});
   sessionId = turn.sessionId;
   live.bind(sessionId);
-  startCostMeter(sessionId);
+  if (internal) startCostMeter(sessionId); // the cost is team-only (a production server refuses it)
   log('app', 'Conversation started', { sessionId });
   ui.setSession('live');
   setState('thinking');

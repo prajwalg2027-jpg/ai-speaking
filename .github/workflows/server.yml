@@ -1,0 +1,33 @@
+# Server checks on every push: the test suite (including the production guard) and the Cloud Run container build.
+name: Server
+
+on:
+  push:
+    paths: ["server/**", "shared/**", "public/**", "test/**", "package*.json", "Dockerfile", ".dockerignore", ".github/workflows/server.yml"]
+  pull_request:
+    paths: ["server/**", "shared/**", "public/**", "test/**", "package*.json", "Dockerfile", ".dockerignore", ".github/workflows/server.yml"]
+
+concurrency:
+  group: server-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Container builds
+        run: docker build -t sakhi-server:ci .
+      - name: Container starts in production mode and answers its health check
+        run: |
+          docker run -d --name sakhi -p 8080:8080 -e PORT=8080 -e SARVAM_API_KEY=ci-placeholder sakhi-server:ci
+          for i in $(seq 1 20); do curl -fsS localhost:8080/healthz && break; sleep 1; done
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8080/review.html)" = 404
+          docker logs sakhi | grep "(production)"
