@@ -38,3 +38,13 @@ To see where the DNS is managed, run this in Cloud Shell:
 ```bash
 dig +short NS adamspeaks.in
 ```
+
+## app-config.json (read by the Adam app)
+
+`src/app-config.json` is served at `https://adamspeaks.in/app-config.json`. The Android app reads it at start-up:
+
+- `serverUrl`: the Adam server the app talks to. Change it here to move the server without an app update
+  (the app only accepts `https://` addresses on `adamspeaks.in` or Google Cloud Run).
+- `minVersionCode`: apps older than this ask the learner to update from Google Play.
+
+Deploy the website after editing it. Apps pick the change up within about 5 minutes of their next start.
