@@ -19,20 +19,25 @@
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
-<body>
+<body class="home">
   <header class="top">
     <div class="wrap"><a class="brand" href="/"><span class="logo" aria-hidden="true"></span><span class="wordmark">Adam</span></a></div>
   </header>
 
   <main class="hero wrap">
-    <div class="orb" aria-hidden="true">
-      <span class="o-glow"></span>
-      <span class="o-blob">
-        <span class="o-silk"><span class="o-pool p0"></span><span class="o-pool p1"></span><span class="o-pool p2"></span><span class="o-pool p3"></span></span>
-        <span class="o-folds"></span><span class="o-sheen"></span><span class="o-wisp"></span>
-      </span>
+    <div class="hero-art" aria-hidden="true">
+      <div class="orb">
+        <span class="o-glow"></span>
+        <span class="o-blob">
+          <span class="o-silk"><span class="o-pool p0"></span><span class="o-pool p1"></span><span class="o-pool p2"></span><span class="o-pool p3"></span></span>
+          <span class="o-folds"></span><span class="o-sheen"></span><span class="o-wisp"></span>
+        </span>
+      </div>
+      <p class="bubble adam"><small>Adam</small>Hi! Tell me a little about your day. English or Hindi, whatever feels easy.</p>
+      <p class="bubble you"><small>You</small>I work in a bank, and in the evening I go for a walk.</p>
     </div>
 
+    <div class="hero-copy">
     <h1>Speak English with <span class="hot">confidence.</span></h1>
     <p class="lede">Adam is your AI English coach. Just talk, in English or Hindi.</p>
     <p class="lede-hi" lang="hi">बेझिझक अंग्रेज़ी बोलिए।</p>
@@ -53,6 +58,7 @@
         <span><small>Coming soon on the</small><b>App Store</b></span>
       </div>
     </div>
+    </div>
   </main>
 
   <footer class="foot">
@@ -61,7 +67,7 @@
       <a href="/terms">Terms of Use</a>
       <a href="/delete-account">Delete account</a>
       <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a>
-      <span>© {{YEAR}} Adam</span>
+      <span class="copy">© {{YEAR}} Adam</span>
     </div>
   </footer>
 </body>
