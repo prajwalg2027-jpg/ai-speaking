@@ -49,6 +49,8 @@ android {
         versionCode = (findProperty("sakhi.versionCode") as String?)?.toInt() ?: 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // The published settings (server address, minimum version): see website/README.md.
+        buildConfigField("String", "APP_CONFIG_URL", "\"https://adamspeaks.in/app-config.json\"")
     }
 
     signingConfigs {

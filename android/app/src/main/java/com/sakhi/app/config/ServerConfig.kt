@@ -5,8 +5,11 @@ import androidx.core.content.edit
 import com.sakhi.app.BuildConfig
 
 /**
- * Where the Sakhi server is. The build sets the default (release: production; debug: from local.properties
- * `sakhi.serverUrl`, e.g. your Mac on Wi-Fi). Debug builds can override it in the app (long-press the logo).
+ * Where the Adam server is. In order of precedence:
+ *  1. a debug build's manual override (long-press the logo),
+ *  2. the address published in adamspeaks.in/app-config.json (see [RemoteAppConfig]), so the server can
+ *     move without an app update,
+ *  3. the address built into the app.
  */
 class ServerConfig(context: Context) {
     private val prefs = context.getSharedPreferences("sakhi.server", Context.MODE_PRIVATE)
@@ -14,9 +17,20 @@ class ServerConfig(context: Context) {
     val default: String = BuildConfig.SERVER_URL
     val canOverride: Boolean = BuildConfig.DEBUG
 
+    /** The address from app-config.json (remembered between starts). */
+    var published: String?
+        get() = prefs.getString(PUBLISHED, null)
+        set(value) { prefs.edit { putString(PUBLISHED, value) } }
+
     var baseUrl: String
-        get() = (if (canOverride) prefs.getString(KEY, null) else null) ?: default
+        get() = (if (canOverride) prefs.getString(KEY, null) else null) ?: published ?: default
         set(value) { prefs.edit { putString(KEY, value.trim().trimEnd('/').ifEmpty { null }) } }
 
-    private companion object { const val KEY = "baseUrl" }
+    /** Forget the manual override (back to the published or built-in address). */
+    fun clearOverride() = prefs.edit { remove(KEY) }
+
+    private companion object {
+        const val KEY = "baseUrl"
+        const val PUBLISHED = "publishedUrl"
+    }
 }
