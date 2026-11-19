@@ -69,8 +69,12 @@ h1 .hot { color: var(--hot); }
 /* ---------- molten orb (static rendering of the app's orb) ---------- */
 .orb { position: relative; width: 200px; height: 200px; }
 .orb > * { position: absolute; }
-.o-glow { inset: 12%; border-radius: 50%; background: conic-gradient(var(--accent), var(--accent-deep), var(--pool-light), var(--accent)); filter: blur(32px); opacity: .45; transform: translateY(8%) scale(.98); }
-.o-blob { inset: 9%; overflow: hidden; border-radius: 50%; background: var(--accent-deep); animation: sk-morph 3.2s ease-in-out infinite, sk-breathe 4.2s cubic-bezier(.45,0,.55,1) infinite; }
+/* iOS Safari clips blurred, animated layers to a square and lets blend modes escape rounded clipping,
+   so the glow is a plain gradient (no blur filter) and the layers inside the blob use normal blending. */
+.o-glow { inset: -22%; border-radius: 50%; pointer-events: none; transform: translateY(6%);
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 42%, transparent) 0%, color-mix(in srgb, var(--accent) 16%, transparent) 50%, transparent 100%); }
+.o-blob { inset: 9%; overflow: hidden; border-radius: 50%; background: var(--accent-deep);
+  isolation: isolate; -webkit-mask-image: -webkit-radial-gradient(white, black); transform: translateZ(0); animation: sk-morph 3.2s ease-in-out infinite, sk-breathe 4.2s cubic-bezier(.45,0,.55,1) infinite; }
 .o-blob > * { position: absolute; }
 .o-silk { inset: -20%; filter: blur(16px) saturate(1.1); }
 .o-pool { border-radius: 50%; }
@@ -78,9 +82,9 @@ h1 .hot { color: var(--hot); }
 .o-pool.p1 { left: 34%; top: 34%; width: 66%; height: 66%; background: var(--accent-deep); animation: sk-flow2 5.39s ease-in-out -1.3s infinite; }
 .o-pool.p2 { left: 2%; top: 40%; width: 56%; height: 56%; background: var(--pool); animation: sk-flow3 6.58s ease-in-out -2.6s infinite; }
 .o-pool.p3 { left: 40%; top: -6%; width: 44%; height: 44%; background: var(--pool-light); animation: sk-flow1 7.77s ease-in-out -3.9s infinite; }
-.o-folds { inset: -30%; background: repeating-linear-gradient(115deg, transparent 0 9%, rgba(255,255,255,.3) 13%, transparent 18% 27%); filter: blur(7px); mix-blend-mode: soft-light; opacity: .55; animation: sk-fold 8s linear infinite; }
-.o-sheen { inset: 4%; border-radius: 50%; background: conic-gradient(from 0deg, transparent 0 14%, rgba(255,255,255,.45) 22%, transparent 34% 56%, rgba(255,255,255,.28) 66%, transparent 78%); filter: blur(9px); mix-blend-mode: overlay; animation: sk-spin-r 9s linear infinite; }
-.o-wisp { left: 20%; top: 6%; width: 60%; height: 22%; border-radius: 50%; background: radial-gradient(ellipse, rgba(214, 245, 242, .55), transparent 70%); filter: blur(6px); mix-blend-mode: soft-light; }
+.o-folds { inset: -30%; background: repeating-linear-gradient(115deg, transparent 0 9%, rgba(255,176,128,.55) 13%, transparent 18% 27%); filter: blur(7px); opacity: .45; animation: sk-fold 8s linear infinite; }
+.o-sheen { inset: 4%; border-radius: 50%; background: conic-gradient(from 0deg, transparent 0 14%, rgba(255,182,132,.38) 22%, transparent 34% 56%, rgba(255,182,132,.22) 66%, transparent 78%); filter: blur(9px); animation: sk-spin-r 9s linear infinite; }
+.o-wisp { left: 20%; top: 6%; width: 60%; height: 22%; border-radius: 50%; background: radial-gradient(ellipse, rgba(255, 214, 178, .4), transparent 70%); filter: blur(6px); }
 @keyframes sk-spin-r { to { transform: rotate(-360deg) } }
 @keyframes sk-morph { 0%,100% { border-radius: 48% 52% 46% 54%/52% 46% 54% 48% } 33% { border-radius: 57% 43% 52% 48%/44% 56% 45% 55% } 66% { border-radius: 43% 57% 50% 50%/55% 47% 53% 45% } }
 @keyframes sk-flow1 { 0%,100% { transform: translate(-8%,-6%) scale(1) } 33% { transform: translate(14%,4%) scale(1.15) } 66% { transform: translate(-2%,16%) scale(.9) } }
@@ -129,7 +133,7 @@ h1 .hot { color: var(--hot); }
   }
   .home .hero-art { order: 2; min-height: 520px; }
   .home .orb { width: min(400px, 100%); height: auto; aspect-ratio: 1; }
-  .home .o-glow { filter: blur(56px); opacity: .55; }
+  .home .o-glow { inset: -26%; }
   .home .o-silk { filter: blur(26px) saturate(1.1); }
   .home .o-folds { filter: blur(12px); }
   .home .o-sheen { filter: blur(16px); }
