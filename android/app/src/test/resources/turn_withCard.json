@@ -1,0 +1,35 @@
+{
+ "sessionId": "1ac47f10-271f-4d66-9a6b-8021c0e10f69",
+ "say": [
+  {
+   "text": "KGF की कहानी वाकई काफी दमदार लगती है। Look at the picture. What is the person doing? तस्वीर देखिए। व्यक्ति क्या कर रहा है, अंग्रेज़ी में बताइए।",
+   "lang": "hi-IN",
+   "pace": 1
+  }
+ ],
+ "card": {
+  "text": "🏃",
+  "kind": "task",
+  "look": "emoji",
+  "band": {
+   "en": "What is the person doing? Say it in English.",
+   "hi": "यह व्यक्ति क्या कर रहा है? अंग्रेज़ी में बोलिए।"
+  }
+ },
+ "cue": {
+  "line": 0,
+  "word": 8
+ },
+ "learnerLanguage": null,
+ "listen": {
+  "silenceMs": 1200,
+  "language": "auto"
+ },
+ "task": {
+  "id": "q2_vocab",
+  "level": 2,
+  "kind": "vocab",
+  "item": "WORD-L2-ACT-6"
+ },
+ "heard": "I like action movies like KGF because the story is powerful."
+}
