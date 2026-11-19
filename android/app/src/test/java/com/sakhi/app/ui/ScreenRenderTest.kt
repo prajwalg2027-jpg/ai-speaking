@@ -52,6 +52,18 @@ class ScreenRenderTest {
         File(dir, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
+    private fun login(name: String, gate: com.sakhi.app.auth.Gate, dark: Boolean = false) {
+        compose.mainClock.autoAdvance = false
+        compose.setContent { SakhiTheme(dark = dark) { LoginFlow(gate, LoginActions(), "https://example.invalid/terms", "https://example.invalid/privacy") } }
+        compose.mainClock.advanceTimeBy(500)
+        val bmp = compose.onRoot().captureToImage().asAndroidBitmap()
+        File("build/screenshots").apply { mkdirs() }.let { File(it, "$name.png").outputStream().use { o -> bmp.compress(Bitmap.CompressFormat.PNG, 100, o) } }
+    }
+
+    @Test fun loginPhone() = login("10-login-phone", com.sakhi.app.auth.Gate.Phone(number = "98765 4321", error = null))
+    @Test fun loginCode() = login("11-login-code", com.sakhi.app.auth.Gate.Code("+919876543210", "v", code = "1234", resendIn = 24))
+    @Test fun loginConsents() = login("12-login-consents", com.sakhi.app.auth.Gate.Consents(listOf("terms", "privacy", "age_18_plus", "recordings")), dark = true)
+
     @Test fun idle() = shot("01-idle", UiState())
     @Test fun speakingWithCard() = shot("02-speaking-card", UiState(SessionState.LIVE, Phase.SPEAKING, listOf(opening, you, asking), card))
     @Test fun listening() = shot("03-listening", UiState(SessionState.LIVE, Phase.LISTENING,

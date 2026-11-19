@@ -17,6 +17,18 @@ in the app. The app only talks and listens.
 The release build talks only HTTPS, to `SAKHI_SERVER_URL` (Gradle property `sakhi.releaseServerUrl`), and
 can't be pointed elsewhere.
 
+## Phone login
+
+The app opens on phone OTP sign-in (Firebase Authentication), then asks the person to confirm they're 18 or
+older and agree to the terms, the privacy policy and keeping voice recordings. Only then does the conversation
+start. Every request, and the live speech connection, carries the Firebase login token, which the server checks.
+The account button (top right) has *Sign out* and *Delete my account and data* (Google Play requires in-app deletion).
+
+Firebase settings come from `google-services.json` (Firebase console › Project settings › Your apps): put it
+at `android/app/google-services.json` (never committed) or in the GitHub secret `GOOGLE_SERVICES_JSON`. A build
+without it skips login, for development against a local server. Register both package names (`com.sakhi.app`,
+`com.sakhi.app.dev`) and the SHA-256 signing fingerprints in Firebase, or phone sign-in is refused.
+
 ## How it works
 
 | Part | File | Notes |
@@ -28,6 +40,7 @@ can't be pointed elsewhere.
 | No lost words | `audio/AudioGate.kt`, `audio/PcmRing.kt` | Mic audio is kept for 10 s while not listening (not billed) and sent from where the learner started talking. |
 | Speaker routing | `audio/AudioRouting.kt` | Communication mode + loudspeaker (headset if connected); audio focus ends the conversation on a phone call. |
 | Server API | `net/SakhiApi.kt`, `net/LiveConnection.kt`, `net/Models.kt` | Same endpoints as the web app; `/api/live` WebSocket for speech-to-text. |
+| Sign-in | `auth/AuthViewModel.kt`, `auth/FirebasePhoneAuth.kt`, `auth/AuthHttp.kt`, `ui/LoginScreens.kt` | Phone → code → consents; the token is added to every request and refreshed after a 401. |
 | Screen | `ui/SakhiScreen.kt`, `ui/Orb.kt`, `ui/theme/Theme.kt` | The design handoff: Molten orb, conversation, fanned card, hint, result, mic screen. Light and dark. |
 
 Leaving the app ends the conversation (a voice conversation can't go on unseen, and Android limits background microphone use).

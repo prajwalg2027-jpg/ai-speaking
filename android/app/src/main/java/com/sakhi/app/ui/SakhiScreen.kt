@@ -86,6 +86,7 @@ fun SakhiScreen(
     onLogoLongPress: (() -> Unit)?,
     micBlocked: Boolean,
     onAllowMic: () -> Unit,
+    onAccount: (() -> Unit)? = null,
 ) {
     val c = Sakhi.colors
     Box(
@@ -94,7 +95,7 @@ fun SakhiScreen(
             .safeDrawingPadding(),
     ) {
         Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-            Header(onLogoLongPress)
+            Header(onLogoLongPress, onAccount)
             if (micBlocked) { MicScreen(onAllowMic); return@Column }
             if (state.session == SessionState.RESULT && state.result != null) {
                 ResultView(state.result, onRestart, Modifier.weight(1f)); return@Column
@@ -123,14 +124,26 @@ fun SakhiScreen(
 }
 
 @Composable
-private fun Header(onLongPress: (() -> Unit)?) {
+private fun Header(onLongPress: (() -> Unit)?, onAccount: (() -> Unit)?) {
     val c = Sakhi.colors
-    Row(
-        Modifier.padding(vertical = 14.dp).combinedClickable(enabled = onLongPress != null, onClick = {}, onLongClick = onLongPress),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(22.dp).clip(CircleShape).background(Brush.radialGradient(listOf(c.saffron, c.accent, c.accentDeep))))
-        Text("Sakhi", Modifier.padding(start = 10.dp), style = MaterialTheme.typography.titleLarge)
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.padding(vertical = 14.dp).combinedClickable(enabled = onLongPress != null, onClick = {}, onLongClick = onLongPress),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(22.dp).clip(CircleShape).background(Brush.radialGradient(listOf(c.saffron, c.accent, c.accentDeep))))
+            Text("Sakhi", Modifier.padding(start = 10.dp), style = MaterialTheme.typography.titleLarge)
+        }
+        Spacer(Modifier.weight(1f))
+        if (onAccount != null) Box(
+            Modifier.size(40.dp).clip(CircleShape).clickable(onClickLabel = "Account", role = Role.Button, onClick = onAccount)
+                .semantics { contentDescription = "Account" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(26.dp).clip(CircleShape).border(1.5.dp, c.ink2, CircleShape), contentAlignment = Alignment.TopCenter) {
+                Box(Modifier.padding(top = 5.dp).size(8.dp).clip(CircleShape).background(c.ink2))
+            }
+        }
     }
 }
 

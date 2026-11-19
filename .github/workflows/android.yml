@@ -18,6 +18,8 @@ jobs:
     timeout-minutes: 30
     env:
       HAS_KEYSTORE: ${{ secrets.SAKHI_KEYSTORE_B64 != '' }}
+      # Firebase settings for phone login (Firebase console › Project settings › google-services.json).
+      GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
     defaults:
       run:
         working-directory: android

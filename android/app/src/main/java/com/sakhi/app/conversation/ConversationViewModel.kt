@@ -17,6 +17,7 @@ import com.sakhi.app.net.LiveEvent
 import com.sakhi.app.net.Line
 import com.sakhi.app.net.ListenSpec
 import com.sakhi.app.net.Result
+import com.sakhi.app.net.ServerException
 import com.sakhi.app.net.SpeakRequest
 import com.sakhi.app.net.Timing
 import com.sakhi.app.net.Turn
@@ -145,7 +146,9 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
             } catch (e: Exception) {
                 Log.w(TAG, "Conversation stopped", e)
                 stop()
-                _state.update { it.copy(session = SessionState.IDLE, phase = Phase.IDLE, notice = true) }
+                val refused = e as? ServerException
+                if (refused != null && (refused.status == 401 || refused.error == "consent_required")) c.refusals.tryEmit(refused)
+                _state.update { it.copy(session = SessionState.IDLE, phase = Phase.IDLE, notice = refused == null || refused.status >= 500) }
             }
         }
     }
@@ -154,6 +157,7 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
         backchannels = viewModelScope.async { loadBackchannels() }
         var turn = c.api.startSession()
         sessionId = turn.sessionId
+        c.events.log("assessment.opened", sessionId = turn.sessionId)
         live.bind(turn.sessionId)
         thinking()
         delay(500)
@@ -201,6 +205,7 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
     }
 
     private fun showResult(r: Result) {
+        c.events.log("result.viewed", mapOf("level" to r.level.toString()), sessionId)
         exitCard()
         _state.update { it.copy(session = SessionState.RESULT, phase = Phase.IDLE, result = r) }
         stopAudio()

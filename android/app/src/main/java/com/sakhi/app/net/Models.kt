@@ -83,3 +83,29 @@ data class LiveEvent(
     val message: String? = null,
     @SerialName("requestId") val requestId: String? = null,
 )
+
+/** The signed-in customer (GET /api/me). */
+@Serializable
+data class Me(
+    val id: String? = null,
+    val phone: String? = null,
+    val name: String? = null,
+    val missingConsents: List<String> = emptyList(),
+)
+
+@Serializable data class Consent(val purpose: String, val version: String, val granted: Boolean)
+@Serializable data class ConsentsRequest(val consents: List<Consent>)
+@Serializable data class MissingConsents(val missingConsents: List<String> = emptyList())
+
+@Serializable
+data class AppEvent(
+    val name: String,
+    val clientEventId: String,
+    val occurredAt: String,
+    val properties: Map<String, String> = emptyMap(),
+    val sessionId: String? = null,
+)
+@Serializable data class EventsRequest(val events: List<AppEvent>)
+
+/** The server's error body: { error, reason?, missing? }. */
+@Serializable data class ErrorBody(val error: String = "", val reason: String? = null, val missing: List<String> = emptyList())

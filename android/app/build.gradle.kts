@@ -13,6 +13,29 @@ fun setting(name: String, env: String): String? = (findProperty(name) as String?
 val debugServer = setting("sakhi.serverUrl", "SAKHI_DEBUG_SERVER_URL") ?: "http://10.0.2.2:3000" // emulator → host machine
 val releaseServer = setting("sakhi.releaseServerUrl", "SAKHI_SERVER_URL") ?: "https://sakhi.example.invalid"
 
+// Phone login (Firebase). Its settings come from google-services.json (Firebase console › Project settings ›
+// Your apps), placed at app/google-services.json (not committed) or given to CI as GOOGLE_SERVICES_JSON.
+// Without it the app runs without login (for development against a local server).
+data class FirebaseConfig(val apiKey: String, val appId: String, val projectId: String)
+fun firebaseConfig(packageName: String): FirebaseConfig? {
+    val text = System.getenv("GOOGLE_SERVICES_JSON")?.takeIf { it.isNotBlank() }
+        ?: file("google-services.json").takeIf { it.exists() }?.readText() ?: return null
+    @Suppress("UNCHECKED_CAST")
+    val json = groovy.json.JsonSlurper().parseText(text) as Map<String, Any?>
+    val project = (json["project_info"] as Map<String, Any?>)["project_id"] as String
+    val clients = json["client"] as List<Map<String, Any?>>
+    val client = clients.firstOrNull { ((it["client_info"] as Map<String, Any?>)["android_client_info"] as Map<String, Any?>)["package_name"] == packageName } ?: return null
+    val appId = (client["client_info"] as Map<String, Any?>)["mobilesdk_app_id"] as String
+    val apiKey = ((client["api_key"] as List<Map<String, Any?>>).first())["current_key"] as String
+    return FirebaseConfig(apiKey, appId, project)
+}
+fun com.android.build.api.dsl.ApplicationBuildType.firebase(packageName: String) {
+    val f = firebaseConfig(packageName)
+    buildConfigField("String", "FIREBASE_API_KEY", "\"${f?.apiKey.orEmpty()}\"")
+    buildConfigField("String", "FIREBASE_APP_ID", "\"${f?.appId.orEmpty()}\"")
+    buildConfigField("String", "FIREBASE_PROJECT_ID", "\"${f?.projectId.orEmpty()}\"")
+}
+
 android {
     namespace = "com.sakhi.app"
     compileSdk = 37
@@ -41,12 +64,14 @@ android {
         debug {
             applicationIdSuffix = ".dev"
             buildConfigField("String", "SERVER_URL", "\"$debugServer\"")
+            firebase("com.sakhi.app.dev")
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "SERVER_URL", "\"$releaseServer\"")
+            firebase("com.sakhi.app")
             signingConfig = signingConfigs.findByName("release")
         }
     }
@@ -79,6 +104,9 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.auth)
+    implementation(libs.kotlinx.coroutines.play.services)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
 
