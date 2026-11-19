@@ -102,16 +102,16 @@ class AuthViewModel(private val auth: PhoneAuth, private val api: SakhiApi, priv
             val me = api.me()
             if (me.missingConsents.isEmpty()) Gate.Ready else Gate.Consents(me.missingConsents)
         } catch (e: ServerException) {
-            if (e.status == 401) { auth.signOut(); Gate.Phone(note = "Please sign in again.") } else Gate.Offline("Sakhi couldn't reach the server. Check your internet and try again.")
+            if (e.status == 401) { auth.signOut(); Gate.Phone(note = "Please sign in again.") } else Gate.Offline("Adam couldn't reach the server. Check your internet and try again.")
         } catch (e: IOException) {
-            Gate.Offline("Sakhi couldn't reach the server. Check your internet and try again.")
+            Gate.Offline("Adam couldn't reach the server. Check your internet and try again.")
         }
     }
 
     /** All three boxes must be ticked: 18 or older, terms and privacy, keeping voice recordings. */
     fun agree(adult: Boolean, terms: Boolean, recordings: Boolean) {
         val g = _gate.value as? Gate.Consents ?: return
-        if (!adult) { _gate.value = g.copy(error = "Sakhi is for people aged 18 or older."); return }
+        if (!adult) { _gate.value = g.copy(error = "Adam is for people aged 18 or older."); return }
         if (!terms || !recordings) { _gate.value = g.copy(error = "Please tick all the boxes to continue."); return }
         _gate.value = g.copy(busy = true, error = null)
         viewModelScope.launch {

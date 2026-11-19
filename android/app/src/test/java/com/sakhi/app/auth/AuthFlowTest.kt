@@ -92,7 +92,7 @@ class AuthFlowTest {
         assertEquals("/api/me", server.takeRequest().url.encodedPath)
 
         vm.agree(adult = false, terms = true, recordings = true)
-        assertEquals("Sakhi is for people aged 18 or older.", (vm.gate.value as Gate.Consents).error)
+        assertEquals("Adam is for people aged 18 or older.", (vm.gate.value as Gate.Consents).error)
         vm.agree(adult = true, terms = true, recordings = false)
         assertEquals("Please tick all the boxes to continue.", (vm.gate.value as Gate.Consents).error)
 

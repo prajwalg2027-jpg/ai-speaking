@@ -132,7 +132,7 @@ private fun Header(onLongPress: (() -> Unit)?, onAccount: (() -> Unit)?) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.size(22.dp).clip(CircleShape).background(Brush.radialGradient(listOf(c.saffron, c.accent, c.accentDeep))))
-            Text("Sakhi", Modifier.padding(start = 10.dp), style = MaterialTheme.typography.titleLarge)
+            Text("Adam", Modifier.padding(start = 10.dp), style = MaterialTheme.typography.titleLarge)
         }
         Spacer(Modifier.weight(1f))
         if (onAccount != null) Box(

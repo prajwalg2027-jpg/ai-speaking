@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy the Sakhi server to Google Cloud Run in Mumbai (asia-south1), with its database and recordings.
+# Deploy the Adam server to Google Cloud Run in Mumbai (asia-south1), with its database and recordings.
 #
 #   PROJECT=your-gcp-project-id ./deploy/cloudrun.sh
 #
@@ -14,18 +14,18 @@ set -euo pipefail
 
 PROJECT="${PROJECT:?Set PROJECT to your Google Cloud project ID}"
 REGION="${REGION:-asia-south1}"
-SERVICE="${SERVICE:-sakhi}"
+SERVICE="${SERVICE:-adam}"
 BUDGET_INR="${SAKHI_DAILY_BUDGET_INR:-3000}"
-DB_INSTANCE="${DB_INSTANCE:-sakhi-db}"
+DB_INSTANCE="${DB_INSTANCE:-adam-db}"
 DB_TIER="${DB_TIER:-db-g1-small}"   # small shared-core machine; raise to db-custom-1-3840 as use grows
-BUCKET="${RECORDINGS_BUCKET:-${PROJECT}-sakhi-recordings}"
-RUNTIME_SA="sakhi-runtime@${PROJECT}.iam.gserviceaccount.com"
+BUCKET="${RECORDINGS_BUCKET:-${PROJECT}-adam-recordings}"
+RUNTIME_SA="adam-runtime@${PROJECT}.iam.gserviceaccount.com"
 
 cd "$(dirname "$0")/.."
 gcloud config set project "$PROJECT" >/dev/null
 step() { echo; echo "› $*"; }
 
-step "Turning on the Google services Sakhi uses (first run only)"
+step "Turning on the Google services Adam uses (first run only)"
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com \
   sqladmin.googleapis.com storage.googleapis.com identitytoolkit.googleapis.com firebase.googleapis.com --quiet
 
@@ -37,7 +37,7 @@ fi
 
 if ! gcloud iam service-accounts describe "$RUNTIME_SA" >/dev/null 2>&1; then
   step "Creating the server's own account"
-  gcloud iam service-accounts create sakhi-runtime --display-name="Sakhi server"
+  gcloud iam service-accounts create adam-runtime --display-name="Adam server"
 fi
 
 # ---- Database ---------------------------------------------------------------------------------------
@@ -46,14 +46,14 @@ if ! gcloud sql instances describe "$DB_INSTANCE" >/dev/null 2>&1; then
   gcloud sql instances create "$DB_INSTANCE" --database-version=POSTGRES_16 --edition=ENTERPRISE --tier="$DB_TIER" \
     --region="$REGION" --availability-type=zonal --storage-type=SSD --storage-size=10 --storage-auto-increase \
     --backup-start-time=21:00 --enable-point-in-time-recovery --retained-backups-count=14 --deletion-protection --quiet
-  gcloud sql databases create sakhi --instance="$DB_INSTANCE" --quiet
+  gcloud sql databases create adam --instance="$DB_INSTANCE" --quiet
 fi
-if ! gcloud secrets describe sakhi-database-url >/dev/null 2>&1; then
+if ! gcloud secrets describe adam-database-url >/dev/null 2>&1; then
   step "Creating the database user (its password goes straight into Secret Manager)"
   PASS="$(openssl rand -hex 24)"
-  gcloud sql users create sakhi --instance="$DB_INSTANCE" --password="$PASS" --quiet
-  printf %s "postgresql://sakhi:${PASS}@/sakhi?host=/cloudsql/${PROJECT}:${REGION}:${DB_INSTANCE}" \
-    | gcloud secrets create sakhi-database-url --replication-policy=user-managed --locations="$REGION" --data-file=-
+  gcloud sql users create adam --instance="$DB_INSTANCE" --password="$PASS" --quiet
+  printf %s "postgresql://adam:${PASS}@/adam?host=/cloudsql/${PROJECT}:${REGION}:${DB_INSTANCE}" \
+    | gcloud secrets create adam-database-url --replication-policy=user-managed --locations="$REGION" --data-file=-
   unset PASS
 fi
 
@@ -67,7 +67,7 @@ fi
 
 # ---- What the server's account may do (only these) ----------------------------------------------------
 step "Granting the server's account what it needs"
-for s in sarvam-api-key sakhi-database-url; do
+for s in sarvam-api-key adam-database-url; do
   gcloud secrets add-iam-policy-binding "$s" --member="serviceAccount:${RUNTIME_SA}" --role=roles/secretmanager.secretAccessor --quiet >/dev/null
 done
 gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:${RUNTIME_SA}" --role=roles/cloudsql.client --condition=None --quiet >/dev/null
@@ -85,7 +85,7 @@ gcloud run deploy "$SERVICE" \
   --service-account "$RUNTIME_SA" \
   --allow-unauthenticated \
   --add-cloudsql-instances "${PROJECT}:${REGION}:${DB_INSTANCE}" \
-  --set-secrets "SARVAM_API_KEY=sarvam-api-key:latest,DATABASE_URL=sakhi-database-url:latest" \
+  --set-secrets "SARVAM_API_KEY=sarvam-api-key:latest,DATABASE_URL=adam-database-url:latest" \
   --set-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${PROJECT},RECORDINGS_BUCKET=${BUCKET},SAKHI_DAILY_BUDGET_INR=${BUDGET_INR}" \
   --min-instances 1 --max-instances 1 \
   --concurrency 80 --cpu 1 --memory 1Gi \

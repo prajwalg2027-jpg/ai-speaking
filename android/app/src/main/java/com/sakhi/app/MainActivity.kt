@@ -124,7 +124,7 @@ private fun AccountDialog(phone: String?, onDismiss: () -> Unit, onSignOut: () -
         text = {
             Text(when {
                 failed -> "Couldn't delete right now. Check your internet and try again."
-                confirming -> "This permanently deletes your account, your voice recordings, and everything Sakhi knows about you. It can't be undone."
+                confirming -> "This permanently deletes your account, your voice recordings, and everything Adam knows about you. It can't be undone."
                 else -> "Signed in as ${phone ?: "your phone number"}."
             })
         },

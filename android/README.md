@@ -1,16 +1,16 @@
-# Sakhi for Android
+# Adam for Android
 
-Native Kotlin + Jetpack Compose client for the Sakhi placement conversation. The Node server in this
+Native Kotlin + Jetpack Compose client for Adam, the English speaking coach (its tutor is Sakhi). The Node server in this
 repository stays the backend: it holds the Sarvam key and the conversation logic, so the key never ships
 in the app. The app only talks and listens.
 
 ## Run it on your phone
 
 1. Start the server on your Mac: `npm start` (port 3000).
-2. Install the debug app (`com.sakhi.app.dev`, installs next to a release build):
+2. Install the debug app (`in.adam.app.dev`, installs next to a release build):
    - from CI: download `sakhi-debug-apk` from the latest "Android" GitHub Actions run, or
    - build it: `cd android && ./gradlew :app:installDebug` (JDK 21 and the Android SDK, or open `android/` in Android Studio).
-3. Point it at your Mac: long-press the "Sakhi" logo and enter `http://<your Mac's Wi-Fi address>:3000`
+3. Point it at your Mac: long-press the "Adam" logo and enter `http://<your Mac's Wi-Fi address>:3000`
    (System Settings › Wi-Fi › Details). Phone and Mac must be on the same Wi-Fi. To bake the address into
    the build instead, add `sakhi.serverUrl=http://192.168.1.20:3000` to `android/local.properties`.
 
@@ -26,8 +26,8 @@ The account button (top right) has *Sign out* and *Delete my account and data* (
 
 Firebase settings come from `google-services.json` (Firebase console › Project settings › Your apps): put it
 at `android/app/google-services.json` (never committed) or in the GitHub secret `GOOGLE_SERVICES_JSON`. A build
-without it skips login, for development against a local server. Register both package names (`com.sakhi.app`,
-`com.sakhi.app.dev`) and the SHA-256 signing fingerprints in Firebase, or phone sign-in is refused.
+without it skips login, for development against a local server. Register both package names (`in.adam.app`,
+`in.adam.app.dev`) and the SHA-256 signing fingerprints in Firebase, or phone sign-in is refused.
 
 ## How it works
 

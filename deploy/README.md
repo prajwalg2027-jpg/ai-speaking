@@ -1,4 +1,4 @@
-# Deploying the Sakhi server (Google Cloud Run, Mumbai)
+# Deploying the Adam server (Google Cloud Run, Mumbai)
 
 ## One-time setup (about 15 minutes)
 
@@ -13,7 +13,7 @@
    The first run turns on the Google services it needs, asks for the Sarvam API key (stored in Secret
    Manager, never in a file), creates a service account that can read only that key, builds the container
    with Cloud Build and deploys it to `asia-south1` (Mumbai). It ends by printing the server's address,
-   e.g. `https://sakhi-abc123-el.a.run.app`, and checking its health.
+   e.g. `https://adam-abc123-el.a.run.app`, and checking its health.
 4. Give that address to the Android release build: GitHub → Settings → Secrets and variables → Actions →
    Variables → `SAKHI_SERVER_URL`.
 
@@ -23,12 +23,12 @@ account only the access it needs. Database tables are created and updated automa
 
 ## Phone login (Firebase, one time, about 10 minutes)
 
-Sakhi's phone OTP login uses Firebase Authentication in the **same Google Cloud project**:
+Adam's phone OTP login uses Firebase Authentication in the **same Google Cloud project**:
 
 1. [console.firebase.google.com](https://console.firebase.google.com) → **Add project** → choose your existing
    Google Cloud project (don't create a new one).
 2. **Build › Authentication › Get started › Sign-in method › Phone** → Enable. (Only phone; leave the others off.)
-3. **Project settings › Your apps › Add app › Android**: package name `com.sakhi.app` (and `com.sakhi.app.dev`
+3. **Project settings › Your apps › Add app › Android**: package name `in.adam.app` (and `in.adam.app.dev`
    for the test build), plus the app's SHA-256 signing fingerprints (`./gradlew signingReport` prints them; for
    the Play release, copy the "App signing key" fingerprint from Play Console). Download `google-services.json`
    and send it to the developer, or add it as the GitHub secret `GOOGLE_SERVICES_JSON`.
@@ -57,7 +57,7 @@ old instance can finish for up to 10 seconds, so deploy when few learners are on
 | Before a first test | Agreed to terms, privacy, 18 or older, and keeping voice recordings | — |
 
 Change a setting without redeploying the code:
-`gcloud run services update sakhi --region asia-south1 --update-env-vars SAKHI_DAILY_BUDGET_INR=5000`
+`gcloud run services update adam --region asia-south1 --update-env-vars SAKHI_DAILY_BUDGET_INR=5000`
 
 ## Customer data
 
@@ -68,8 +68,8 @@ Voice recordings are kept with no expiry. `DELETE /api/me` (a customer's erasure
 removes their recordings, properties and account and blanks their transcripts; anonymised scores and the
 erasure record stay.
 
-To look at the data: Cloud SQL → sakhi-db → **Cloud SQL Studio** (SQL in the browser, signed in as `sakhi`; the
-password is in Secret Manager › sakhi-database-url).
+To look at the data: Cloud SQL → adam-db → **Cloud SQL Studio** (SQL in the browser, signed in as `adam`; the
+password is in Secret Manager › adam-database-url).
 
 ## Things to know
 
@@ -80,7 +80,7 @@ password is in Secret Manager › sakhi-database-url).
   at a time). Lines not ready yet are generated when first needed.
 - **Sarvam rate limits.** The server retries when Sarvam says it's busy, but the plan's limits must cover
   peak use. Confirm them with Sarvam before launch.
-- **Logs:** Cloud Run → sakhi → Logs. **Costs:** the daily cap above, plus a Google Cloud budget alert
+- **Logs:** Cloud Run → adam → Logs. **Costs:** the daily cap above, plus a Google Cloud budget alert
   (Billing → Budgets) for the hosting itself.
 - **Rough hosting cost:** one always-on instance (1 vCPU, 1 GB) with request-based billing, a few
   thousand rupees a month. Sarvam usage is the main cost.

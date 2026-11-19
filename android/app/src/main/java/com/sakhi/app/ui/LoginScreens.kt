@@ -79,7 +79,7 @@ fun LoginFlow(gate: Gate, actions: LoginActions, termsUrl: String, privacyUrl: S
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(22.dp).clip(CircleShape).background(Brush.radialGradient(listOf(c.saffron, c.accent, c.accentDeep))))
-                Text("Sakhi", Modifier.padding(start = 10.dp), style = MaterialTheme.typography.titleLarge)
+                Text("Adam", Modifier.padding(start = 10.dp), style = MaterialTheme.typography.titleLarge)
             }
             Spacer(Modifier.height(24.dp))
             when (gate) {
@@ -143,7 +143,7 @@ private fun ConsentStep(g: Gate.Consents, a: LoginActions, termsUrl: String, pri
         }, style = MaterialTheme.typography.bodyMedium)
     }
     Check(rec, { rec = it }) {
-        Text("Sakhi may keep recordings of my voice to check my level and improve my learning. I can ask for them to be deleted at any time.",
+        Text("Adam may keep recordings of my voice to check my level and improve my learning. I can ask for them to be deleted at any time.",
             style = MaterialTheme.typography.bodyMedium)
     }
     g.error?.let { Text(it, style = MaterialTheme.typography.bodySmall.copy(color = c.hot)) }
