@@ -52,6 +52,14 @@ android {
     }
 
     signingConfigs {
+        // Test builds share one signing key (app/debug.keystore, test builds only), so their fingerprint is
+        // the same on every machine and in CI, and Firebase phone sign-in recognises them.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         // Release signing comes from the environment (CI secrets), never from the repository.
         val store = System.getenv("SAKHI_KEYSTORE_FILE")
         if (store != null) create("release") {
