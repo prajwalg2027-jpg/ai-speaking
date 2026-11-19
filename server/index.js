@@ -198,7 +198,8 @@ export const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   try {
     if (isTeamPath(url.pathname)) return send(res, 404, { error: 'not found' });
-    if (req.method === 'GET' && url.pathname === '/healthz') return send(res, 200, { ok: true, ready: ready() });
+    // /api/health for Cloud Run (it reserves paths ending in "z", like /healthz, for itself); /healthz for local use.
+    if (req.method === 'GET' && (url.pathname === '/api/health' || url.pathname === '/healthz')) return send(res, 200, { ok: true, ready: ready() });
     if (req.method === 'GET' && url.pathname === '/api/config') {
       return send(res, 200, ready() ? { ready: true } : { ready: false, reason: 'SARVAM_API_KEY is not set on the server' });
     }

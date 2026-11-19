@@ -16,7 +16,7 @@ after(() => { server.close(); mock.close(); });
 const post = (path, body, headers = {}) => fetch(`${base}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
 
 test('health check for Cloud Run', async () => {
-  assert.deepEqual(await (await fetch(`${base}/healthz`)).json(), { ok: true, ready: true });
+  assert.deepEqual(await (await fetch(`${base}/api/health`)).json(), { ok: true, ready: true });
 });
 
 test('team tools are off in production', async () => {

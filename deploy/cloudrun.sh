@@ -103,8 +103,8 @@ gcloud run deploy "$SERVICE" \
   --quiet
 
 URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"
-step "Checking ${URL}/healthz"
-curl -fsS "${URL}/healthz" && echo
+step "Checking ${URL}/api/health"
+curl -fsS "${URL}/api/health" && echo
 echo
 echo "Deployed: ${URL}"
 echo "Next: give this address to the Android release build (GitHub repository variable SAKHI_SERVER_URL),"
