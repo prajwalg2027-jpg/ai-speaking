@@ -68,7 +68,7 @@ class MainActivity : ComponentActivity() {
                             onNumber = authVm::onNumber, sendCode = { authVm.sendCode(activity) }, onCode = authVm::onCode, verify = authVm::verify,
                             resend = { authVm.resend(activity) }, changeNumber = authVm::changeNumber, agree = authVm::agree, retry = authVm::check,
                         ),
-                        termsUrl = container.server.baseUrl + "/terms.html", privacyUrl = container.server.baseUrl + "/privacy.html",
+                        termsUrl = "https://adamspeaks.in/terms", privacyUrl = "https://adamspeaks.in/privacy",
                     )
                     return@SakhiTheme
                 }
