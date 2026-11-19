@@ -1,8 +1,9 @@
 {
   "SITE_URL": "https://adamspeaks.in",
-  "CONTACT_EMAIL": "hello@adamspeaks.in",
-  "POLICY_DATE": "19 November 2026",
-  "OPERATOR_NAME": "",
-  "OPERATOR_ADDRESS": "",
-  "GRIEVANCE_OFFICER": ""
+  "SUPPORT_EMAIL": "support@adamspeaks.in",
+  "LAST_UPDATED": "19 November 2026",
+  "COMPANY_NAME": "",
+  "COMPANY_ADDRESS": "",
+  "GRIEVANCE_OFFICER": "",
+  "COURTS_CITY": ""
 }

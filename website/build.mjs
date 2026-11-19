@@ -2,7 +2,7 @@
 // Refuses to build if any value is blank, so the privacy policy never ships with gaps.
 //   node build.mjs            production build (used by `firebase deploy` predeploy)
 //   node build.mjs --preview  fills blanks with visible [placeholders] for a local look
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, copyFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, copyFileSync, statSync } from 'node:fs';
 import { join, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -26,14 +26,15 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 const TEXT = new Set(['.html', '.xml', '.txt']);
 
 rmSync(out, { recursive: true, force: true });
-mkdirSync(out, { recursive: true });
-for (const name of readdirSync(src)) {
-  const from = join(src, name), to = join(out, name);
-  if (!TEXT.has(extname(name))) { copyFileSync(from, to); continue; }
-  let s = readFileSync(from, 'utf8').replace(/\{\{([A-Z_]+)\}\}/g, (m, k) => {
-    if (!(k in cfg)) throw new Error(`${name}: unknown token ${m}`);
+let count = 0;
+const build = (from, to) => {
+  if (statSync(from).isDirectory()) { mkdirSync(to, { recursive: true }); for (const n of readdirSync(from)) build(join(from, n), join(to, n)); return; }
+  count++;
+  if (!TEXT.has(extname(from))) return copyFileSync(from, to);
+  writeFileSync(to, readFileSync(from, 'utf8').replace(/\{\{([A-Z_]+)\}\}/g, (m, k) => {
+    if (!(k in cfg)) throw new Error(`${from}: unknown token ${m}`);
     return esc(cfg[k]);
-  });
-  writeFileSync(to, s);
-}
-console.log(`Built ${readdirSync(out).length} files into website/dist${preview ? ' (preview)' : ''}`);
+  }));
+};
+build(src, out);
+console.log(`Built ${count} files into website/dist${preview ? ' (preview)' : ''}`);
