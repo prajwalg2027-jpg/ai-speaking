@@ -39,9 +39,10 @@ fi
 api GET "${FB}/projects/${PROJECT}" | jq -r '"  Firebase project: \(.projectId) (\(.displayName))"'
 
 step "Turning on phone sign-in, with the test number ${TEST_PHONE} / ${TEST_CODE}"
-BODY="$(jq -nc --arg p "$TEST_PHONE" --arg c "$TEST_CODE" '{signIn: {phoneNumber: {enabled: true, testPhoneNumbers: {($p): $c}}}}')"
-R="$(api PATCH "https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT}/config?updateMask=signIn.phoneNumber" "$BODY")"
-if echo "$R" | jq -e '.signIn.phoneNumber.enabled == true' >/dev/null; then echo "  Phone sign-in: on"
+# SMS codes only to Indian numbers: blocks "SMS pumping" fraud (bots sending paid OTPs to foreign numbers).
+BODY="$(jq -nc --arg p "$TEST_PHONE" --arg c "$TEST_CODE" '{signIn: {phoneNumber: {enabled: true, testPhoneNumbers: {($p): $c}}}, smsRegionConfig: {allowlistOnly: {allowedRegions: ["IN"]}}}')"
+R="$(api PATCH "https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT}/config?updateMask=signIn.phoneNumber,smsRegionConfig" "$BODY")"
+if echo "$R" | jq -e '.signIn.phoneNumber.enabled == true' >/dev/null; then echo "  Phone sign-in: on (SMS to Indian numbers only)"
 else
   echo "  Couldn't turn it on through the API: $(echo "$R" | jq -r '.error.message // .')"
   echo "  Do it in the browser instead: Firebase console › Authentication › Get started › Sign-in method › Phone › Enable"

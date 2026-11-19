@@ -8,4 +8,3 @@ local.properties
 *.iml
 .kotlin/
 captures/
-google-services.json

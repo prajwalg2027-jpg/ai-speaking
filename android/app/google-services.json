@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "209464958247",
+    "project_id": "cool-arch-515210-b0",
+    "storage_bucket": "cool-arch-515210-b0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:209464958247:android:8f9aa308992a2e02735d02",
+        "android_client_info": {
+          "package_name": "in.adamspeaks.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCr8rWT52dSlRiAsz9CKpaCJlet87_6uj8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:209464958247:android:80cfef03013bf224735d02",
+        "android_client_info": {
+          "package_name": "in.adamspeaks.app.dev"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCr8rWT52dSlRiAsz9CKpaCJlet87_6uj8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
