@@ -76,8 +76,9 @@ password is in Secret Manager › adam-database-url).
 - **One instance.** Conversations live in the server's memory, so the service runs exactly one instance
   (always on, so there's no cold start). It handles dozens of simultaneous conversations. Before needing
   more, conversations move to a shared store (Memorystore for Redis) and the instance limit is raised.
-- **Start-up cost.** Each new instance generates Sakhi's ~124 fixed voice lines (about ₹15, ~3 minutes, one
-  at a time). Lines not ready yet are generated when first needed.
+- **Start-up.** Sakhi's ~124 fixed voice lines are generated once (about ₹15) and kept in a private bucket
+  (`<project>-adam-voice`); later starts load them in seconds at no Sarvam cost. Changing the voice or a line
+  regenerates just those. Lines the AI writes in a conversation are never stored.
 - **Sarvam rate limits.** The server retries when Sarvam says it's busy, but the plan's limits must cover
   peak use. Confirm them with Sarvam before launch.
 - **Logs:** Cloud Run → adam → Logs. **Costs:** the daily cap above, plus a Google Cloud budget alert

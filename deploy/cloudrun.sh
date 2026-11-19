@@ -19,6 +19,7 @@ BUDGET_INR="${SAKHI_DAILY_BUDGET_INR:-3000}"
 DB_INSTANCE="${DB_INSTANCE:-adam-db}"
 DB_TIER="${DB_TIER:-db-g1-small}"   # small shared-core machine; raise to db-custom-1-3840 as use grows
 BUCKET="${RECORDINGS_BUCKET:-${PROJECT}-adam-recordings}"
+VOICE_BUCKET="${VOICE_CACHE_BUCKET:-${PROJECT}-adam-voice}"
 RUNTIME_SA="adam-runtime@${PROJECT}.iam.gserviceaccount.com"
 
 cd "$(dirname "$0")/.."
@@ -65,6 +66,12 @@ if ! gcloud storage buckets describe "gs://${BUCKET}" >/dev/null 2>&1; then
     --public-access-prevention --soft-delete-duration=0
 fi
 
+# ---- Sakhi's fixed voice lines (kept between server starts) ------------------------------------------------
+if ! gcloud storage buckets describe "gs://${VOICE_BUCKET}" >/dev/null 2>&1; then
+  step "Creating the bucket for Sakhi's fixed voice lines (saves about ₹15 per server restart)"
+  gcloud storage buckets create "gs://${VOICE_BUCKET}" --location="$REGION" --uniform-bucket-level-access --public-access-prevention
+fi
+
 # ---- What the server's account may do (only these) ----------------------------------------------------
 step "Granting the server's account what it needs"
 for s in sarvam-api-key adam-database-url; do
@@ -73,6 +80,7 @@ done
 gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:${RUNTIME_SA}" --role=roles/cloudsql.client --condition=None --quiet >/dev/null
 gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:${RUNTIME_SA}" --role=roles/firebaseauth.admin --condition=None --quiet >/dev/null
 gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" --member="serviceAccount:${RUNTIME_SA}" --role=roles/storage.objectAdmin --quiet >/dev/null
+gcloud storage buckets add-iam-policy-binding "gs://${VOICE_BUCKET}" --member="serviceAccount:${RUNTIME_SA}" --role=roles/storage.objectAdmin --quiet >/dev/null
 
 # Organizations created recently have "secure by default" policies: Google's own build account no longer gets
 # permissions automatically, so building from source needs this grant (Google's documented fix).
@@ -95,7 +103,7 @@ gcloud run deploy "$SERVICE" \
   --no-invoker-iam-check \
   --add-cloudsql-instances "${PROJECT}:${REGION}:${DB_INSTANCE}" \
   --set-secrets "SARVAM_API_KEY=sarvam-api-key:latest,DATABASE_URL=adam-database-url:latest" \
-  --set-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${PROJECT},RECORDINGS_BUCKET=${BUCKET},SAKHI_DAILY_BUDGET_INR=${BUDGET_INR}" \
+  --set-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${PROJECT},RECORDINGS_BUCKET=${BUCKET},VOICE_CACHE_BUCKET=${VOICE_BUCKET},SAKHI_DAILY_BUDGET_INR=${BUDGET_INR}" \
   --min-instances 1 --max-instances 1 \
   --concurrency 80 --cpu 1 --memory 1Gi \
   --timeout 3600 --session-affinity --cpu-boost \

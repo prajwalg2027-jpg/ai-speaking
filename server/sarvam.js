@@ -3,6 +3,7 @@
 import { createHash } from 'node:crypto';
 import { addVoice, addChat } from './costs.js';
 import { config } from './config.js';
+import * as voiceStore from './voicecache.js';
 
 const S = config.sarvam;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -78,6 +79,14 @@ function remember(key, buf, pin) {
 }
 const pending = new Map();   // key → Promise of a generation in progress
 
+// Fixed lines saved to the voice store (server/voicecache.js) this run, so each is written once.
+const kept = new Set();
+function keep(key, pcm) {
+  if (kept.has(key) || !voiceStore.voiceCacheEnabled()) return;
+  kept.add(key);
+  voiceStore.save(key, pcm).catch((e) => { kept.delete(key); console.warn('[voice] not kept for the next start:', e.message); });
+}
+
 const ttsKey = (text, lang, pace) => createHash('sha1').update([text, lang, pace, S.ttsSpeaker, S.ttsModel, TTS_RATE].join('|')).digest('hex');
 
 /**
@@ -87,7 +96,16 @@ const ttsKey = (text, lang, pace) => createHash('sha1').update([text, lang, pace
 export async function streamSpeech(text, { lang = 'en-IN', pace = 1.0, pin = false } = {}, onChunk = () => {}) {
   const key = ttsKey(text, lang, pace);
   // A cached line (or one another request is already generating) costs this conversation nothing.
-  if (pcmCache.has(key)) { const b = pcmCache.get(key); remember(key, b, pin); addVoice(text.length, { cached: true }); onChunk(b); return { cached: true, bytes: b.length, firstByteMs: 0 }; }
+  if (pcmCache.has(key)) {
+    const b = pcmCache.get(key); remember(key, b, pin);
+    if (pin) keep(key, b); // a fixed line first heard in a conversation: keep it for the next start too
+    addVoice(text.length, { cached: true }); onChunk(b); return { cached: true, bytes: b.length, firstByteMs: 0 };
+  }
+  // A fixed line kept from an earlier start: no Sarvam call.
+  if (pin && voiceStore.voiceCacheEnabled()) {
+    const b = await voiceStore.load(key);
+    if (b?.length) { remember(key, b, pin); kept.add(key); addVoice(text.length, { cached: true }); onChunk(b); return { cached: true, bytes: b.length, firstByteMs: 0, stored: true }; }
+  }
   if (pending.has(key)) { await pending.get(key).catch(() => {}); if (pcmCache.has(key)) return streamSpeech(text, { lang, pace }, onChunk); }
 
   const t0 = performance.now();
@@ -119,7 +137,7 @@ export async function streamSpeech(text, { lang = 'en-IN', pace = 1.0, pin = fal
         onChunk(b);
       }
       const all = Buffer.concat(parts);
-      if (all.length) remember(key, all, pin);
+      if (all.length) { remember(key, all, pin); if (pin) keep(key, all); }
       return all;
     } finally { clearTimeout(timer); }
   })();
@@ -142,16 +160,19 @@ export function speechSeconds(text, { lang = 'en-IN', pace = 1.0 } = {}) {
  * generated the first time a learner needs them.
  */
 export async function pregenerate(lines, { gapMs = 100, busyWaitMs = 15_000 } = {}) {
-  let done = 0, failed = 0, busyInARow = 0;
+  let done = 0, failed = 0, busyInARow = 0, stored = 0;
   for (const l of lines) {
-    try { await streamSpeech(l.text, { ...l, pin: true }); done++; busyInARow = 0; }
+    try {
+      const r = await streamSpeech(l.text, { ...l, pin: true }); done++; busyInARow = 0;
+      if (r.stored) { stored++; continue; } // loaded from the store: no Sarvam call, no need to pace
+    }
     catch (e) {
       failed++;
       if (/ 429/.test(e.message)) { if (++busyInARow >= 3) break; await sleep(busyWaitMs); }
     }
     await sleep(gapMs);
   }
-  return { done, failed };
+  return { done, failed, stored };
 }
 
 /**

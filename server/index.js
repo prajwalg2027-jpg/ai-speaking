@@ -254,7 +254,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (!ready()) return;
     // Generate every scripted line now, so they play instantly later.
     const lines = scriptedLines(), t0 = Date.now();
-    sarvam.pregenerate(lines).then(({ done, failed }) => console.log(`Pre-generated ${done} scripted voice lines in ${((Date.now() - t0) / 1000).toFixed(1)} s${failed ? ` (${failed} failed)` : ''}; voice cache cost ₹${summarize(shared).tts.inr.toFixed(2)} (shared by all conversations)`));
+    sarvam.pregenerate(lines).then(({ done, failed, stored }) => console.log(`Pre-generated ${done} scripted voice lines in ${((Date.now() - t0) / 1000).toFixed(1)} s (${stored} from the voice store, ${done - stored} new)${failed ? ` (${failed} failed)` : ''}; voice cache cost ₹${summarize(shared).tts.inr.toFixed(2)} (shared by all conversations)`));
   });
 }
 

@@ -21,6 +21,16 @@ export async function gcsUpload(bucket, path, body, contentType) {
   if (!res.ok) throw new Error(`Cloud Storage upload ${res.status}: ${(await res.text()).slice(0, 200)}`);
 }
 
+/** An object's bytes, or null if it doesn't exist. */
+export async function gcsDownload(bucket, path) {
+  const res = await fetch(`https://storage.googleapis.com/storage/v1/b/${enc(bucket)}/o/${enc(path)}?alt=media`, {
+    headers: { authorization: `Bearer ${await accessToken()}` },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Cloud Storage download ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
 export async function gcsDelete(bucket, path) {
   const res = await fetch(`https://storage.googleapis.com/storage/v1/b/${enc(bucket)}/o/${enc(path)}`, {
     method: 'DELETE', headers: { authorization: `Bearer ${await accessToken()}` },
