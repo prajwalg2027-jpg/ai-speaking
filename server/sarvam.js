@@ -159,9 +159,22 @@ export function speechSeconds(text, { lang = 'en-IN', pace = 1.0 } = {}) {
  * limit while learners are being served. If Sarvam is busy, wait and carry on; lines still missing are
  * generated the first time a learner needs them.
  */
-export async function pregenerate(lines, { gapMs = 100, busyWaitMs = 15_000 } = {}) {
+export async function pregenerate(lines, { gapMs = 100, busyWaitMs = 15_000, parallel = 16 } = {}) {
   let done = 0, failed = 0, busyInARow = 0, stored = 0;
-  for (const l of lines) {
+  // First, load everything the voice store already has, many at a time (a restart is ready in seconds).
+  const waiting = [];
+  if (voiceStore.voiceCacheEnabled()) {
+    const queue = [...lines];
+    await Promise.all(Array.from({ length: parallel }, async () => {
+      for (let l; (l = queue.shift());) {
+        const key = ttsKey(l.text, l.lang || 'en-IN', l.pace ?? 1.0);
+        const b = pcmCache.has(key) ? pcmCache.get(key) : await voiceStore.load(key);
+        if (b?.length) { remember(key, b, true); kept.add(key); stored++; done++; } else waiting.push(l);
+      }
+    }));
+  } else waiting.push(...lines);
+  // Then generate what's missing, one at a time, so a start doesn't burst into Sarvam's rate limit.
+  for (const l of waiting) {
     try {
       const r = await streamSpeech(l.text, { ...l, pin: true }); done++; busyInARow = 0;
       if (r.stored) { stored++; continue; } // loaded from the store: no Sarvam call, no need to pace
