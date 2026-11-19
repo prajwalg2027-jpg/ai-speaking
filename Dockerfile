@@ -3,6 +3,8 @@
 FROM mirror.gcr.io/library/node:22-slim
 ENV NODE_ENV=production
 WORKDIR /app
+# ffmpeg compresses voice recordings to Opus (server/recordings.js).
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --omit=optional --no-audit --no-fund && npm cache clean --force
 COPY server ./server

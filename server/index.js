@@ -12,6 +12,11 @@ import { makeTrace } from './trace.js';
 import { startSession, getSession, handleTurn, scriptedLines } from './session.js';
 import { withLedger, summarize, shared, addSpeechToText, spentToday } from './costs.js';
 import { production, teamTools, LIMITS, isTeamPath, clientIp, sessionStarts, maySpeak } from './guard.js';
+import * as accounts from './accounts.js';
+import * as recordings from './recordings.js';
+import { loginEnabled } from './auth.js';
+import { pool } from './db/pool.js';
+import { migrate } from './db/migrate.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
@@ -40,16 +45,31 @@ async function handleSessionStart(req, res) {
     console.warn(`[guard] daily budget reached (₹${spentToday().toFixed(0)} of ₹${LIMITS.dailyBudgetInr}): refusing new conversations`);
     return send(res, 503, { error: 'busy', reason: 'Sakhi is very busy today. Please try again tomorrow.' });
   }
-  if (production && !sessionStarts.hit(clientIp(req))) return send(res, 429, { error: 'too many conversations', reason: 'Please wait a while before starting again.' });
+  // Phone login and the required consents come first (when login is on).
+  const { user } = await accounts.identify(req);
+  const missing = await accounts.missingConsents(user);
+  if (missing.length) return send(res, 403, { error: 'consent_required', missing });
+  if (production && !sessionStarts.hit(user?.id || clientIp(req))) return send(res, 429, { error: 'too many conversations', reason: 'Please wait a while before starting again.' });
   const trace = makeTrace();
   const turn = startSession();
-  send(res, 200, withTeamData(turn, trace, getSession(turn.sessionId)));
+  const s = getSession(turn.sessionId);
+  await accounts.testStarted(s, { user, client: req.headers['x-sakhi-client'] || 'web', appVersion: req.headers['x-sakhi-version'] || null });
+  send(res, 200, withTeamData(turn, trace, s));
+}
+
+/** The conversation, if it belongs to the caller (any caller when login is off). */
+async function ownSession(req, sessionId) {
+  const s = getSession(sessionId);
+  if (!s) return { s: null };
+  const { user } = await accounts.identify(req);
+  if (loginEnabled() && s.userId !== user?.id) throw Object.assign(new Error('not your conversation'), { status: 403 });
+  return { s, user };
 }
 
 async function handleSessionTurn(req, res) {
   if (!ready()) return send(res, 503, { error: 'Server has no SARVAM_API_KEY' });
   const body = await json(req);
-  const s = getSession(body.sessionId);
+  const { s } = await ownSession(req, body.sessionId);
   if (!s) return send(res, 404, { error: 'session not found (it may have expired); start again' });
   if (production && (s.turnCount = (s.turnCount || 0) + 1) > LIMITS.turnsPerSession) return send(res, 429, { error: 'conversation too long' });
   const trace = makeTrace();
@@ -65,15 +85,34 @@ async function handleSessionTurn(req, res) {
     } : null,
   }, trace));
   send(res, 200, withTeamData(turn, trace, s));
+  accounts.afterTurn(s, { event: body.event }); // saved after the reply, so it adds no delay
 }
 
 // POST /api/tts/stream {text, lang, pace, sessionId?} → raw 16-bit PCM, mono, streamed as Bulbul generates it.
 // With a sessionId, a generated line is charged to that conversation.
 async function handleTTSStream(req, res) {
   const { text, lang = 'en-IN', pace = 1, sessionId } = await json(req);
-  const s = sessionId ? getSession(sessionId) : null;
+  const s = sessionId ? (await ownSession(req, sessionId)).s : (await accounts.identify(req), null);
   if (typeof text !== 'string' || !maySpeak(text, s, fixedLines())) return send(res, 403, { error: 'not a line Sakhi said' });
   return withLedger(s?.ledger || shared, () => speakTo(res, { text, lang, pace }));
+}
+
+// ---- The customer: /api/me (profile, consents, properties, erase) and /api/events ------------------
+// GET    /api/me                    → { id, phone, name, attributes, consents, missingConsents }
+// POST   /api/me/consents           { consents: [{ purpose, version, granted }] }
+// PATCH  /api/me/attributes         { attributes: { key: value | null }, source?: 'signup' | 'app' }
+// POST   /api/events                { events: [{ name, properties?, clientEventId, occurredAt?, sessionId? }] }
+// DELETE /api/me                    → erases everything personal, including the recordings and the login
+async function handleAccount(req, res, url) {
+  const { user } = await accounts.identify(req, { required: true });
+  if (!user?.id) return send(res, 503, { error: 'customer data is not set up on this server' });
+  const route = `${req.method} ${url.pathname}`;
+  if (route === 'GET /api/me') return send(res, 200, await accounts.me(user));
+  if (route === 'POST /api/me/consents') return send(res, 200, await accounts.saveConsents(user, (await json(req)).consents));
+  if (route === 'PATCH /api/me/attributes') { const b = await json(req); return send(res, 200, await accounts.saveAttributes(user, b.attributes, b.source)); }
+  if (route === 'POST /api/events') return send(res, 200, await accounts.saveEvents(user, (await json(req, 256 * 1024)).events));
+  if (route === 'DELETE /api/me') return send(res, 200, await accounts.erase(user));
+  send(res, 404, { error: 'not found' });
 }
 
 let fixed = null;
@@ -163,6 +202,7 @@ export const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/config') {
       return send(res, 200, ready() ? { ready: true } : { ready: false, reason: 'SARVAM_API_KEY is not set on the server' });
     }
+    if (url.pathname.startsWith('/api/me') || url.pathname === '/api/events') return await handleAccount(req, res, url);
     if (req.method === 'POST' && url.pathname === '/api/session') return await handleSessionStart(req, res);
     if (req.method === 'POST' && url.pathname === '/api/session/turn') return await handleSessionTurn(req, res);
     if (req.method === 'GET' && url.pathname === '/api/session/cost') {
@@ -175,7 +215,7 @@ export const server = createServer(async (req, res) => {
     if (req.method === 'GET') return await serveStatic(res, url.pathname);
     send(res, 404, { error: 'not found' });
   } catch (e) {
-    console.error(e);
+    if (!(e.status >= 400 && e.status < 500)) console.error(e); // a refused request (401, 403, 400…) isn't a server error
     send(res, e.status || 502, { error: e.name === 'AbortError' ? 'Upstream timeout' : e.message });
   }
 });
@@ -185,18 +225,29 @@ export const server = createServer(async (req, res) => {
 attachLiveRelay(server, {
   enabled: ready,
   lab: teamTools,
-  onAudio: (sessionId, seconds) => {
+  // With login on, the socket needs the same login token as every request (Authorization header).
+  authorize: async (req) => (await accounts.identify(req)).user,
+  onAudio: (sessionId, seconds, pcm, user) => {
     const s = getSession(sessionId);
+    if (loginEnabled() && (!s || s.userId !== user?.id)) return false;
     if (production) {
       if (!s) return false;
       if ((s.listenSec = (s.listenSec || 0) + seconds) > LIMITS.listenSecPerSession) return false;
     }
+    if (s) recordings.collect(s, pcm);
     addSpeechToText(s?.ledger || shared, seconds);
     return true;
   },
 });
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  // A public server must know who's speaking and keep what they do. SAKHI_ALLOW_NO_LOGIN=1 is for a closed test
+  // without accounts (nothing about customers is stored then).
+  if (production && process.env.SAKHI_ALLOW_NO_LOGIN !== '1') {
+    const missing = [!loginEnabled() && 'FIREBASE_PROJECT_ID', !pool && 'DATABASE_URL'].filter(Boolean);
+    if (missing.length) { console.error(`Refusing to start in production without ${missing.join(' and ')} (or set SAKHI_ALLOW_NO_LOGIN=1 for a closed test).`); process.exit(1); }
+  }
+  if (pool) await migrate(pool);
   server.listen(config.port, () => {
     console.log(`AI English Coach on http://localhost:${config.port}${production ? ' (production)' : ''}${ready() ? '' : '  (not ready: SARVAM_API_KEY is not set)'}`);
     if (!ready()) return;

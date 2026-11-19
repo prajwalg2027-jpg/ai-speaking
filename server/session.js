@@ -357,7 +357,7 @@ async function understood(s, ans, trace) {
   // Record the answer.
   s.level = level;
   judging ||= judgeAnswer({ task: judged, transcript: full, measured }, trace);
-  const entry = { questionId: t.id, kind: t.kind, variantLevel: t.variantLevel, skipped: false, neededHindi: att.neededHindi, transcript: full, languageCode: ans.languageCode, features: measured.features };
+  const entry = { questionId: t.id, item: t.item, kind: t.kind, variantLevel: t.variantLevel, skipped: false, neededHindi: att.neededHindi, transcript: full, languageCode: ans.languageCode, features: measured.features };
   const scored = judging.then((j) => {
     Object.assign(entry, j);
     // Not in English (after being asked to try): nothing earned for English words, sentences, fluency or ideas.
@@ -561,12 +561,12 @@ async function moveOn(s, trace) {
     const { transcript, speechSec, timing } = s.att.partial;
     const measured = measureAnswer({ task: t, transcript, speechSec, timing }, trace);
     const judged = { ...t, ask: [t.ask, s.att.focus?.ask].filter(Boolean).join(' ') };
-    const entry = { questionId: t.id, kind: t.kind, variantLevel: t.variantLevel, skipped: false, neededHindi: s.att.neededHindi, transcript, features: measured.features };
+    const entry = { questionId: t.id, item: t.item, kind: t.kind, variantLevel: t.variantLevel, skipped: false, neededHindi: s.att.neededHindi, transcript, features: measured.features };
     s.answers.push(entry);
     Object.assign(entry, await judgeAnswer({ task: judged, transcript, measured }, trace));
   } else if (!t.followup && !t.probe) {
     // A missed follow-up or bonus sentence doesn't count against them.
-    s.answers.push({ questionId: t.id, kind: t.kind, variantLevel: t.variantLevel, skipped: true, neededHindi: s.att.neededHindi, features: {}, scores: { comprehension: 0, vocabulary: 0, grammar: 0, fluency: 0, pronunciation: t.kind === 'read' ? 0 : null, coherence: 0 } });
+    s.answers.push({ questionId: t.id, item: t.item, kind: t.kind, variantLevel: t.variantLevel, skipped: true, neededHindi: s.att.neededHindi, features: {}, scores: { comprehension: 0, vocabulary: 0, grammar: 0, fluency: 0, pronunciation: t.kind === 'read' ? 0 : null, coherence: 0 } });
   }
   if (t.id === 'q1_intro') s.level = 1;
   const qIndex = (t.followup ? QUESTIONS.findIndex((q) => t.id === `${q.id}_followup`) : t.qIndex) + 1;

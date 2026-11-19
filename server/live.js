@@ -90,7 +90,7 @@ export function upstreamUrl({ silenceMs = 1200, ...overrides } = {}) {
  * Attach the relay to an http.Server: /api/live for the app (fixed settings), /api/lab/live for the
  * STT lab (any realtime option, passed as query parameters, plus raw Sarvam events both ways).
  */
-export function attachLiveRelay(server, { enabled = () => true, onAudio = () => {}, lab: labAllowed = true } = {}) {
+export function attachLiveRelay(server, { enabled = () => true, onAudio = () => {}, lab: labAllowed = true, authorize = async () => null } = {}) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
 
   server.on('upgrade', (req, socket, head) => {
@@ -100,7 +100,13 @@ export function attachLiveRelay(server, { enabled = () => true, onAudio = () => 
       return wss.handleUpgrade(req, socket, head, (client) => relay(client, enabled(), { lab: true, params, rejected, onAudio }));
     }
     if (u.pathname !== '/api/live') return socket.destroy();
-    wss.handleUpgrade(req, socket, head, (client) => relay(client, enabled(), { onAudio }));
+    // The caller is checked before the socket opens (a bad or missing login token: 401).
+    authorize(req).then((user) => {
+      wss.handleUpgrade(req, socket, head, (client) => relay(client, enabled(), { onAudio: (id, sec, pcm) => onAudio(id, sec, pcm, user) }));
+    }, (e) => {
+      socket.write(`HTTP/1.1 ${e.status === 401 ? '401 Unauthorized' : '403 Forbidden'}\r\nConnection: close\r\n\r\n`);
+      socket.destroy();
+    });
   });
   return wss;
 }
@@ -139,7 +145,7 @@ async function relay(client, enabled, { lab = false, params = {}, rejected = [],
   const sendAudio = (pcm) => {
     if (upstream.readyState !== WebSocket.OPEN) return;
     // onAudio returns false when this audio isn't allowed (no conversation, or its listening time is used up).
-    if (onAudio(sessionId, pcm.length / 2 / SAMPLE_RATE) === false) {
+    if (onAudio(sessionId, pcm.length / 2 / SAMPLE_RATE, pcm) === false) {
       if (!closed) { closed = true; toClient({ type: 'closed', code: 4003, reason: 'listening limit reached' }); client.close(4003, 'limit'); }
       return;
     }

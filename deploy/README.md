@@ -17,6 +17,27 @@
 4. Give that address to the Android release build: GitHub → Settings → Secrets and variables → Actions →
    Variables → `SAKHI_SERVER_URL`.
 
+The first run also creates the PostgreSQL database (Cloud SQL, Mumbai; daily backups, point-in-time
+recovery, deletion protection), a private bucket for voice recordings (Mumbai), and gives the server's own
+account only the access it needs. Database tables are created and updated automatically when the server starts.
+
+## Phone login (Firebase, one time, about 10 minutes)
+
+Sakhi's phone OTP login uses Firebase Authentication in the **same Google Cloud project**:
+
+1. [console.firebase.google.com](https://console.firebase.google.com) → **Add project** → choose your existing
+   Google Cloud project (don't create a new one).
+2. **Build › Authentication › Get started › Sign-in method › Phone** → Enable. (Only phone; leave the others off.)
+3. **Project settings › Your apps › Add app › Android**: package name `com.sakhi.app` (and `com.sakhi.app.dev`
+   for the test build), plus the app's SHA-256 signing fingerprints (`./gradlew signingReport` prints them; for
+   the Play release, copy the "App signing key" fingerprint from Play Console). Download `google-services.json`
+   and send it to the developer, or add it as the GitHub secret `GOOGLE_SERVICES_JSON`.
+4. **Authentication › Settings › Phone numbers for testing**: add a test number and code (e.g. +91 99999 00000 /
+   123456) so the team can sign in without real SMS.
+
+Phone sign-in sends a real SMS per login; Firebase charges per SMS after a free allowance (check the current
+India rate in the Firebase pricing page). The server only accepts phone sign-in tokens for this project.
+
 ## Deploying a new version
 
 Run the same command again. Cloud Run switches over without downtime; conversations in progress on the
@@ -32,9 +53,23 @@ old instance can finish for up to 10 seconds, so deploy when few learners are on
 | Listening time per conversation | 20 min | `SAKHI_LISTEN_SEC_PER_SESSION` |
 | Daily Sarvam spend cap (₹, all conversations) | 3000 | `SAKHI_DAILY_BUDGET_INR` (also a variable of the deploy script) |
 | Sakhi's voice | Only lines she said in that conversation, or her fixed lines | — |
+| Login | Required: phone OTP (Firebase) on every request and on the live speech connection | `SAKHI_ALLOW_NO_LOGIN=1` only for a closed test without accounts |
+| Before a first test | Agreed to terms, privacy, 18 or older, and keeping voice recordings | — |
 
 Change a setting without redeploying the code:
 `gcloud run services update sakhi --region asia-south1 --update-env-vars SAKHI_DAILY_BUDGET_INR=5000`
+
+## Customer data
+
+Tables (server/db/migrations): `users` (with a flexible `attributes` field), `attribute_definitions`
+(the allowed property names: add a row to add a property), `attribute_history`, `consents`, `assessments`,
+`assessment_answers`, `recordings`, `level_history`, `events` (the transaction log), `erasures`.
+Voice recordings are kept with no expiry. `DELETE /api/me` (a customer's erasure request under the DPDP Act)
+removes their recordings, properties and account and blanks their transcripts; anonymised scores and the
+erasure record stay.
+
+To look at the data: Cloud SQL → sakhi-db → **Cloud SQL Studio** (SQL in the browser, signed in as `sakhi`; the
+password is in Secret Manager › sakhi-database-url).
 
 ## Things to know
 
