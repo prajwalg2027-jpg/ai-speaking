@@ -87,6 +87,7 @@ test('lessons: exact answers are marked without the AI', () => {
   assert.equal(exactMark(choose, '3').verdict, 'correct', 'by number');
   assert.equal(exactMark(choose, 'a').verdict, 'incorrect');
   assert.match(exactMark(choose, 'a').feedback, /The answer is "the"/);
+  assert.doesNotMatch(exactMark(choose, 'a', { canRetry: true }).feedback, /the"/, 'a first wrong try gets no answer');
   assert.equal(exactMark(choose, 'banana').invalid, true);
   assert.equal(exactMark({ kind: 'free_response', accepted_answers: [] }, 'anything'), null);
   assert.equal(normAnswer("  I'm  HAPPY!! "), "i'm happy");
@@ -101,7 +102,7 @@ test('prompts: voice turns warn about speech-to-text, and the context is labelle
   assert.match(user.content, /Sakhi: Hi!/);
   assert.match(user.content, /LAST message \(spoken\): i go market/);
   assert.doesNotMatch(buildVerifyMessages({ message: 'x', corrections: [c('x', 'y')], channel: 'text' })[0].content, /SPOKE/);
-  assert.equal(PROMPT_VERSION, SECTIONS.conversation.defaults.promptVersion);
+  assert.match(PROMPT_VERSION, /^tutor-v\d+$/);
 });
 
 // ---- the tutor turn with a mocked AI ----
@@ -136,12 +137,12 @@ test('tutor turn, strategy B: the check runs only when there are corrections, an
   assert.deepEqual(none.calls.map((x) => x.job), ['tutor'], 'no corrections → no check');
 
   const ai = mockAi({ tutor: tutorOut([c('I go', 'I went', { severity: 'important' }), c('market', 'the market', { severity: 'moderate', concept: 'articles' })]),
-    verify: { decisions: [{ index: 0, keep: true, reason: 'right' }, { index: 1, keep: false, reason: 'fine as is' }] } });
+    verify: { decisions: [{ index: 0, original: '', verdict: 'real_mistake', reason: 'right' }, { index: 1, original: '', verdict: 'not_a_mistake', reason: 'fine as is' }] } });
   const t = await tutorTurn({ structured: ai.structured, settings, strategy: 'verify', message: 'Yesterday I go market' });
   assert.deepEqual(ai.calls.map((x) => x.job), ['tutor', 'verify']);
   assert.deepEqual(t.corrections.map((k) => k.original), ['I go']);
   assert.equal(t.verified, true);
-  assert.match(t.dropped.find((d) => d.correction.original === 'market').reason, /check: fine as is/);
+  assert.match(t.dropped.find((d) => d.correction.original === 'market').reason, /check: not a mistake \(fine as is\)/);
 });
 
 test('tutor turn, strategy B: if the check fails, corrections are withheld but the reply stands', async () => {
@@ -154,10 +155,63 @@ test('tutor turn, strategy B: if the check fails, corrections are withheld but t
 });
 
 test('tutor turn, compare: both strategies from the same first call', async () => {
-  const ai = mockAi({ tutor: tutorOut([c('I go', 'I went', { severity: 'important' })]), verify: { decisions: [{ index: 0, keep: false, reason: 'no' }] } });
+  const ai = mockAi({ tutor: tutorOut([c('I go', 'I went', { severity: 'important' })]), verify: { decisions: [{ index: 0, original: '', verdict: 'not_a_mistake', reason: 'no' }] } });
   const t = await tutorTurn({ structured: ai.structured, settings, strategy: 'single', compare: true, message: 'Yesterday I go to market' });
   assert.equal(ai.calls.filter((x) => x.job === 'tutor').length, 1);
   assert.equal(t.compare.single.corrections.length, 1);
   assert.equal(t.compare.verify.corrections.length, 0);
   assert.ok(t.compare.verify.costInr > t.compare.single.costInr);
+});
+
+// ---- evaluation scoring ----
+import { scoreItem, summarize as summarizeEval } from '../server/learning/eval.js';
+
+test('eval scoring: right fixes, wrong fixes, false corrections, allowed words and misses', () => {
+  const item = { expect: [{ span: 'go', fix: ['went'] }, { span: 'was child', fix: ['a child'] }], allow: ['to office'] };
+  const s = scoreItem(item, [c('I go', 'I went'), c('to office', 'to the office'), c('lovely', 'nice')]);
+  assert.deepEqual([s.tp, s.fp, s.fn], [1, 1, 1]);
+  assert.deepEqual(s.missed, ['was child']);
+  assert.equal(s.falseCorrections[0].why, 'not a mistake');
+  const wrong = scoreItem(item, [c('I go', 'I am going')]);
+  assert.deepEqual([wrong.tp, wrong.fp, wrong.fn, wrong.wrongFix], [0, 1, 2, 1], 'a wrong fix is a false correction and a miss');
+  assert.equal(scoreItem({ expect: [{ span: 'go', fix: ['went'] }] }, [c('going', 'went')]).tp, 0, 'whole words only');
+  const sum = summarizeEval([{ tp: 1, fp: 0, fn: 1, wrongFix: 0, ms: 100, costInr: 0.1, expectCount: 2 }, { tp: 0, fp: 1, fn: 0, wrongFix: 0, ms: 300, costInr: 0.1, expectCount: 0 }, { tp: 0, fp: 0, fn: 0, wrongFix: 0, ms: 200, costInr: 0.1, expectCount: 0 }]);
+  assert.deepEqual([sum.precision, sum.recall, sum.falseAlarmRate], [50, 50, 50]);
+  assert.equal(sum.latencyMs.p50, 200);
+});
+
+test('the evaluation set is well formed', async () => {
+  const { loadDataset } = await import('../server/learning/eval.js');
+  const ds = await loadDataset();
+  const ids = new Set();
+  for (const i of ds.items) {
+    assert.ok(!ids.has(i.id), `duplicate id ${i.id}`); ids.add(i.id);
+    for (const e of i.expect) {
+      assert.ok(norm(i.text).includes(norm(e.span)), `${i.id}: "${e.span}" is not in the text`);
+      assert.ok(e.fix.length, `${i.id}: no fix`);
+    }
+  }
+  assert.ok(ds.items.filter((i) => !i.expect.length).length >= 25, 'plenty of clean messages (precision)');
+});
+
+test('near-miss labels from the AI are repaired instead of failing the reply', async () => {
+  const { repairTutorOutput, repairVerifyOutput, repairExerciseEvaluation, TutorOutput: T, VerifyOutput, ExerciseEvaluation } = await import('../server/learning/schemas.js');
+  const fixed = T.parse(repairTutorOutput({ reply: 'Nice!', corrections: [
+    { original: 'on 1995', corrected: 'in 1995', category: 'Preposition', concept: 'preposition', explanation: 'Years take in.', severity: 'High' },
+    { original: 'x', corrected: 'y', category: 'weird', concept: 'gerund', explanation: '', severity: '??' },
+    { original: '', corrected: 'nothing' }] }));
+  assert.deepEqual(fixed.corrections.map((k) => [k.category, k.concept, k.severity]), [['grammar', 'prepositions', 'important'], ['grammar', 'other', 'moderate']]);
+  assert.deepEqual([fixed.learning_signals, fixed.encouragement, fixed.follow_up_question], [[], null, null], 'missing lists and nulls filled in');
+  assert.throws(() => T.parse(repairTutorOutput({ corrections: [] })), 'no reply is still an error');
+  assert.deepEqual(VerifyOutput.parse(repairVerifyOutput({ decisions: [{ index: '0', keep: 'yes' }] })).decisions, [{ index: 0, original: '', verdict: 'real_mistake', reason: '' }]);
+  assert.equal(ExerciseEvaluation.parse(repairExerciseEvaluation({ verdict: 'Partially correct', feedback: 'Almost.' })).verdict, 'partly');
+});
+
+test('the check\'s decisions are matched to corrections by their words, then their number', async () => {
+  const { matchDecisions } = await import('../server/learning/verifier.js');
+  const cs = [c('I go', 'I went'), c('buyed', 'bought')];
+  const d = (index, original, verdict = 'real_mistake') => ({ index, original, verdict, reason: '' });
+  assert.deepEqual(matchDecisions(cs, [d(0, 'buyed', 'not_a_mistake'), d(1, 'I go')]).map((x) => x.verdict), ['real_mistake', 'not_a_mistake'], 'by the echoed words');
+  assert.deepEqual(matchDecisions(cs, [d(1, ''), d(2, '', 'bad_fix')]).map((x) => x.verdict), ['real_mistake', 'bad_fix'], 'numbered from 1');
+  assert.equal(matchDecisions(cs, [d(0, '')])[1], undefined, 'no decision → not shown');
 });

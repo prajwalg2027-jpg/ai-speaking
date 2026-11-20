@@ -35,6 +35,14 @@ export function startMockRest({ transcript = 'my name is ravi i like tea' } = {}
       if (/understand what a learner just said/.test(sys)) content = JSON.stringify(understand(user));
       else if (/explain an English speaking check/.test(sys)) content = JSON.stringify({ doingWell: ['You talked about your work.', 'You answered every question.'], practise: ['Try to use longer sentences.', 'Say went for last week, not go.'] });
       else if (/talked over the tutor/.test(sys)) content = JSON.stringify({ continues: /Learner then said: (and|also)\b/i.test(user) });
+      // The learning module: a tutor turn (corrects "I go" when the learner wrote it), the check, exercise marking.
+      else if (/double-checking corrections/.test(sys)) content = JSON.stringify({ decisions: [...user.matchAll(/^(\d+)\. "([^"]+)"/gm)].map((m) => ({ index: Number(m[1]), original: m[2], verdict: 'real_mistake', reason: 'wrong tense' })) });
+      else if (/marking one exercise/.test(sys)) content = JSON.stringify({ verdict: 'correct', feedback: 'Well done!', corrections: [] });
+      else if (/patient English teacher for adult learners/.test(sys)) {
+        const said = user.match(/LAST message[^:]*: (.*)/)?.[1] || '';
+        content = JSON.stringify({ reply: 'That sounds nice! What happened next?', encouragement: null, follow_up_question: 'What happened next?', learning_signals: [],
+          corrections: /\bI go\b/.test(said) ? [{ original: 'I go', corrected: 'I went', category: 'grammar', concept: 'past_simple', explanation: 'Use went for the past.', severity: 'important' }] : [] });
+      }
       else if (/examiner/.test(sys)) content = '{"comprehension":3,"vocabulary":3,"grammar":3,"fluency":3,"pronunciation":3,"coherence":3,"relevant":true,"note":"ok"}';
       else if (/You are Sakhi/.test(sys)) {
         const must = (user.match(/MUST INCLUDE[^:]*: (.*)/)?.[1] || '').split(';').map((g) => g.match(/"([^"]+)"/)?.[1]).filter(Boolean);

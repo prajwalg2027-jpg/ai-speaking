@@ -5,7 +5,7 @@
 // Strategy A ("single"): one call; its corrections pass the policy filter and are shown.
 // Strategy B ("verify"): the same, plus a check of the corrections that passed the filter, only when there are any.
 // Evaluations compare both on the SAME first call (`compare: true`), so the only difference is the check.
-import { TutorOutput } from './schemas.js';
+import { TutorOutput, repairTutorOutput } from './schemas.js';
 import { buildTutorMessages, PROMPT_VERSION } from './prompts.js';
 import { applyPolicy, validSignals } from './corrections.js';
 import { verifyCorrections } from './verifier.js';
@@ -31,7 +31,7 @@ export async function tutorTurn(p) {
   const strategy = p.strategy || settings.corrections.strategy;
   const messages = buildTutorMessages({ profile: p.profile, memory: p.memory, history: p.history || [], mode, channel, intensity, lesson: p.lesson, exercise: p.exercise, message });
   const t0 = performance.now();
-  const main = await structured({ job: 'tutor', messages, schema: TutorOutput, schemaName: 'tutor_turn', maxTokens: 900 });
+  const main = await structured({ job: 'tutor', messages, schema: TutorOutput, schemaName: 'tutor_turn', repair: repairTutorOutput, maxTokens: 900 });
   const out = main.data;
   const replyMs = Math.round(performance.now() - t0);
   p.onReply?.({ reply: out.reply, encouragement: out.encouragement, followUpQuestion: out.follow_up_question });

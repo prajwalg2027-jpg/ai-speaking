@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { pool } from '../db/pool.js';
 import { structured as defaultStructured } from '../llm/index.js';
-import { ExerciseEvaluation } from './schemas.js';
+import { ExerciseEvaluation, repairExerciseEvaluation } from './schemas.js';
 import { buildExerciseMessages } from './prompts.js';
 import { tx, addEvents } from './repo.js';
 
@@ -51,7 +51,7 @@ export async function sync(log = console.log) {
 export const normAnswer = (s) => String(s || '').toLowerCase().replace(/[’‘]/g, "'").replace(/[^\p{L}\p{N}' ]+/gu, ' ').replace(/\s+/g, ' ').trim();
 
 /** Mark an answer without the AI when possible. → { verdict, feedback } | null (needs the AI) */
-export function exactMark(exercise, answer) {
+export function exactMark(exercise, answer, { canRetry = false } = {}) {
   const accepted = exercise.accepted_answers || [];
   if (exercise.kind === 'choose') {
     const opts = exercise.options || [];
@@ -62,7 +62,7 @@ export function exactMark(exercise, answer) {
     if (!picked) return { verdict: 'incorrect', feedback: `Please choose one of the options: ${opts.join(' / ')}` , invalid: true };
     return accepted.some((x) => normAnswer(x) === normAnswer(picked))
       ? { verdict: 'correct', feedback: 'Correct!' }
-      : { verdict: 'incorrect', feedback: `Not quite. The answer is "${accepted[0]}". ${exercise.explanation || ''}`.trim() };
+      : { verdict: 'incorrect', feedback: canRetry ? 'Not quite. Have another look and try again.' : `Not quite. The answer is "${accepted[0]}". ${exercise.explanation || ''}`.trim() };
   }
   if (!accepted.length) return null;
   const said = normAnswer(answer);
@@ -160,12 +160,14 @@ export async function attempt(userId, sessionId, input, { structured = defaultSt
   const ex = await exerciseAt(s.lesson_id, s.current_position);
   if (!ex || ex.id !== exerciseId) throw fail(409, 'that is not the current exercise', { state: await sessionState(s) });
 
-  let mark = exactMark(ex, answer), corrections = [], via = 'exact';
+  const tries = (await one('select count(*)::int as n from exercise_attempts where lesson_session_id = $1 and exercise_id = $2', [sessionId, ex.id])).n + 1;
+  const canRetry = tries < MAX_TRIES; // a wrong first try gets a hint, not the answer
+  let mark = exactMark(ex, answer, { canRetry }), corrections = [], via = 'exact';
   if (mark?.invalid) return { verdict: null, feedback: mark.feedback, corrections: [], tryAgain: true, state: await sessionState(s) };
   if (!mark) {
     const l = await one('select * from lessons where id = $1', [s.lesson_id]);
     try {
-      const r = await structured({ job: 'lessonEval', messages: buildExerciseMessages({ lesson: l, exercise: ex, answer, channel }), schema: ExerciseEvaluation, schemaName: 'exercise_evaluation', maxTokens: 500 });
+      const r = await structured({ job: 'lessonEval', messages: buildExerciseMessages({ lesson: l, exercise: ex, answer, channel, canRetry }), schema: ExerciseEvaluation, schemaName: 'exercise_evaluation', repair: repairExerciseEvaluation, maxTokens: 500 });
       mark = { verdict: r.data.verdict, feedback: r.data.feedback };
       corrections = r.data.corrections.filter((c) => normAnswer(answer).includes(normAnswer(c.original)) && normAnswer(c.original) !== normAnswer(c.corrected));
       via = `${r.provider}:${r.model}`;
@@ -175,8 +177,7 @@ export async function attempt(userId, sessionId, input, { structured = defaultSt
     }
   }
 
-  const tries = (await one('select count(*)::int as n from exercise_attempts where lesson_session_id = $1 and exercise_id = $2', [sessionId, ex.id])).n + 1;
-  const moveOn = mark.verdict === 'correct' || tries >= MAX_TRIES;
+  const moveOn = mark.verdict === 'correct' || !canRetry;
   const isLast = s.current_position >= (await one('select count(*)::int as n from exercises where lesson_id = $1', [s.lesson_id])).n;
   const out = {
     verdict: mark.verdict, feedback: mark.feedback, corrections, tryAgain: !moveOn,

@@ -45,7 +45,7 @@ t('setup: two learners', async () => {
 });
 
 t('a message gets a reply and checked corrections, saved with the evidence', async () => {
-  const ai = mockAi({ tutor: tutor([corr('I go', 'I went'), corr('to market', 'to the market', { concept: 'articles', severity: 'moderate' })]), verify: { decisions: [{ index: 0, keep: true, reason: 'ok' }, { index: 1, keep: true, reason: 'ok' }] } });
+  const ai = mockAi({ tutor: tutor([corr('I go', 'I went'), corr('to market', 'to the market', { concept: 'articles', severity: 'moderate' })]), verify: { decisions: [{ index: 0, original: '', verdict: 'real_mistake', reason: 'ok' }, { index: 1, original: '', verdict: 'real_mistake', reason: 'ok' }] } });
   const rt = createRuntime({ structured: ai.structured });
   const conv = await repo.createConversation({ userId: user.id });
   const replies = [];
@@ -61,7 +61,7 @@ t('a message gets a reply and checked corrections, saved with the evidence', asy
   assert.deepEqual(rows.map((m) => m.role), ['learner', 'tutor']);
   assert.equal(rows[0].corrections.length, 2);
   assert.equal(rows[0].corrections[0].verified, true);
-  assert.equal(rows[1].metadata.promptVersion, 'tutor-v1');
+  assert.match(rows[1].metadata.promptVersion, /^tutor-v/);
   const ev = (await pool.query(`select kind, concept_key from learning_events where user_id = $1 order by id`, [user.id])).rows;
   assert.deepEqual(ev.map((e) => [e.kind, e.concept_key]), [['mistake', 'past_simple'], ['mistake', 'articles']]);
   const skill = await one(`select * from learner_skills where user_id = $1 and concept_key = 'past_simple'`, [user.id]);
@@ -95,7 +95,7 @@ t('if the AI fails, the message is kept and a retry carries on from there', asyn
 
 t('two identical requests at once save only one reply', async () => {
   const conv = await repo.createConversation({ userId: user.id });
-  const rt = createRuntime({ structured: mockAi({ tutor: tutor([corr('I go', 'I went')]), verify: { decisions: [{ index: 0, keep: true, reason: 'ok' }] } }).structured });
+  const rt = createRuntime({ structured: mockAi({ tutor: tutor([corr('I go', 'I went')]), verify: { decisions: [{ index: 0, original: '', verdict: 'real_mistake', reason: 'ok' }] } }).structured });
   const results = await Promise.allSettled([1, 2].map(() => rt.respond({ userId: user.id, conversationId: conv.id, message: 'Yesterday I go home', clientMessageId: 'same' })));
   assert.ok(results.some((x) => x.status === 'fulfilled'));
   for (const x of results) if (x.status === 'rejected') assert.equal(x.reason.status, 409);
@@ -123,7 +123,7 @@ t('memory: repeated mistakes and recent explanations reach the next prompt', asy
 t('preferences change how strictly the learner is corrected', async () => {
   await repo.updatePreferences(user.id, { correctionIntensity: 'gentle', goals: ['job interview'] });
   let seen;
-  const structured = async ({ job, schema, messages }) => { if (job === 'tutor') seen = messages[0].content; return { data: schema.parse(job === 'tutor' ? tutor([corr('I go', 'I went', { severity: 'moderate' })]) : { decisions: [{ index: 0, keep: true, reason: '' }] }), provider: 'mock', model: 'm', latencyMs: 1, usage: {}, attempts: 1 }; };
+  const structured = async ({ job, schema, messages }) => { if (job === 'tutor') seen = messages[0].content; return { data: schema.parse(job === 'tutor' ? tutor([corr('I go', 'I went', { severity: 'moderate' })]) : { decisions: [{ index: 0, original: '', verdict: 'real_mistake', reason: '' }] }), provider: 'mock', model: 'm', latencyMs: 1, usage: {}, attempts: 1 }; };
   const conv = await repo.createConversation({ userId: user.id });
   const r = await createRuntime({ structured }).respond({ userId: user.id, conversationId: conv.id, message: 'Yesterday I go out' });
   assert.match(seen, /GENTLE/);

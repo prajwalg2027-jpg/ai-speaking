@@ -16,7 +16,7 @@ export function retryWait(res, attempt) {
 }
 const retryable = (status) => status === 429 || status >= 500;
 
-async function call(path, { body, json, timeout }, attempt = 0) {
+async function call(path, { body, json, timeout, retries = 2 }, attempt = 0) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeout);
   try {
@@ -26,9 +26,9 @@ async function call(path, { body, json, timeout }, attempt = 0) {
       body: json ? JSON.stringify(json) : body,
       signal: ctrl.signal,
     });
-    if (retryable(res.status) && attempt < 2) {
+    if (retryable(res.status) && attempt < retries) {
       await sleep(retryWait(res, attempt));
-      return call(path, { body, json, timeout }, attempt + 1);
+      return call(path, { body, json, timeout, retries }, attempt + 1);
     }
     if (!res.ok) throw new Error(`Sarvam ${path} ${res.status}: ${(await res.text()).slice(0, 300)}`);
     return res.json();
@@ -201,6 +201,7 @@ export async function chat(messages, { temperature = 0.2, maxTokens = 600, model
       ...(json ? { response_format: { type: 'json_object' } } : {}),
     },
     timeout: S.timeouts.llm,
+    retries: 4, // rate limits (429) are common under load: up to ~15 s of waiting before giving up
   });
   addChat(r.usage, purpose);
   // Reasoning may arrive in a separate field or inline as <think>…</think>; we only want the answer.

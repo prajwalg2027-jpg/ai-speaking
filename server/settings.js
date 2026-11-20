@@ -36,8 +36,8 @@ export const SECTIONS = {
   },
   conversation: {
     label: 'Conversation',
-    schema: z.strictObject({ historyMessages: z.number().int().min(2).max(30), promptVersion: z.string().min(1).max(20) }),
-    defaults: { historyMessages: 10, promptVersion: 'tutor-v1' },
+    schema: z.strictObject({ historyMessages: z.number().int().min(2).max(30) }),
+    defaults: { historyMessages: 10 },
   },
   limits: {
     label: 'Limits and budget',

@@ -181,3 +181,13 @@ export async function progress(userId) {
     focus: skills.filter((s) => s.status !== 'mastered' && s.mistakes >= 2).sort((a, b) => b.mistakes - a.mistakes).slice(0, 3).map((s) => s.concept),
   };
 }
+
+/** A tutor message that isn't a reply (the greeting that opens a conversation). */
+export async function addTutorMessage({ conversationId, content, metadata = {} }) {
+  const m = await one(`insert into messages (conversation_id, role, content, channel, metadata) values ($1, 'tutor', $2, 'text', $3) returning *`, [conversationId, content, metadata]);
+  return { ...m, corrections: [] };
+}
+
+/** One of Sakhi's messages in the learner's own conversations (for her voice). */
+export const tutorMessageOf = (userId, messageId) => one(`select m.* from messages m join conversations c on c.id = m.conversation_id
+    where m.id = $1 and m.role = 'tutor' and c.user_id = $2`, [messageId, userId]);

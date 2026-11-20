@@ -17,6 +17,12 @@ import * as recordings from './recordings.js';
 import { loginEnabled } from './auth.js';
 import { pool } from './db/pool.js';
 import { migrate } from './db/migrate.js';
+import * as settings from './settings.js';
+import { handleLearn } from './learning/api.js';
+import { handleAdmin } from './admin/api.js';
+import * as lessons from './learning/lessons.js';
+import * as evalRuns from './learning/evalRuns.js';
+import { requestId, logRequest } from './http.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
@@ -184,7 +190,8 @@ async function handleLabCompare(req, res) {
 }
 
 async function serveStatic(res, pathname) {
-  const rel = pathname === '/' ? 'public/index.html' : pathname.startsWith('/shared/') ? pathname.slice(1) : `public${pathname}`;
+  if (pathname === '/admin') { res.writeHead(301, { location: '/admin/' }); return res.end(); }
+  const rel = pathname === '/' ? 'public/index.html' : pathname === '/admin/' ? 'public/admin/index.html' : pathname.startsWith('/shared/') ? pathname.slice(1) : `public${pathname}`;
   const file = normalize(join(ROOT, rel));
   if (!file.startsWith(ROOT)) { res.writeHead(403); return res.end(); }
   try {
@@ -194,8 +201,23 @@ async function serveStatic(res, pathname) {
   } catch { res.writeHead(404); res.end('Not found'); }
 }
 
+// The learning module and the admin console: request ids, one JSON log line per request, the same error shape.
+async function handleApi(req, res, url, fn) {
+  const rid = requestId(req, res), t0 = performance.now();
+  let status = 200;
+  try { await fn(); status = res.statusCode; }
+  catch (e) {
+    status = e.status || 500;
+    if (status >= 500) console.error(`[${rid}]`, e);
+    if (!res.headersSent) send(res, status, { error: status >= 500 && !e.reason ? 'Something went wrong' : e.message, reason: e.reason, requestId: rid });
+    else res.end();
+  } finally { logRequest({ rid, req, status, ms: Math.round(performance.now() - t0), user: res.locals?.user }); }
+}
+
 export const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
+  if (url.pathname.startsWith('/api/learn/')) return handleApi(req, res, url, () => handleLearn(req, res, url, { speak: speakTo }));
+  if (url.pathname.startsWith('/api/admin/')) return handleApi(req, res, url, () => handleAdmin(req, res, url));
   try {
     if (isTeamPath(url.pathname)) return send(res, 404, { error: 'not found' });
     // /api/health for Cloud Run (it reserves paths ending in "z", like /healthz, for itself); /healthz for local use.
@@ -248,10 +270,15 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const missing = [!loginEnabled() && 'FIREBASE_PROJECT_ID', !pool && 'DATABASE_URL'].filter(Boolean);
     if (missing.length) { console.error(`Refusing to start in production without ${missing.join(' and ')} (or set SAKHI_ALLOW_NO_LOGIN=1 for a closed test).`); process.exit(1); }
   }
-  if (pool) await migrate(pool);
+  if (pool) {
+    await migrate(pool);
+    await settings.load();
+    await lessons.sync();
+    await evalRuns.cleanUp();
+  }
   server.listen(config.port, () => {
     console.log(`AI English Coach on http://localhost:${config.port}${production ? ' (production)' : ''}${ready() ? '' : '  (not ready: SARVAM_API_KEY is not set)'}`);
-    if (!ready()) return;
+    if (!ready() || process.env.SAKHI_SKIP_WARMUP === '1') return; // skipping is for local development
     // Generate every scripted line now, so they play instantly later.
     const lines = scriptedLines(), t0 = Date.now();
     sarvam.pregenerate(lines).then(({ done, failed, stored }) => console.log(`Pre-generated ${done} scripted voice lines in ${((Date.now() - t0) / 1000).toFixed(1)} s (${stored} from the voice store, ${done - stored} new)${failed ? ` (${failed} failed)` : ''}; voice cache cost ₹${summarize(shared).tts.inr.toFixed(2)} (shared by all conversations)`));

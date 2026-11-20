@@ -10,7 +10,7 @@ import * as sarvam from '../sarvam.js';
 import { openaiChat, openaiConfigured } from './openai.js';
 
 export class LlmError extends Error {
-  constructor(message, { kind = 'provider', detail = null } = {}) { super(message); this.kind = kind; this.detail = detail; }
+  constructor(message, { kind = 'provider', detail = null } = {}) { super(message); this.kind = kind; this.detail = detail; this.status = kind === 'config' ? 503 : 502; this.reason = 'The AI could not answer just now. Please try again.'; }
 }
 
 export const providers = {
@@ -40,9 +40,10 @@ async function callProvider(job, messages, { schema, schemaName, maxTokens }) {
  * @param {Array}  p.messages   chat messages
  * @param {import('zod').ZodTypeAny} p.schema
  * @param {string} p.schemaName
+ * @param {Function} [p.repair]  maps near-misses onto the schema before validation (see learning/schemas.js)
  * @returns {Promise<{data, provider, model, latencyMs, usage, attempts}>}
  */
-export async function structured({ job, messages, schema, schemaName = 'answer', maxTokens = 900 }) {
+export async function structured({ job, messages, schema, schemaName = 'answer', maxTokens = 900, repair = null }) {
   let cfg = settings.get('llm')[job];
   if (!cfg) throw new LlmError(`no settings for job ${job}`, { kind: 'config' });
   if (!providers[cfg.provider]?.configured()) {
@@ -58,7 +59,7 @@ export async function structured({ job, messages, schema, schemaName = 'answer',
     catch (e) { throw new LlmError(`${cfg.provider} failed: ${e.message}`, { kind: e.name === 'AbortError' ? 'timeout' : 'provider' }); }
     for (const k of Object.keys(usage)) usage[k] += res.usage?.[k] || 0;
     const json = extractJson(res.text);
-    const parsed = json ? schema.safeParse(json) : null;
+    const parsed = json ? schema.safeParse(repair ? repair(json) : json) : null;
     if (parsed?.success) {
       return { data: parsed.data, provider: cfg.provider, model: cfg.model, latencyMs: Math.round(performance.now() - t0), usage, attempts: attempt };
     }

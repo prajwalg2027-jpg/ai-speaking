@@ -1,9 +1,9 @@
 // The tutor's prompt, built from small sections so each can be changed and evaluated on its own. Every turn
-// records PROMPT_VERSION (and the admin can pin a version in settings), so changes can be compared over time.
+// records PROMPT_VERSION, and so does every evaluation run, so changes can be compared over time.
 // Bump the version whenever a section's wording changes.
 import { CATEGORIES, CONCEPTS } from './schemas.js';
 
-export const PROMPT_VERSION = 'tutor-v1';
+export const PROMPT_VERSION = 'tutor-v3'; // v3: check gives an explicit verdict; examples kept apart from the evaluation set
 
 const LEVEL_WORDS = {
   1: 'a beginner (knows everyday words, short broken sentences)',
@@ -68,7 +68,9 @@ export function correctionSection(intensity = 'balanced') {
 Rules for corrections (precision matters more than catching everything — a wrong correction is worse than a missed one):
 - Only correct real mistakes in the learner's LAST message. If it has none, return an empty list.
 - "original" must be the learner's exact words (copied, not paraphrased); "corrected" replaces exactly those words with the smallest change.
-- Valid alternatives, informal English ("gonna", "yeah", "kinda"), contractions and clear, common Indian English are NOT mistakes.
+- NOT mistakes: valid alternative wordings, informal English ("gonna", "yeah", "kinda"), contractions, and established
+  Indian English vocabulary and idiom (e.g. batchmate, tiffin, passed out of college, timepass, "kindly"). But grammar
+  rules are the same everywhere: a wrong tense, a missing "does", or "more better" is a mistake in Indian English too.
 - One correction per mistake; no duplicates; never contradict another correction; never invent a mistake.
 - Don't put corrections inside "reply": the reply is the conversation. Corrections are shown separately.
 - category is one of: ${CATEGORIES.join(', ')}. concept is one of: ${CONCEPTS.join(', ')}.
@@ -100,26 +102,47 @@ export function buildTutorMessages({ profile, memory, history, mode, channel, in
   ];
 }
 
-/** The check (strategy B): an independent look at each proposed correction. */
+/**
+ * The check (strategy B): an independent look at each proposed correction.
+ * Examples in this prompt are deliberately NOT sentences from the evaluation set (shared/eval), so evaluations
+ * measure the rules, not memorised answers.
+ */
 export function buildVerifyMessages({ message, corrections, channel }) {
   return [
     {
       role: 'system',
-      content: `You check corrections an English tutor proposed for a learner in India. Precision matters most: wrongly
-correcting valid English is a serious failure. For each correction, keep it only if ALL are true:
-1. The original words really are wrong in standard English (informal English and clear, common Indian English are fine).
-2. The corrected words fix it with the smallest change and don't introduce a new error.
-3. The explanation is right.${channel === 'voice' ? `
-4. The learner SPOKE (speech-to-text): drop it if the "mistake" could just be a transcription slip (a missing or wrong
-   a/an/the, plural -s, -s/-es/-ed endings, capitals, punctuation, spelling).` : ''}
-Reply with ONLY JSON: {"decisions": [{"index": 0, "keep": true, "reason": "short reason"}]} — one decision per correction.`,
+      content: `You are a careful English teacher in India double-checking corrections a tutor proposed for an adult learner.
+Give each correction one verdict:
+- "real_mistake": the learner's words are wrong English and the corrected words are right. SHOW it.
+- "not_a_mistake": the learner's words are acceptable English. DON'T show it.
+- "bad_fix": the learner's words are wrong, but the corrected words are also wrong or change the meaning. DON'T show it.
+
+Grammar rules are the same in Indian English as in any English. These are ALWAYS real mistakes, never "Indian English":
+wrong tense or verb form (She go to work daily; I have went; He came yesterday? → fine, but "He come yesterday" is wrong),
+missing auxiliaries or do-support (She not eat meat; When you will come?), agreement (The boys plays), pronoun case
+(Him and me went → He and I went), double comparatives or superlatives (most cleverest), missing articles before a
+singular job or count noun (She is teacher), indirect questions with question word order (Tell me what is your name),
+"look forward to" + base verb, wrong prepositions with dates and fixed phrases, and wrong word choice (say a lie → tell a lie).
+If the corrected words are right, the verdict is "real_mistake" even if another fix would also be right.
+
+Only VOCABULARY and IDIOM vary: established Indian English words and phrases are acceptable — e.g. batchmate, tiffin,
+co-brother, would-be (fiancé), passed out of college, timepass, "kindly", "intimate" (inform). So are informal English
+(gonna, wanna, kinda, yeah), contractions, and a valid alternative wording (both "on weekends" and "at weekends").
+Never use "it's common in India" as a reason to accept a GRAMMAR error.${channel === 'voice' ? `
+
+The learner SPOKE (speech-to-text): if the ONLY difference is a missing or extra a/an/the, an -s/-es/-ed ending, capital
+letters, punctuation or spelling, the verdict is "not_a_mistake" (it may be a transcription slip). A different word (like
+don't → doesn't, or bring → brought) is real.` : ''}
+
+Decide each correction on its own. The first correction is index 0. Copy its "original" words into your decision.
+Reply with ONLY JSON: {"decisions": [{"index": 0, "original": "...", "verdict": "real_mistake", "reason": "short reason"}]}`,
     },
     { role: 'user', content: `Learner's message: ${message}\n\nProposed corrections:\n${corrections.map((c, i) => `${i}. "${c.original}" → "${c.corrected}" (${c.category}): ${c.explanation}`).join('\n')}` },
   ];
 }
 
 /** Judging a lesson exercise the exact answers didn't settle (free answers, or another way of saying it). */
-export function buildExerciseMessages({ lesson, exercise, answer, channel }) {
+export function buildExerciseMessages({ lesson, exercise, answer, channel, canRetry = false }) {
   return [
     {
       role: 'system',
@@ -129,7 +152,9 @@ Judge only what the exercise asks. "correct": it does what was asked and the Eng
 saying it is fine). "partly": the target point is right but there's another real mistake, or it only half does the task.
 "incorrect": the target point is wrong or it doesn't answer the exercise.${channel === 'voice' ? `
 The learner SPOKE (speech-to-text): don't count missing a/an/the, -s/-ed endings, capitals or punctuation against them unless the exercise is about exactly that.` : ''}
-feedback: one or two short, kind sentences in simple English; if it isn't correct, give the right version.
+feedback: one or two short, kind sentences in simple English. ${canRetry
+  ? 'If it is not correct, give a HINT that points to the problem but do NOT give the answer: the learner will try again.'
+  : 'If it is not correct, give the right version.'}
 corrections: only real mistakes in the learner's answer ("original" copied exactly from it); usually zero or one.
 category is one of: ${CATEGORIES.join(', ')}. concept is one of: ${CONCEPTS.join(', ')}.
 Reply with ONLY JSON: {"verdict": "correct", "feedback": "...", "corrections": [{"original": "...", "corrected": "...", "category": "grammar", "concept": "${exercise.concept_key || 'other'}", "explanation": "...", "severity": "moderate"}]}`,
