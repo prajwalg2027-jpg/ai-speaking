@@ -290,7 +290,7 @@ async function playground() {
     <div class="page-head"><div><h1>Playground</h1><p class="muted">Try a learner message and see what the tutor says, with strategies A and B side by side from the same reply. Nothing is saved.</p></div></div>
     <form class="card section" id="pg">
       <label class="f">The learner says<textarea id="msg" maxlength="1000" placeholder="Yesterday I go to market with my friend and we buyed vegetables.">Yesterday I go to market with my friend and we buyed vegetables.</textarea></label>
-      <div class="row" style="margin-top:10px">
+      <div class="row end" style="margin-top:10px">
         <label class="f">How<select id="channel"><option value="text">Typed</option><option value="voice">Spoken (speech-to-text)</option></select></label>
         <label class="f">Correction intensity<select id="intensity"><option value="gentle">Gentle</option><option value="balanced" selected>Balanced</option><option value="strict">Strict</option></select></label>
         <label class="f">Learner level<select id="level"><option value="1">1 · beginner</option><option value="2" selected>2 · basic</option><option value="3">3 · good</option><option value="4">4 · very good</option></select></label>

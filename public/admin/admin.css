@@ -104,7 +104,8 @@ tr.click { cursor: pointer; }
 tr.click:hover td { background: var(--surface-2); }
 .table-wrap { overflow-x: auto; }
 
-form .row, .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+form .row, .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+.row.end { align-items: flex-end; }
 label.f { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); min-width: 140px; }
 label.f .help { font-size: 12px; color: var(--muted); }
 input, select, textarea { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--axis); border-radius: 8px; padding: 7px 10px; }

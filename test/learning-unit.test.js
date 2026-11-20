@@ -215,3 +215,20 @@ test('the check\'s decisions are matched to corrections by their words, then the
   assert.deepEqual(matchDecisions(cs, [d(1, ''), d(2, '', 'bad_fix')]).map((x) => x.verdict), ['real_mistake', 'bad_fix'], 'numbered from 1');
   assert.equal(matchDecisions(cs, [d(0, '')])[1], undefined, 'no decision → not shown');
 });
+
+test('strategy B: corrections the check skipped are asked about again, once', async () => {
+  const two = [c('I go', 'I went', { severity: 'important' }), c('buyed', 'bought', { severity: 'important', concept: 'past_irregular' })];
+  let n = 0;
+  const structured = async ({ job, schema }) => {
+    if (job === 'tutor') return { data: tutorOut(two), provider: 'mock', model: 'm', latencyMs: 1, usage: { input: 10, output: 1 }, attempts: 1 };
+    n++;
+    const data = n === 1 ? { decisions: [{ index: 0, original: 'I go', verdict: 'real_mistake', reason: '' }] } // stopped early
+      : { decisions: [{ index: 0, original: 'buyed', verdict: 'real_mistake', reason: '' }] };
+    return { data: schema.parse(data), provider: 'mock', model: 'm', latencyMs: 2, usage: { input: 10, output: 1 }, attempts: 1 };
+  };
+  const t = await tutorTurn({ structured, settings, strategy: 'verify', message: 'Yesterday I go out and buyed rice' });
+  assert.equal(n, 2);
+  assert.deepEqual(t.corrections.map((k) => k.original), ['I go', 'buyed']);
+  const { repairVerifyOutput } = await import('../server/learning/schemas.js');
+  assert.equal(repairVerifyOutput({ decisions: [0, { original: 'x', verict: 'bad_fix' }] }).decisions[0].verdict, 'bad_fix', 'a misspelt key still counts');
+});

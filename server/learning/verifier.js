@@ -9,13 +9,25 @@ import { buildVerifyMessages } from './prompts.js';
  */
 export async function verifyCorrections({ structured, message, corrections, channel }) {
   if (!corrections.length) return { kept: [], dropped: [], call: null, error: null };
+  const ask = (list) => structured({ job: 'verify', messages: buildVerifyMessages({ message, corrections: list, channel }), schema: VerifyOutput, schemaName: 'verify', repair: repairVerifyOutput, maxTokens: 500 });
   let res;
   try {
-    res = await structured({ job: 'verify', messages: buildVerifyMessages({ message, corrections, channel }), schema: VerifyOutput, schemaName: 'verify', repair: repairVerifyOutput, maxTokens: 500 });
+    res = await ask(corrections);
   } catch (e) {
     return { kept: [], dropped: corrections.map((correction) => ({ correction, reason: 'the check failed, so it was not shown' })), call: null, error: e.message };
   }
   const pickFor = matchDecisions(corrections, res.data.decisions);
+  const call = { provider: res.provider, model: res.model, latencyMs: res.latencyMs, usage: { ...res.usage }, attempts: res.attempts };
+  // The model sometimes stops after the first decision: ask once more about the ones it skipped.
+  const missing = corrections.map((c, i) => (pickFor[i] ? null : i)).filter((i) => i != null);
+  if (missing.length) {
+    try {
+      const again = await ask(missing.map((i) => corrections[i]));
+      matchDecisions(missing.map((i) => corrections[i]), again.data.decisions).forEach((d, k) => { pickFor[missing[k]] = d; });
+      call.latencyMs += again.latencyMs; call.attempts += again.attempts;
+      for (const key of Object.keys(call.usage)) call.usage[key] = (call.usage[key] || 0) + (again.usage?.[key] || 0);
+    } catch { /* still undecided: not shown */ }
+  }
   const kept = [], dropped = [];
   corrections.forEach((c, i) => {
     const d = pickFor[i];
@@ -23,7 +35,7 @@ export async function verifyCorrections({ structured, message, corrections, chan
     if (d?.verdict === 'real_mistake') kept.push(c);
     else dropped.push({ correction: c, reason: d ? `check: ${d.verdict === 'bad_fix' ? 'the fix is wrong' : 'not a mistake'}${d.reason ? ` (${d.reason})` : ''}` : 'check gave no decision' });
   });
-  return { kept, dropped, call: { provider: res.provider, model: res.model, latencyMs: res.latencyMs, usage: res.usage, attempts: res.attempts }, error: null };
+  return { kept, dropped, call, error: null };
 }
 
 const n = (s) => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}' ]+/gu, ' ').replace(/\s+/g, ' ').trim();

@@ -128,7 +128,8 @@ export function repairVerifyOutput(j) {
     decisions: list(j.decisions).filter((d) => d && typeof d === 'object').map((d, i) => ({
       index: Number.isInteger(Number(d.index)) && Number(d.index) >= 0 ? Number(d.index) : i,
       original: (str(d.original) || '').slice(0, 200),
-      verdict: oneOf(d.verdict, VERDICTS, CHECK_ALIASES, d.keep === true || ['true', 'yes'].includes(key(d.keep)) ? 'real_mistake' : 'not_a_mistake'),
+      // A misspelt key ("verict") still carries the verdict.
+      verdict: oneOf(d.verdict ?? Object.entries(d).find(([k]) => /^ver/i.test(k))?.[1], VERDICTS, CHECK_ALIASES, d.keep === true || ['true', 'yes'].includes(key(d.keep)) ? 'real_mistake' : 'not_a_mistake'),
       reason: (str(d.reason) || '').slice(0, 300),
     })).slice(0, 10),
   };
