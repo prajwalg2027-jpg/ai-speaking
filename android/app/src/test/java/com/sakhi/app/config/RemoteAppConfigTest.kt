@@ -5,9 +5,11 @@ import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import okhttp3.OkHttpClient
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -15,6 +17,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -30,8 +33,10 @@ class RemoteAppConfigTest {
     }
     @After fun tearDown() { web.close() }
 
+    // A generous timeout: on a busy CI machine the first request (class loading, Robolectric) can pass the app's 5 s.
+    private val http = OkHttpClient.Builder().callTimeout(60, TimeUnit.SECONDS).build()
     private fun config(versionCode: Int = 5) = RemoteAppConfig(server, versionCode, web.url("/app-config.json").toString(),
-        ctx.getSharedPreferences("test.appconfig", Context.MODE_PRIVATE))
+        ctx.getSharedPreferences("test.appconfig", Context.MODE_PRIVATE), http)
     private fun serve(json: String, code: Int = 200) = web.enqueue(MockResponse.Builder().code(code).body(json).build())
 
     @Test fun `only secure addresses on our domain or Cloud Run`() {
@@ -54,7 +59,7 @@ class RemoteAppConfigTest {
 
     @Test fun `a foreign address is ignored, and a failed fetch keeps the last good one`() = runBlocking {
         serve("""{"serverUrl":"https://api.adamspeaks.in"}""")
-        config().refresh()
+        assertNotNull("the config was fetched", config().refresh())
         serve("""{"serverUrl":"https://evil.example"}""")
         config().refresh()
         assertEquals("https://api.adamspeaks.in", server.baseUrl)
@@ -65,7 +70,7 @@ class RemoteAppConfigTest {
 
     @Test fun `a debug build's manual address still wins`() = runBlocking {
         serve("""{"serverUrl":"https://api.adamspeaks.in"}""")
-        config().refresh()
+        assertNotNull("the config was fetched", config().refresh())
         server.baseUrl = "http://192.168.1.20:3000"
         assertEquals("http://192.168.1.20:3000", server.baseUrl)
         server.clearOverride()
