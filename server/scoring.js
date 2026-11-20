@@ -6,7 +6,10 @@ import { normalizeForCompare } from './normalize.js';
 
 // Every number that decides the level lives in shared/scoring-config.json (edited at /cutoffs.html).
 export const CONFIG = JSON.parse(readFileSync(new URL('../shared/scoring-config.json', import.meta.url), 'utf8'));
-const C = CONFIG;
+// The values in use: the file's, until the admin console changes them (server/settings.js).
+let C = CONFIG;
+export function setScoringConfig(c) { C = c; }
+export const scoringConfig = () => C;
 
 const FILLERS = /\b(um+|uh+|erm|hmm+|like|matlab|basically|you know|wo|woh|toh)\b/gi;
 const DEVANAGARI = /[ऀ-ॿ]/g;
@@ -119,14 +122,14 @@ const DIMS = ['comprehension', 'vocabulary', 'grammar', 'fluency', 'pronunciatio
  * lean on the judge: the word-counting features can't tell a fluent C1 answer from a long B1 one (their ceiling
  * is about 2.5 without textbook linking words). Fluency keeps half from the real mic timing.
  */
-export const JUDGE_WEIGHT = C.judgeWeight;
+export const JUDGE_WEIGHT = CONFIG.judgeWeight; // the defaults; blend() uses the live values
 
 /** Blend LLM and heuristic scores per skill (JUDGE_WEIGHT). */
 export function blend(llm, heur) {
   const out = {};
   for (const d of DIMS) {
     if (heur[d] == null) { out[d] = null; continue; } // not measured for this kind of answer
-    const l = llm?.[d] == null ? NaN : Number(llm[d]), w = JUDGE_WEIGHT[d];
+    const l = llm?.[d] == null ? NaN : Number(llm[d]), w = C.judgeWeight[d];
     out[d] = Number.isFinite(l) ? w * clamp(l) + (1 - w) * heur[d] : heur[d];
   }
   return out;
