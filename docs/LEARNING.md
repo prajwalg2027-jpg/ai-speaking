@@ -93,33 +93,35 @@ articles, prepositions, word order, vocabulary, beginner and advanced, spoken (s
 with **nothing to correct** (informal English, Indian English vocabulary, standard English, ambiguous cases). Each
 run below sends every message twice (148 turns), Sarvam-105B for both calls, balanced intensity.
 
-**Result (run 3, 20 Nov 2026, prompt `tutor-v3`, the honest run):**
+**Result (runs 3 and 4 combined, 20 Nov 2026, prompt `tutor-v3`: 296 turns):**
 
 | | A · one call | B · one call + check |
 |---|---:|---:|
-| Precision (right ÷ shown) | 93.3% | **97.6%** |
-| Correct messages that got a correction anyway | 8.1% (5 of 62) | **1.6%** (1 of 62) |
-| Recall (corrected ÷ real mistakes) | **95.5%** | 93.2% |
-| F0.5 (precision counts double) | 93.8% | **96.7%** |
-| Right / false / missed | 84 / 6 / 4 | 82 / 2 / 6 |
-| Reply reaches the learner, typical | 0.94 s | 0.94 s (same: reply first) |
-| Corrections reach the learner, typical / slowest 5% | 0.94 s / 1.45 s | 1.58 s / 2.29 s |
-| AI cost per message | ₹0.0185 | ₹0.0275 (+49%) |
+| Precision (right ÷ shown) | 93.9% | **96.5%** |
+| Correct messages that got a correction anyway | 7.3% (9 of 124) | **3.2%** (4 of 124) |
+| Recall (corrected ÷ real mistakes) | **96.0%** | 93.2% |
+| F0.5 (precision counts double) | 94.3% | **95.8%** |
+| Right / false / missed | 169 / 11 / 7 | 164 / 6 / 12 |
+| Reply reaches the learner, typical | 0.89 s | 0.89 s (same: reply first) |
+| Corrections reach the learner, typical / slowest 5% | 0.89 s / 1.37 s | 1.56 s / 2.35 s |
+| AI cost per message | ₹0.0185 | ₹0.0274 (+48%) |
 | Failed turns | 0 | 0 |
 
-Where the difference comes from: B removed 3 of the 4 false corrections of Indian English vocabulary ("prepone",
-"costly") and the one false correction of standard English (a correct second conditional "had" → "have"); it cost 2
-real corrections (an article in "When I was child"). Cost: B's check ran on 62% of turns in this error-heavy set; real
-conversations have fewer mistakes, so the real increase will be smaller. At 1,000 practice messages a day, A costs
-about ₹19 and B about ₹28.
+Run by run, B's lead varies: in run 3 it had 1 false alarm to A's 5; in run 4, 3 to A's 4 (the check accepted
+"costly → expensive" and "on Sundays → on Sunday" in run 4 that it had stopped in run 3). Where B helps: false
+corrections of Indian English vocabulary ("prepone", "costly") and of correct standard English (a second conditional
+"had" → "have"). What it costs: some real corrections the check wrongly rejects ("When I was child", "the amount of
+people", "open the light"). B's check ran on 62% of turns in this error-heavy set; real conversations have fewer
+mistakes, so the real cost increase will be smaller. At 1,000 practice messages a day: A about ₹19, B about ₹28.
 
-**Recommendation: B** (already the default). It cuts wrong corrections about five-fold for about 2 points of recall,
-and learners don't wait longer for the reply. Revisit if the check's recall loss grows (watch "stopped by the check"
-on the dashboard) or if a faster model becomes available for the check.
+**Recommendation: B** (already the default), with honest confidence: it roughly halves wrong corrections for about
+3 points of recall, and learners don't wait longer for the reply; the evidence favours it but the margin (9 vs 4
+messages) is not yet conclusive. Keep measuring: grow the set from real learner messages, watch "stopped by the
+check" on the dashboard, and switch to A in Settings if real data shows the check costing more than it saves.
 
-**Caveats.** 74 messages is small: differences of one or two messages move a percentage by several points. The labels
-are one person's judgement (Indian English usage especially). Sarvam's answers vary between runs (A's false-alarm
-rate was 3.8% in run 1 and 11.3% in run 2 with the same tutor prompt). The set should grow from real (anonymised) learner messages.
+**Caveats.** 74 messages is small: one or two messages move a percentage by several points. The labels are one
+person's judgement (Indian English usage especially). Sarvam's answers vary between runs (A's false-alarm rate ranged
+from 3.8% to 11.3% across runs), which is why runs 3 and 4 are combined.
 
 **History** (all in `docs/eval/`, re-scored with the final scorer):
 
@@ -128,6 +130,7 @@ rate was 3.8% in run 1 and 11.3% in run 2 with the same tutor prompt). The set s
 | 1 | tutor-v1 | 95.8 / 98.6 | 98.3 / 82.9 | 28 of 148 turns failed (Sarvam rate limits at concurrency 4; labels outside the list). The check over-applied "Indian English is fine" to grammar errors |
 | 2 | tutor-v2 | 90.5 / 97.7 | 98.4 / 69.3 | Fixed failures (repairs, retries, concurrency 2). **Not valid:** the check's examples were taken from the evaluation set, and its `keep` flag was read backwards ("this is a definite grammar error" → keep: false) |
 | 3 | tutor-v3 | 93.3 / 95.5 | 97.6 / 93.2 | Explicit verdicts, decisions matched by the quoted words, examples kept apart from the set |
+| 4 | tutor-v3 | 94.4 / 96.6 | 95.3 / 93.2 | Same prompts; the check is asked again about corrections it skipped (it sometimes stopped after the first) |
 
 Run it yourself: `npm run eval` (about ₹2; add `-- --repeat 2` for steadier numbers), or **Evaluations** in the admin
 console. `npm run eval -- --rescore <file>` re-scores saved results without calling the AI.

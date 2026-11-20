@@ -62,8 +62,8 @@ A shared "team pass" that bypasses login was refused by the safety check; don't 
 
 Practice conversations and lessons with personalised corrections, learner memory and evidence-based progress, plus
 an admin console at `/admin/` (dashboard, live settings, playground, evaluations). Everything is in
-`docs/LEARNING.md`, including the A vs B comparison: **B (one call + a check of corrections) is the default**:
-precision 97.6% vs 93.3%, wrong corrections on correct English 1.6% vs 8.1%, recall 93.2% vs 95.5%. The Android
+`docs/LEARNING.md`, including the A vs B comparison (runs 3+4, 296 turns): **B (one call + a check of corrections) is the default**:
+precision 96.5% vs 93.9%, wrong corrections on correct English 3.2% vs 7.3%, recall 93.2% vs 96.0%. The Android
 app doesn't use the learning API yet. Admin setup on Google Cloud: `deploy/admin-setup.sh` (not yet run).
 Keep prompt examples apart from `shared/eval/` sentences, or evaluations stop meaning anything.
 
