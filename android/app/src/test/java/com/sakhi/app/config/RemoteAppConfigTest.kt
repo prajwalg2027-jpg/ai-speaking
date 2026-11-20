@@ -20,7 +20,9 @@ import org.robolectric.annotation.Config
 import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35])
+// A plain Application: the real one fetches the live adamspeaks.in/app-config.json at start, which could land
+// mid-test and overwrite the address under test.
+@Config(sdk = [35], application = android.app.Application::class)
 class RemoteAppConfigTest {
     private val web = MockWebServer()
     private lateinit var ctx: Context
@@ -33,7 +35,7 @@ class RemoteAppConfigTest {
     }
     @After fun tearDown() { web.close() }
 
-    // A generous timeout: on a busy CI machine the first request (class loading, Robolectric) can pass the app's 5 s.
+    // A generous timeout, so a slow CI machine never fails a fetch.
     private val http = OkHttpClient.Builder().callTimeout(60, TimeUnit.SECONDS).build()
     private fun config(versionCode: Int = 5) = RemoteAppConfig(server, versionCode, web.url("/app-config.json").toString(),
         ctx.getSharedPreferences("test.appconfig", Context.MODE_PRIVATE), http)
