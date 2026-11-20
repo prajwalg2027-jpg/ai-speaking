@@ -38,6 +38,19 @@ Adam's phone OTP login uses Firebase Authentication in the **same Google Cloud p
 Phone sign-in sends a real SMS per login; Firebase charges per SMS after a free allowance (check the current
 India rate in the Firebase pricing page). The server only accepts phone sign-in tokens for this project.
 
+## Admin console (one time, about 2 minutes)
+
+The admin console is at `<server address>/admin/`: dashboard, live settings, playground, evaluations,
+conversations and lessons (see `docs/LEARNING.md`). Sign-in is by phone, and only the numbers you list get in.
+After the steps above, in Cloud Shell (put your own number; several numbers are separated by commas):
+
+```bash
+PROJECT=cool-arch-515210-b0 ADMIN_PHONES=+919812345678 ./deploy/admin-setup.sh
+```
+
+It registers the console with Firebase, allows the server's address for sign-in, and gives the server the admin
+numbers. Run it again to change who is an admin. The team's test number (+91 99999 00000) can never be an admin.
+
 ## Deploying a new version
 
 Run the same command again. Cloud Run switches over without downtime; conversations in progress on the

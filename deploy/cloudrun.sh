@@ -109,7 +109,7 @@ gcloud run deploy "$SERVICE" \
   --no-invoker-iam-check \
   --add-cloudsql-instances "${PROJECT}:${REGION}:${DB_INSTANCE}" \
   --set-secrets "SARVAM_API_KEY=sarvam-api-key:latest,DATABASE_URL=adam-database-url:latest" \
-  --set-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${PROJECT},RECORDINGS_BUCKET=${BUCKET},VOICE_CACHE_BUCKET=${VOICE_BUCKET},SAKHI_DAILY_BUDGET_INR=${BUDGET_INR}" \
+  --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${PROJECT},RECORDINGS_BUCKET=${BUCKET},VOICE_CACHE_BUCKET=${VOICE_BUCKET},SAKHI_DAILY_BUDGET_INR=${BUDGET_INR}" \
   --min-instances 1 --max-instances 1 \
   --concurrency 80 --cpu 1 --memory 1Gi \
   --timeout 3600 --session-affinity --cpu-boost \

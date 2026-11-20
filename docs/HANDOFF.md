@@ -58,6 +58,15 @@ before a test; limits per address and per conversation; daily Sarvam spend cap �
 team tools (question review, cut-off editor, STT lab) are off in production — use `npm start` locally.
 A shared "team pass" that bypasses login was refused by the safety check; don't build one.
 
+## Learning module and admin console (Nov 2026)
+
+Practice conversations and lessons with personalised corrections, learner memory and evidence-based progress, plus
+an admin console at `/admin/` (dashboard, live settings, playground, evaluations). Everything is in
+`docs/LEARNING.md`, including the A vs B comparison: **B (one call + a check of corrections) is the default**:
+precision 97.6% vs 93.3%, wrong corrections on correct English 1.6% vs 8.1%, recall 93.2% vs 95.5%. The Android
+app doesn't use the learning API yet. Admin setup on Google Cloud: `deploy/admin-setup.sh` (not yet run).
+Keep prompt examples apart from `shared/eval/` sentences, or evaluations stop meaning anything.
+
 ## Pending (as of the handoff)
 
 Needs Prajwal: Google Play account type (personal → 14-day closed test with 12 testers); lawyer review of the
@@ -69,7 +78,7 @@ results; optionally move the project under the adamspeaks.in organization; load 
 
 ## Where things are in the code
 
-`server/` (index.js routes, session.js conversation, tutor.js Sakhi's lines, scoring.js levels with
+`server/` (index.js routes, session.js conversation, tutor.js Sakhi's lines, learning/ the learning module, admin/ and `public/admin/` the console, llm/ AI providers, settings.js live settings, scoring.js levels with
 `shared/scoring-config.json`, accounts.js/store.js customer data, live.js speech relay, recordings.js,
 voicecache.js), `shared/` (question bank, phrases), `public/` (web client, team tools), `android/` (Kotlin app,
 README inside), `deploy/` (scripts, README), `docs/` (design notes, this file).

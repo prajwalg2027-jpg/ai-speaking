@@ -28,7 +28,9 @@ import { loadDataset } from '../learning/eval.js';
 import * as evalRuns from '../learning/evalRuns.js';
 import { z } from 'zod';
 
-const adminPhones = () => new Set(String(process.env.ADMIN_PHONES || '').split(',').map((s) => s.trim()).filter(Boolean));
+// The team's Firebase test number signs in with a fixed code anyone on the team knows: never an admin.
+const TEST_PHONE = process.env.FIREBASE_TEST_PHONE || '+919999900000';
+const adminPhones = () => new Set(String(process.env.ADMIN_PHONES || '').split(',').map((s) => s.trim()).filter((p) => p && p !== TEST_PHONE));
 const q = async (sql, params) => (await pool.query(sql, params)).rows;
 const one = async (sql, params) => (await q(sql, params))[0] || null;
 const maskPhone = (p) => (p ? `${p.slice(0, 5)}•••••${p.slice(-3)}` : null);

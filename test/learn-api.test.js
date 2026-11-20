@@ -14,7 +14,7 @@ let server, base, mock, pool;
 before(async () => {
   if (!url) return;
   mock = await startMockRest();
-  Object.assign(process.env, { SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url, DATABASE_URL: url, FIREBASE_PROJECT_ID: PROJECT, ADMIN_PHONES: '+919800009999', FIREBASE_WEB_API_KEY: 'web-key' });
+  Object.assign(process.env, { SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url, DATABASE_URL: url, FIREBASE_PROJECT_ID: PROJECT, ADMIN_PHONES: '+919800009999,+919999900000', FIREBASE_WEB_API_KEY: 'web-key' });
   ({ pool } = await import('../server/db/pool.js'));
   await pool.query('drop schema public cascade; create schema public');
   await (await import('../server/db/migrate.js')).migrate(pool, () => {});
@@ -115,6 +115,7 @@ t('the admin console: config is public, everything else needs an admin phone num
   assert.deepEqual((await call('GET', '/api/admin/config')).json, { loginRequired: true, firebase: { apiKey: 'web-key', authDomain: `${PROJECT}.firebaseapp.com`, projectId: PROJECT } });
   assert.equal((await call('GET', '/api/admin/overview')).status, 401);
   assert.equal((await call('GET', '/api/admin/overview', asha)).status, 403);
+  assert.equal((await call('GET', '/api/admin/overview', login('u-test', '+919999900000'))).status, 403, 'the shared test number is never an admin');
   const o = await call('GET', '/api/admin/overview', admin);
   assert.equal(o.status, 200);
   assert.equal(o.json.totals.learners, 2, 'Asha and Ravi (admins are not learners)');
