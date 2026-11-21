@@ -67,6 +67,15 @@ precision 96.5% vs 93.9%, wrong corrections on correct English 3.2% vs 7.3%, rec
 app doesn't use the learning API yet. Admin setup on Google Cloud: `deploy/admin-setup.sh` (not yet run).
 Keep prompt examples apart from `shared/eval/` sentences, or evaluations stop meaning anything.
 
+## Placement test: classic and conversation (Nov 2026)
+
+Two placement tests, chosen in the admin console (Settings › Placement test); **classic is the default and must
+stay** (Prajwal may switch back). The new **conversation** test is a 2 to 4 question talk run by one AI call per
+turn, with a gentle fix after each answer and a readable level rule (the highest level reached twice). Its AI
+model is a setting: Sarvam, Claude, OpenAI or Gemini, compared side by side on the console's Compare models page.
+Everything is in `docs/PLACEMENT.md`. Not yet done: trying it with real models (keys via
+`deploy/llm-keys-setup.sh`), and the privacy policy line needed before learners' words go to a provider outside India.
+
 ## Payments (Nov 2026)
 
 The score is free; "Start learning" opens a ₹299/month subscription through Razorpay (`docs/PAYMENTS.md`). The

@@ -9,7 +9,7 @@ import { attachLiveRelay } from './live.js';
 import { readAccuracy } from './scoring.js';
 import { normalizeForCompare } from './normalize.js';
 import { makeTrace } from './trace.js';
-import { startSession, getSession, handleTurn, scriptedLines } from './session.js';
+import { startSession, getSession, handleTurn, scriptedLines } from './placement/index.js'; // classic or conversation (Settings)
 import { withLedger, summarize, shared, addSpeechToText, spentToday } from './costs.js';
 import { production, teamTools, LIMITS, isTeamPath, clientIp, sessionStarts, maySpeak } from './guard.js';
 import * as accounts from './accounts.js';

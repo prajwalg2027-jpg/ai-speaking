@@ -75,6 +75,17 @@ PROJECT=cool-arch-515210-b0 ./deploy/builds-setup.sh
 (the build already knows where to upload). Removing it: `deploy/builds-teardown.sh` and `docs/HANDOFF.md` ›
 Before production.
 
+## Other AI models (optional)
+
+The conversation placement test can run on Claude, OpenAI or Gemini instead of Sarvam (`docs/PLACEMENT.md`).
+Add the keys you have (each is typed at a hidden prompt and kept in Secret Manager):
+
+```
+PROJECT=cool-arch-515210-b0 PROVIDERS=anthropic,gemini ./deploy/llm-keys-setup.sh
+```
+
+Then compare models in the admin console (Compare models) and choose one in Settings › Placement test.
+
 ## Admin console
 
 At **https://adamspeaks.in/admin** (the website forwards `/admin` and the admin and sign-in APIs to the server;

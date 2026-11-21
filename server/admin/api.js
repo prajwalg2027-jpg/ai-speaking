@@ -17,11 +17,13 @@
 //   GET  /api/admin/conversations/:id      → the messages, corrections shown and dropped, timings
 //   GET  /api/admin/lessons                → lessons with how learners do in them
 //   /api/admin/team/**                     → people and roles (team.js)
+//   /api/admin/placement-lab/**            → compare AI models on the conversation placement (placementLab.js)
 import { pool } from '../db/pool.js';
 import * as settings from '../settings.js';
 import { loginEnabled, firebaseEnabled, otpEnabled, projectId } from '../auth.js';
 import { LIMITS } from '../guard.js';
 import { whoIs, need, handleTeam, PERMISSIONS } from './team.js';
+import { handlePlacementLab } from './placementLab.js';
 import { spentToday, PRICES } from '../costs.js';
 import { structured as defaultStructured, providers } from '../llm/index.js';
 import { readJson, send, fail, route, isUuid } from '../http.js';
@@ -132,6 +134,7 @@ export async function handleAdmin(req, res, url, deps = {}) {
     return send(res, 200, { value: await settings.reset(a.key, who.phone) }), true;
   }
 
+  if (p.startsWith('/api/admin/placement-lab')) { need(who, 'playground.use'); return handlePlacementLab(req, res, url, { structured: deps.structured }); }
   if (m === 'POST' && p === '/api/admin/playground') {
     need(who, 'playground.use');
     const b = Playground.safeParse(await readJson(req));

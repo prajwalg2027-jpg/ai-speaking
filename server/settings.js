@@ -8,7 +8,7 @@ import { CONFIG as SCORING_DEFAULTS, setScoringConfig } from './scoring.js';
 
 const num = (k, d) => (Number.isFinite(Number(process.env[k])) && process.env[k] !== '' ? Number(process.env[k]) : d);
 const llmJob = z.strictObject({
-  provider: z.enum(['sarvam', 'openai']),
+  provider: z.enum(['sarvam', 'openai', 'anthropic', 'gemini']),
   model: z.string().min(1).max(100),
   temperature: z.number().min(0).max(1.5),
 });
@@ -22,6 +22,23 @@ export const SECTIONS = {
       tutor: { provider: 'sarvam', model: 'sarvam-105b-conversations', temperature: 0.6 },
       verify: { provider: 'sarvam', model: 'sarvam-105b', temperature: 0 },
       lessonEval: { provider: 'sarvam', model: 'sarvam-105b', temperature: 0 },
+    },
+  },
+  // The placement test. 'classic': the five-part test (server/session.js). 'conversation': a short talk run by one
+  // AI call per turn, with feedback along the way (server/placement/). Both stay; new tests use the chosen one.
+  placement: {
+    label: 'Placement test',
+    schema: z.strictObject({
+      mode: z.enum(['classic', 'conversation']),
+      brain: llmJob,                                     // conversation mode: writes each of Sakhi's turns and rates the answer
+      summary: llmJob,                                   // conversation mode: the closing feedback (once per test)
+      maxQuestions: z.number().int().min(2).max(6),
+    }),
+    defaults: {
+      mode: 'classic',
+      brain: { provider: 'sarvam', model: 'sarvam-105b-conversations', temperature: 0.6 },
+      summary: { provider: 'sarvam', model: 'sarvam-105b', temperature: 0.3 },
+      maxQuestions: 4,
     },
   },
   corrections: {

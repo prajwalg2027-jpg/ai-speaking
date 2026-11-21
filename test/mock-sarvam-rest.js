@@ -43,6 +43,19 @@ export function startMockRest({ transcript = 'my name is ravi i like tea' } = {}
         content = JSON.stringify({ reply: 'That sounds nice! What happened next?', encouragement: null, follow_up_question: 'What happened next?', learning_signals: [],
           corrections: /\bI go\b/.test(said) ? [{ original: 'I go', corrected: 'I went', category: 'grammar', concept: 'past_simple', explanation: 'Use went for the past.', severity: 'important' }] : [] });
       }
+      // The conversation placement's brain: a level from the number of words, the question NEXT asks for, one fix.
+      else if (/first chat with them/.test(sys)) {
+        const said = user.match(/THE LEARNER JUST SAID: "([\s\S]*?)"\n/)?.[1] ?? null;
+        const words = said ? (said.match(/[A-Za-z']+/g) || []).length : 0;
+        const answered = said != null && !/\b(sorry|repeat|don't understand|did not understand|hindi)\b/i.test(said);
+        const level = !answered ? null : words < 4 ? 1 : words < 12 ? 2 : words < 28 ? 3 : 4;
+        const next = answered ? user.match(new RegExp(`If their answer is level ${level}: (.*)`))?.[1] : user.match(/If they did not answer: (.*)/)?.[1];
+        const lvl = next?.match(/level (\d) question/)?.[1];
+        const question = !next || /finish/.test(next) ? '' : /CURRENT QUESTION again/.test(next) ? 'Let me ask again, more simply. आसान शब्दों में: आप क्या करते हैं?' : `Here is a level ${lvl} question: why do you like it?`;
+        content = JSON.stringify({ answered, level, evidence: answered ? `${words} words` : '', tip: /\bI go\b/.test(said || '') ? { said: 'I go', better: 'I went' } : null,
+          name: said?.match(/my name is (\w+)/i)?.[1] || null, reply: answered ? (/\bI go\b/.test(said) ? 'Oh, you went there!' : 'That sounds nice.') : 'No problem.', question });
+      }
+      else if (/first short talk with a learner/.test(sys)) content = JSON.stringify({ doingWell: ['You answered every question in English.', 'You talked about your own life.'], practise: ["Say 'I went' instead of 'I go' for yesterday.", 'Next, we will join two ideas with because.'], closing: 'You talked about your life in English. Next, we will practise talking about yesterday.' });
       else if (/examiner/.test(sys)) content = '{"comprehension":3,"vocabulary":3,"grammar":3,"fluency":3,"pronunciation":3,"coherence":3,"relevant":true,"note":"ok"}';
       else if (/You are Sakhi/.test(sys)) {
         const must = (user.match(/MUST INCLUDE[^:]*: (.*)/)?.[1] || '').split(';').map((g) => g.match(/"([^"]+)"/)?.[1]).filter(Boolean);
