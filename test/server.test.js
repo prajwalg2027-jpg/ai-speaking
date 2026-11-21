@@ -60,21 +60,3 @@ test('old per-question endpoints are gone', async () => {
     assert.equal((await fetch(`${base}${path}`, { method: 'POST', body: '{}' })).status, 404, path);
   }
 });
-
-test('the admin console on its own address: "/" there, and /admin/ elsewhere redirects to it', async () => {
-  const get = (path, headers = {}) => fetch(`${base}${path}`, { redirect: 'manual', headers });
-  // Not set: /admin/ is the console and "/" the learner page, as before.
-  assert.match(await (await get('/admin/')).text(), /\/admin\/admin\.js/);
-  process.env.ADMIN_HOST = 'admin.adamspeaks.in';
-  try {
-    const viaHosting = { 'x-forwarded-host': 'admin.adamspeaks.in' };
-    assert.match(await (await get('/', viaHosting)).text(), /\/admin\/admin\.js/);
-    assert.equal((await get('/admin/admin.js', viaHosting)).status, 200, 'its files still load');
-    assert.equal((await get('/api/admin/config', viaHosting)).status, 200);
-    const old = await get('/admin/');
-    assert.equal(old.status, 301);
-    assert.equal(old.headers.get('location'), 'https://admin.adamspeaks.in/');
-    assert.equal((await get('/admin')).headers.get('location'), 'https://admin.adamspeaks.in/');
-    assert.doesNotMatch(await (await get('/')).text(), /\/admin\/admin\.js/, 'the main address is unchanged');
-  } finally { delete process.env.ADMIN_HOST; }
-});

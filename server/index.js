@@ -192,21 +192,6 @@ async function handleLabCompare(req, res) {
     compared: { expected: normalizeForCompare(expected).join(' '), heard: normalizeForCompare(heard).join(' ') } });
 }
 
-// The admin console's own address (ADMIN_HOST, e.g. admin.adamspeaks.in: a Firebase Hosting site that forwards
-// everything here; deploy/admin-domain-setup.sh). There, "/" is the console; elsewhere, /admin/ redirects to it.
-// Firebase Hosting passes the address people typed in X-Forwarded-Host.
-export function requestHost(req) {
-  return String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().toLowerCase().replace(/:\d+$/, '');
-}
-function adminHostRoute(req, res, pathname) {
-  const admin = (process.env.ADMIN_HOST || '').trim().toLowerCase();
-  if (!admin) return null;
-  const onAdmin = requestHost(req) === admin;
-  if (onAdmin && pathname === '/') return '/admin/';
-  if (!onAdmin && (pathname === '/admin' || pathname === '/admin/')) { res.writeHead(301, { location: `https://${admin}/` }); res.end(); return true; }
-  return null;
-}
-
 async function serveStatic(res, pathname) {
   if (pathname === '/admin') { res.writeHead(301, { location: '/admin/' }); return res.end(); }
   const rel = pathname === '/' ? 'public/index.html' : pathname === '/admin/' ? 'public/admin/index.html' : pathname.startsWith('/shared/') ? pathname.slice(1) : `public${pathname}`;
@@ -256,11 +241,7 @@ export const server = createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/tts/stream') return await handleTTSStream(req, res);
     if (req.method === 'POST' && url.pathname === '/api/lab/transcribe') return await handleLabTranscribe(req, res, url);
     if (req.method === 'POST' && url.pathname === '/api/lab/compare') return await handleLabCompare(req, res);
-    if (req.method === 'GET') {
-      const admin = adminHostRoute(req, res, url.pathname);
-      if (admin === true) return;
-      return await serveStatic(res, admin || url.pathname);
-    }
+    if (req.method === 'GET') return await serveStatic(res, url.pathname);
     send(res, 404, { error: 'not found' });
   } catch (e) {
     if (!(e.status >= 400 && e.status < 500)) console.error(e); // a refused request (401, 403, 400…) isn't a server error

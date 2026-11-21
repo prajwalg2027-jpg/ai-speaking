@@ -61,7 +61,7 @@ A shared "team pass" that bypasses login was refused by the safety check; don't 
 ## Learning module and admin console (Nov 2026)
 
 Practice conversations and lessons with personalised corrections, learner memory and evidence-based progress, plus
-an admin console at **admin.adamspeaks.in** (`/admin/` locally; `deploy/admin-domain-setup.sh`) (dashboard, live settings, playground, evaluations). Everything is in
+an admin console at `/admin/` (dashboard, live settings, playground, evaluations). Everything is in
 `docs/LEARNING.md`, including the A vs B comparison (runs 3+4, 296 turns): **B (one call + a check of corrections) is the default**:
 precision 96.5% vs 93.9%, wrong corrections on correct English 3.2% vs 7.3%, recall 93.2% vs 96.0%. The Android
 app doesn't use the learning API yet. Admin setup on Google Cloud: `deploy/admin-setup.sh` (not yet run).
