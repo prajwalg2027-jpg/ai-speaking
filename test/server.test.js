@@ -60,3 +60,11 @@ test('old per-question endpoints are gone', async () => {
     assert.equal((await fetch(`${base}${path}`, { method: 'POST', body: '{}' })).status, 404, path);
   }
 });
+
+test('the admin console answers at /admin with or without the slash (adamspeaks.in/admin strips it)', async () => {
+  for (const p of ['/admin', '/admin/']) {
+    const r = await fetch(`${base}${p}`, { redirect: 'manual' });
+    assert.equal(r.status, 200, p);
+    assert.match(await r.text(), /\/admin\/admin\.js/);
+  }
+});

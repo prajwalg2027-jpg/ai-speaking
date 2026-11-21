@@ -193,8 +193,8 @@ async function handleLabCompare(req, res) {
 }
 
 async function serveStatic(res, pathname) {
-  if (pathname === '/admin') { res.writeHead(301, { location: '/admin/' }); return res.end(); }
-  const rel = pathname === '/' ? 'public/index.html' : pathname === '/admin/' ? 'public/admin/index.html' : pathname.startsWith('/shared/') ? pathname.slice(1) : `public${pathname}`;
+  // /admin and /admin/ are both the console: adamspeaks.in/admin (Firebase Hosting strips trailing slashes) and the server's own address.
+  const rel = pathname === '/' ? 'public/index.html' : pathname === '/admin/' || pathname === '/admin' ? 'public/admin/index.html' : pathname.startsWith('/shared/') ? pathname.slice(1) : `public${pathname}`;
   const file = normalize(join(ROOT, rel));
   if (!file.startsWith(ROOT)) { res.writeHead(403); return res.end(); }
   try {

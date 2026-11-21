@@ -77,7 +77,8 @@ Before production.
 
 ## Admin console
 
-At `<server address>/admin/`: dashboard, live settings, playground, evaluations, conversations and lessons
+At **https://adamspeaks.in/admin** (the website forwards `/admin` and the admin and sign-in APIs to the server;
+`<server address>/admin/` works too): dashboard, live settings, playground, evaluations, conversations and lessons
 (`docs/LEARNING.md`). Sign-in is the same SMS code; only the numbers in `ADMIN_PHONES` get in (set by
 `msg91-setup.sh`; run it again to change them).
 
