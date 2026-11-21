@@ -4,7 +4,7 @@ import android.app.Application
 import com.sakhi.app.auth.AuthInterceptor
 import com.sakhi.app.auth.AuthRefresher
 import com.sakhi.app.auth.EventLog
-import com.sakhi.app.auth.FirebasePhoneAuth
+import com.sakhi.app.auth.OtpPhoneAuth
 import com.sakhi.app.auth.PhoneAuth
 import com.sakhi.app.config.RemoteAppConfig
 import com.sakhi.app.config.ServerConfig
@@ -20,8 +20,10 @@ import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 /** The app's shared objects, created once (manual dependency injection: small, fast to build, no magic). */
-class AppContainer(app: Application, val auth: PhoneAuth = FirebasePhoneAuth(app)) {
+class AppContainer(app: Application, authFor: ((ServerConfig) -> PhoneAuth)? = null) {
     val server = ServerConfig(app)
+    /** Phone OTP sign-in through the Adam server (MSG91 sends the SMS). */
+    val auth: PhoneAuth = authFor?.invoke(server) ?: OtpPhoneAuth(app) { server.baseUrl }
     /** adamspeaks.in/app-config.json: the server's address and the minimum app version. */
     val appConfig = RemoteAppConfig(server, BuildConfig.VERSION_CODE, BuildConfig.APP_CONFIG_URL,
         app.getSharedPreferences("adam.appconfig", android.content.Context.MODE_PRIVATE))

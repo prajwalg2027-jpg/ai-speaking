@@ -23,7 +23,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** A phone login that behaves like Firebase, without Google Play services. */
+/** A phone login that behaves like the real one, without a server. */
 class FakePhoneAuth(var autoRead: Boolean = false) : PhoneAuth {
     override val configured = true
     override var currentUser: AuthUser? = null

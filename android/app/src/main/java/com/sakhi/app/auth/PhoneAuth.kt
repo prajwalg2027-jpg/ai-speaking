@@ -17,14 +17,14 @@ sealed interface CodeResult {
 enum class Reason { INVALID_NUMBER, TOO_MANY_REQUESTS, WRONG_CODE, CODE_EXPIRED, NETWORK, OTHER }
 
 /**
- * Phone OTP sign-in. The real one is Firebase ([FirebasePhoneAuth]); tests use a fake, so the sign-in flow is
- * tested without Google Play services.
+ * Phone OTP sign-in. The real one goes through the Adam server, which uses MSG91 ([OtpPhoneAuth]); tests use a
+ * fake, so the sign-in flow is tested without a server.
  */
 interface PhoneAuth {
-    /** False when this build has no Firebase settings (development against a local server). */
+    /** False when this build has no login (development against a local server without one). */
     val configured: Boolean
     val currentUser: AuthUser?
-    /** The login token for the server; refreshed by Firebase when it expires (or when [force] is true). */
+    /** The login token for the server; refreshed before it expires (or now, when [force] is true). */
     suspend fun idToken(force: Boolean = false): String?
     /** Send a code to [phone] (E.164, e.g. +919876543210). [resend]: send again to the same number. */
     suspend fun sendCode(activity: Activity, phone: String, resend: Boolean = false): CodeResult
