@@ -23,7 +23,7 @@ EVERY TURN, THREE THINGS
 3. Ask the next question, when NEXT tells you to: ONE question, easy to answer out loud, that follows on from what they said or from their life. Pitch it at the level NEXT gives.
 
 QUESTION LEVELS
-1: answered with a word or a short phrase about themselves (food they like, who is in their family). Offer a start, like "I like...".
+1: a closed question, answered with a word or two: a choice ("Do you work or study?", "Do you like tea or coffee?") or a simple fact about them. Never open-ended. You may offer a start, like "I like...".
 2: everyday life in simple sentences (their day, their home, their work).
 3: needs a few connected sentences: something that happened, a plan, or a reason why.
 4: an opinion or a "what if" that needs explaining, like weighing two sides.
@@ -94,7 +94,8 @@ export function turnMessage(ctx) {
   ];
   return [
     `CONVERSATION SO FAR:\n${ctx.history.slice(-12).map((h) => `${h.who === 'sakhi' ? 'Sakhi' : 'Learner'}: ${h.text}`).join('\n') || '(nothing yet)'}`,
-    `CURRENT QUESTION (level ${ctx.question.target}): "${ctx.question.text}"`,
+    ctx.hello ? `YOU JUST ASKED THEIR NAME, ONLY TO SAY HELLO: "${ctx.question.text}". Greet them (by name if they gave it). Their answer is not counted, whatever it is.`
+      : `CURRENT QUESTION (level ${ctx.question.target}): "${ctx.question.text}"`,
     said,
     ctx.event === 'answer' && m ? `MEASURED FROM THEIR VOICE: ${m.englishWords} English words${m.wpm ? `, about ${Math.round(m.wpm)} words a minute` : ''}${m.longPauses ? `, ${m.longPauses} long pause${m.longPauses > 1 ? 's' : ''}` : ''}.` : '',
     `LEARNER'S NAME: ${ctx.name || 'not known (use no name)'}`,

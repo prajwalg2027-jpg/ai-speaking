@@ -20,8 +20,9 @@ until the end. Its scoring had become too complicated to predict.
 
 ## How a conversation goes
 
-1. **Opening**, the same for everyone, in English and then Hindi, and a first question in both
-   ("What did you do this morning?").
+1. **Opening**, the same for everyone, in English and then Hindi, then **"What's your name?"** in both. This
+   hello is not counted. An open question first ("Tell me about your morning") frightened beginners off, so the
+   talk starts closed and opens up: the first counted question is an easy closed one ("Do you work or study?").
 2. After each answer, **one AI call** (`server/placement/brain.js`) returns, together:
    - whether it was an answer (or a request for help, silence, something else),
    - the **level of the answer**, 1 to 4, with a one-line reason,
@@ -42,7 +43,7 @@ everyday life, many mistakes) · **3 Good** (connected sentences, the past, reas
 opinions and ideas at length, few mistakes).
 
 - **The result is the highest level reached in two answers.**
-- **Which question comes next:** question 1 is a warm-up. Question 2 is one level above the first answer.
+- **Which question comes next:** question 1 is an easy closed question (level 1). Question 2 is one level above the first answer.
   After two answers at the same level, it ends. Otherwise a third question, at the higher of the two. After
   three it ends, unless the third answer was above the level so far: then one last question. Never more than
   the setting "Most questions in a conversation" (4).

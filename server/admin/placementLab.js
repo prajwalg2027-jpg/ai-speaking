@@ -71,7 +71,7 @@ export async function handlePlacementLab(req, res, url, deps = {}) {
     const s = conversation.getSession(t.sessionId);
     s.labModels = b;
     return send(res, 200, {
-      labId: s.id, say: t.say.map((l) => l.text), question: { n: s.q.n, level: s.q.target },
+      labId: s.id, say: t.say.map((l) => l.text), question: { n: s.q.n, level: s.q.target, ...(s.q.hello ? { hello: true } : {}) },
       models: [b.primary, ...b.others].map((x) => ({ model: label(x), configured: ready(x) })),
     }), true;
   }
@@ -96,7 +96,7 @@ export async function handlePlacementLab(req, res, url, deps = {}) {
     const rated = trace.list.find((x) => x.step === 'rated');
     const out = {
       say: turn.say.map((l) => l.text),
-      question: turn.task ? { n: s.q.n, level: s.q.target } : null,
+      question: turn.task ? { n: s.q.n, level: s.q.target, ...(s.q.hello ? { hello: true } : {}) } : null,
       primary: {
         model: label(primary), ...(brain ? { ms: brain.ms, costInr: brain.costInr, answered: brain.answered, level: brain.level, evidence: brain.evidence, tip: brain.tip, reply: brain.reply, question: brain.question } : {}),
         ...(failed ? { error: failed.why } : {}),

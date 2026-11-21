@@ -21,10 +21,12 @@ test('the app runs a whole conversation placement through the same API as the cl
   await settings.set('placement', { ...settings.get('placement'), mode: 'conversation' }, 'test');
   try {
     const start = (await post('/api/session')).json;
-    assert.equal(start.task.id, 'c1');
+    assert.equal(start.task.id, 'c0');
     assert.equal(start.say.length, 4);
     const turn = (transcript) => post('/api/session/turn', { sessionId: start.sessionId, event: 'answer', transcript, speechSec: 5 });
-    let t = (await turn('In the morning I go to the market and bought some vegetables for my family')).json;
+    let t = (await turn('My name is Ravi')).json;
+    assert.deepEqual([t.task.id, t.task.level], ['c1', 1], 'after the hello: an easy first question');
+    t = (await turn('In the morning I go to the market and bought some vegetables for my family')).json;
     assert.match(t.say.map((l) => l.text).join(' '), /Oh, you went there! Here is a level 4 question/);
     assert.equal(t.task.level, 4);
     t = (await turn('I like it because the vegetables are fresh there and the shopkeeper knows me well')).json;
@@ -51,7 +53,10 @@ test('comparing models: the same turn for each, with the level, speed and cost; 
   })).json;
   assert.equal(lab.say.length, 4);
   assert.deepEqual(lab.models.map((m) => m.configured), [true, true, false]);
-  let t = (await post('/api/admin/placement-lab/turn', { labId: lab.labId, message: 'I go to office by bus every day and I work on the computer there' })).json;
+  assert.deepEqual(lab.question, { n: 0, level: 1, hello: true });
+  let t = (await post('/api/admin/placement-lab/turn', { labId: lab.labId, message: 'My name is Ravi' })).json;
+  assert.deepEqual([t.primary.counted, t.ratings, t.question], [null, [], { n: 1, level: 1 }], 'the hello is not counted');
+  t = (await post('/api/admin/placement-lab/turn', { labId: lab.labId, message: 'I go to office by bus every day and I work on the computer there' })).json;
   assert.deepEqual([t.primary.model, t.primary.level, t.primary.counted.level, t.primary.tip.said], ['sarvam/sarvam-105b-conversations', 3, 3, 'I go']);
   assert.ok(t.primary.ms >= 0 && t.primary.costInr > 0);
   assert.deepEqual([t.others[0].model, t.others[0].level, t.others[0].reply], ['sarvam/sarvam-105b', 3, 'Oh, you went there!']);

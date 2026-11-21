@@ -413,7 +413,7 @@ const speedCost = (x) => html`<p class="small muted lab-meta">Speed ${ms(x.ms)} 
 function progressLine(ratings, q) {
   const parts = [];
   if (ratings.length) parts.push(`Answers so far: ${ratings.map((r) => `level ${r.level} (asked ${r.asked}${r.missed ? ", couldn't answer" : ''})`).join(', ')}`);
-  if (q) parts.push(`Now asking question ${q.n}, a level ${q.level} question`);
+  if (q) parts.push(q.hello ? 'Now saying hello (asking their name; not counted)' : `Now asking question ${q.n}, a level ${q.level} question`);
   return parts.join(' · ');
 }
 

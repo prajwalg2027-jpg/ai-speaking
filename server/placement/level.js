@@ -4,7 +4,8 @@
 //   The result is THE HIGHEST LEVEL THEY REACHED IN TWO ANSWERS.
 //
 //   Which question comes next:
-//     Question 1  a warm-up about their life.
+//     Hello       "What's your name?" Not counted.
+//     Question 1  an easy closed question (a word or two answers it), so nobody starts on a hard one.
 //     Question 2  one level above their first answer (can they go higher?).
 //     After 2     same level twice: finished. Otherwise question 3, at the higher of the two.
 //     After 3     finished, unless the third answer was above the level so far: then one last question at it.
@@ -18,7 +19,7 @@
 //
 // A question they couldn't answer after help counts as one level below that question's level.
 
-export const WARM_UP = 2;         // the first question suits everyone: it can be answered in a word or at length
+export const WARM_UP = 1;         // the first counted question is closed and easy: a word or two answers it
 export const MIN_ENGLISH = 5;     // fewer English words than this in the whole talk: level 1
 export const ENOUGH_ENGLISH = 25; // fewer than this: level 2 at most
 

@@ -25,6 +25,8 @@ const OPENING = {
   en: "Hi! I'm Sakhi. Let's chat for two minutes, so I can understand your English.",
   hi: 'नमस्ते! दो मिनट बात करते हैं, ताकि मैं आपकी अंग्रेज़ी समझ सकूँ। अंग्रेज़ी में बोलने की कोशिश कीजिए, थोड़े शब्द भी काफ़ी हैं।',
 };
+// The first thing she asks: closed, and not counted. Then an easy closed question, then they open up (level.js).
+const HELLO = { en: "First, what's your name?", hi: 'सबसे पहले, आपका नाम क्या है?' };
 const levelLine = (level) => `Thank you! Your English is at level ${level} of 4, ${LEVELS[level].name}.`;
 const ACK = { en: 'Okay.', hi: 'ठीक है।' };
 const INDIC = /[ऀ-ൿ]/;
@@ -54,7 +56,7 @@ const bankQuestion = (target) => { const pool = BANK.speak[target] || BANK.speak
 /** Lines worth generating ahead (the voice cache), and the fixed lines Sakhi may always say. */
 export function scriptedLines() {
   return [
-    line(OPENING.en), line(OPENING.hi, 0.95), ...BANK.open.flatMap((o) => [line(o.simple), line(o.hindi, 0.95)]),
+    line(OPENING.en), line(OPENING.hi, 0.95), line(HELLO.en), line(HELLO.hi, 0.95),
     line(PHRASES.didntHear, 0.95), line(PHRASES.moveOn), line(ACK.en), line(ACK.hi, 0.95),
     ...[1, 2, 3, 4].map((l) => line(levelLine(l))), line(LEVELS[1].hindi, 0.95), line(LEVELS[2].hindi, 0.95),
   ];
@@ -62,15 +64,14 @@ export function scriptedLines() {
 
 // ---- the session -------------------------------------------------------------------------------------
 export function startSession({ lab = false } = {}) {
-  const open = BANK.open[Math.floor(Math.random() * BANK.open.length)];
   const s = {
     id: randomUUID(), mode: 'conversation', lab, at: Date.now(), history: [], answers: [], ratings: [],
     profile: { name: null, facts: [], language: null },
-    q: { n: 1, text: open.simple, target: WARM_UP, tries: 0, unheard: 0 },
+    q: { n: 0, hello: true, text: HELLO.en, target: WARM_UP, tries: 0, unheard: 0 },
     done: false, result: null, prev: null, ledger: makeLedger(),
   };
   sessions.set(s.id, s);
-  return respond(s, [line(OPENING.en), line(OPENING.hi, 0.95)], [line(open.simple), line(open.hindi, 0.95)], { plan: 'opening' });
+  return respond(s, [line(OPENING.en), line(OPENING.hi, 0.95)], [line(HELLO.en), line(HELLO.hi, 0.95)], { plan: 'opening' });
 }
 
 /** Say `before` (a reaction) and then `ask` (the question): the reply the app plays. */
@@ -92,14 +93,15 @@ function respond(s, before, ask = [], extra = {}) {
  */
 export function buildCtx(s, input) {
   const max = settings.get('placement').maxQuestions;
-  const after = (level) => nextStep([...s.ratings, { level }], max);
+  // After the hello (not counted), whatever they said: the first counted question.
+  const after = (level) => (s.q.hello ? { done: false, target: WARM_UP } : nextStep([...s.ratings, { level }], max));
   const f = input.event === 'answer' ? features(input.transcript, { speechSec: input.speechSec, kind: 'open', timing: input.timing }) : null;
   return {
-    history: [...s.history], question: { text: s.q.text, target: s.q.target }, event: input.event, transcript: input.transcript || '',
+    history: [...s.history], hello: !!s.q.hello, question: { text: s.q.text, target: s.q.target }, event: input.event, transcript: input.transcript || '',
     measured: f && { englishWords: f.englishWordCount, wpm: f.speechRate ?? f.wpm, longPauses: f.longPauses ?? 0 }, features: f,
     name: s.profile.name, afterLevel: { 1: after(1), 2: after(2), 3: after(3), 4: after(4) },
     // Skipped, or already helped twice: move on (the question counts as missed). Otherwise: help and ask again.
-    notAnswered: input.event === 'skip' || s.q.tries >= 2 ? { step: after(missedLevel(s.q.target)) } : { help: true },
+    notAnswered: input.event === 'skip' || s.q.tries >= (s.q.hello ? 1 : 2) ? { step: after(missedLevel(s.q.target)) } : { help: true },
   };
 }
 
@@ -174,6 +176,13 @@ async function advance(s, ctx, out, input, note, opts) {
     q.tries++;
     note('plan', { next: 'help, then the same question again', try: q.tries });
     return respond(s, linesOf(reply), linesOf(question || q.text, 0.9), { heard });
+  }
+  if (q.hello) {
+    // The hello isn't an answer to rate: on to the first counted question.
+    note('plan', { next: 'the first question', why: 'the hello is not counted' });
+    const ask = question || bankQuestion(WARM_UP);
+    s.q = { n: 1, text: ask, target: WARM_UP, tries: 0, unheard: 0 };
+    return respond(s, linesOf(withoutQuestions(reply)), linesOf(ask), { heard });
   }
   const f = ctx.features || {};
   const entry = { questionId: `c${q.n}`, item: null, kind: 'open', variantLevel: q.target, question: q.text, neededHindi: false, languageCode: input.languageCode || null };
