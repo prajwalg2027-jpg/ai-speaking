@@ -37,36 +37,68 @@ document.addEventListener('mousemove', (e) => {
 });
 
 // ---- sign-in and API -------------------------------------------------------------------------------
-let auth = null;
+// Sign-in: by OTP through this server (MSG91) when it's set up, else Firebase's phone sign-in in the browser.
+// The OTP session token is kept for this browser tab only (sessionStorage), never in the page's address.
+let auth = null; // Firebase, when that's the way in
+const TOKEN_KEY = 'adam.admin.token';
+const tokenStore = {
+  get() { try { return sessionStorage.getItem(TOKEN_KEY); } catch { return null; } },
+  set(v) { try { if (v) sessionStorage.setItem(TOKEN_KEY, v); else sessionStorage.removeItem(TOKEN_KEY); } catch { /* private mode */ } },
+};
 const FIREBASE = 'https://www.gstatic.com/firebasejs/10.12.2';
 const loadScript = (src) => new Promise((ok, fail) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => fail(new Error(`could not load ${src}`)); document.head.append(s); });
 
+async function bearer() {
+  if (auth?.currentUser) return auth.currentUser.getIdToken();
+  return tokenStore.get();
+}
+
 async function api(path, { method = 'GET', body } = {}) {
   const headers = body ? { 'content-type': 'application/json' } : {};
-  if (auth?.currentUser) headers.authorization = `Bearer ${await auth.currentUser.getIdToken()}`;
+  const token = await bearer();
+  if (token) headers.authorization = `Bearer ${token}`;
   const res = await fetch(`/api/admin${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(data.reason || data.error || res.statusText), { status: res.status });
   return data;
 }
 
+async function post(path, body, token) {
+  const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body || {}) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data.reason || data.error || res.statusText), { status: res.status });
+  return data;
+}
+
+async function signOut() {
+  if (auth) await auth.signOut();
+  const t = tokenStore.get();
+  tokenStore.set(null);
+  if (t) await post('/api/auth/logout', {}, t).catch(() => {});
+  location.reload();
+}
+
 async function boot() {
   const cfg = await fetch('/api/admin/config').then((r) => r.json());
-  if (cfg.loginRequired) {
-    if (!cfg.firebase) return show(html`<div class="card login"><h1>Sign-in isn't set up</h1><p>This server uses phone login but has no <code>FIREBASE_WEB_API_KEY</code>. See <code>deploy/README.md</code> → "Admin console".</p></div>`);
+  if (cfg.loginRequired && cfg.login === 'otp') {
+    if (!tokenStore.get()) return otpLoginPage();
+  } else if (cfg.loginRequired) {
+    if (!cfg.firebase) return show(html`<div class="card login"><h1>Sign-in isn't set up</h1><p>This server has no OTP sign-in (MSG91) and no <code>FIREBASE_WEB_API_KEY</code>. See <code>deploy/README.md</code> → "Admin console".</p></div>`);
     await loadScript(`${FIREBASE}/firebase-app-compat.js`);
     await loadScript(`${FIREBASE}/firebase-auth-compat.js`);
     firebase.initializeApp(cfg.firebase);
     auth = firebase.auth();
     await new Promise((ok) => { const off = auth.onAuthStateChanged(() => { off(); ok(); }); });
-    if (!auth.currentUser) return loginPage();
+    if (!auth.currentUser) return firebaseLoginPage();
   }
+  const signedIn = cfg.loginRequired;
   try {
     const me = await api('/me');
-    $('#who').innerHTML = fmt(html`<span>${me.phone === 'local' ? 'Local development (no login)' : me.phone}</span>${auth ? html`<button class="link" id="signout">Sign out</button>` : ''}`);
-    $('#signout')?.addEventListener('click', async () => { await auth.signOut(); location.reload(); });
+    $('#who').innerHTML = fmt(html`<span>${me.phone === 'local' ? 'Local development (no login)' : me.phone}</span>${signedIn ? html`<button class="link" id="signout">Sign out</button>` : ''}`);
+    $('#signout')?.addEventListener('click', signOut);
   } catch (e) {
-    if (e.status === 403 && auth) return show(html`<div class="card login"><h1>Not an admin</h1><p>${auth.currentUser.phoneNumber} isn't on the admin list (<code>ADMIN_PHONES</code> on the server).</p><button id="out">Use another number</button></div>`), $('#out').addEventListener('click', async () => { await auth.signOut(); location.reload(); });
+    if (e.status === 401 && cfg.login === 'otp') { tokenStore.set(null); return otpLoginPage(); }
+    if (e.status === 403 && signedIn) return show(html`<div class="card login"><h1>Not an admin</h1><p>This phone number isn't on the admin list (<code>ADMIN_PHONES</code> on the server).</p><button id="out">Use another number</button></div>`), $('#out').addEventListener('click', signOut);
     return show(html`<div class="card login"><h1>Can't open the console</h1><p class="err">${e.message}</p></div>`);
   }
   $('#nav').hidden = false;
@@ -74,23 +106,47 @@ async function boot() {
   route();
 }
 
-function loginPage() {
-  show(html`<div class="card login">
+const loginForm = () => html`<div class="card login">
     <h1>Admin sign-in</h1>
-    <p class="muted">Use the phone number on the admin list. We'll send you a code.</p>
-    <div id="step1"><label class="f">Phone number<input id="phone" type="tel" value="+91" autocomplete="tel"></label><p></p><button class="primary" id="send">Send code</button></div>
-    <div id="step2" hidden><label class="f">Code from the SMS<input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6"></label><p></p><button class="primary" id="verify">Sign in</button></div>
-    <p class="err" id="lerr"></p></div>`);
+    <p class="muted">Use the phone number on the admin list. We'll send you a code by SMS.</p>
+    <form id="step1"><label class="f">Phone number<input id="phone" type="tel" value="+91 " autocomplete="tel" required></label><p></p><button class="primary" id="send" type="submit">Send code</button></form>
+    <form id="step2" hidden><label class="f">Code from the SMS<input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" required></label><p></p>
+      <div class="row end"><button class="primary" type="submit">Sign in</button><button type="button" class="link" id="again">Send the code again</button></div></form>
+    <p class="err" id="lerr" role="alert"></p></div>`;
+
+function otpLoginPage() {
+  show(loginForm());
+  let requestId = null;
+  const busy = (form, on) => { for (const b of $$('button', form)) b.disabled = on; };
+  $('#step1').addEventListener('submit', async (e) => {
+    e.preventDefault(); $('#lerr').textContent = ''; busy(e.target, true);
+    try { ({ requestId } = await post('/api/auth/otp/send', { phone: $('#phone').value })); $('#step1').hidden = true; $('#step2').hidden = false; $('#code').focus(); }
+    catch (x) { $('#lerr').textContent = x.message; } finally { busy(e.target, false); }
+  });
+  $('#again').addEventListener('click', async () => {
+    $('#lerr').textContent = '';
+    try { await post('/api/auth/otp/resend', { requestId }); toast('Sent again'); } catch (x) { $('#lerr').textContent = x.message; }
+  });
+  $('#step2').addEventListener('submit', async (e) => {
+    e.preventDefault(); $('#lerr').textContent = ''; busy(e.target, true);
+    try { const s = await post('/api/auth/otp/verify', { requestId, code: $('#code').value.trim(), client: 'admin' }); tokenStore.set(s.token); location.reload(); }
+    catch (x) { $('#lerr').textContent = x.message; busy(e.target, false); }
+  });
+}
+
+function firebaseLoginPage() {
+  show(loginForm());
+  $('#again').hidden = true;
   const verifier = new firebase.auth.RecaptchaVerifier('send', { size: 'invisible' });
   let confirmation = null;
-  $('#send').addEventListener('click', async () => {
-    $('#lerr').textContent = '';
+  $('#step1').addEventListener('submit', async (e) => {
+    e.preventDefault(); $('#lerr').textContent = '';
     try { confirmation = await auth.signInWithPhoneNumber($('#phone').value.replace(/\s+/g, ''), verifier); $('#step1').hidden = true; $('#step2').hidden = false; $('#code').focus(); }
-    catch (e) { $('#lerr').textContent = e.message; }
+    catch (x) { $('#lerr').textContent = x.message; }
   });
-  $('#verify').addEventListener('click', async () => {
-    $('#lerr').textContent = '';
-    try { await confirmation.confirm($('#code').value.trim()); location.reload(); } catch (e) { $('#lerr').textContent = e.message; }
+  $('#step2').addEventListener('submit', async (e) => {
+    e.preventDefault(); $('#lerr').textContent = '';
+    try { await confirmation.confirm($('#code').value.trim()); location.reload(); } catch (x) { $('#lerr').textContent = x.message; }
   });
 }
 
