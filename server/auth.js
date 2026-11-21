@@ -4,9 +4,15 @@
 import { createPublicKey, createVerify } from 'node:crypto';
 
 const CERTS_URL = 'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
+import * as sessions from './sessions.js';
+import * as msg91 from './msg91.js';
+
 export const projectId = () => process.env.FIREBASE_PROJECT_ID || '';
-/** Login is on when a Firebase project is configured. Production requires it (see server/index.js). */
-export const loginEnabled = () => !!projectId();
+export const firebaseEnabled = () => !!projectId();
+/** OTP login (server/login.js): MSG91 or the test number, plus the server's own sessions. */
+export const otpEnabled = () => sessions.enabled() && (msg91.configured() || !!(process.env.MSG91_TEST_PHONE && process.env.MSG91_TEST_CODE));
+/** Login is on when either way of signing in is set up. Production requires it (see server/index.js). */
+export const loginEnabled = () => firebaseEnabled() || otpEnabled();
 
 let cache = { keys: null, until: 0 };
 /** kid → public key, from Google (cached for as long as Google says). Replaceable in tests. */
@@ -46,8 +52,15 @@ export async function verifyIdToken(token, now = Date.now() / 1000) {
   return { uid: claims.sub, phone: claims.phone_number || null };
 }
 
-/** The signed-in caller of an HTTP or WebSocket request, or null when there's no token. Throws on a bad one. */
+/**
+ * The signed-in caller of an HTTP or WebSocket request, or null when there's no token. Throws on a bad one.
+ * → { uid, phone } (Firebase), or { uid, phone, userId, sessionId } (an OTP login's session)
+ */
 export async function caller(req) {
   const m = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || '');
-  return m ? verifyIdToken(m[1].trim()) : null;
+  if (!m) return null;
+  const token = m[1].trim();
+  if (sessions.isOurs(token)) return sessions.verify(token);
+  if (!firebaseEnabled()) throw Object.assign(new Error('login: unknown token'), { status: 401 });
+  return verifyIdToken(token);
 }

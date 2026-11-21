@@ -2,9 +2,10 @@
 // event log, erasure, and saving each placement test as it happens (server/store.js).
 import * as store from './store.js';
 import * as recordings from './recordings.js';
-import { caller, loginEnabled, projectId } from './auth.js';
+import { caller, loginEnabled, firebaseEnabled, projectId } from './auth.js';
 import { deleteFirebaseUser } from './gcp.js';
 import { summarize } from './costs.js';
+import * as sessions from './sessions.js';
 import { CONFIG as SCORING } from './scoring.js';
 
 // Firebase uid → our user id, so a turn doesn't need a database round trip just to know who's speaking.
@@ -21,6 +22,7 @@ export async function identify(req, { required = loginEnabled() } = {}) {
     if (required) throw Object.assign(new Error('login required'), { status: 401 });
     return { user: null };
   }
+  if (who.userId) return { user: { id: who.userId, uid: who.uid, phone: who.phone, sessionId: who.sessionId } };
   let id = known.get(who.uid);
   if (!id && store.enabled()) {
     const u = await store.upsertUser({ firebaseUid: who.uid, phone: who.phone });
@@ -78,9 +80,10 @@ export async function saveEvents(user, events) {
 
 /** Erase everything personal (DPDP Act), including the Firebase login. */
 export async function erase(user) {
+  await sessions.forgetUser(user.id); // first: the session rows go with the account
   const r = await store.eraseUser(user.id, recordings.remove);
   known.delete(user.uid);
-  if (loginEnabled()) await deleteFirebaseUser(projectId(), user.uid).catch((e) => console.warn('[accounts] Firebase account not deleted:', e.message));
+  if (firebaseEnabled() && !String(user.uid).startsWith('phone:')) await deleteFirebaseUser(projectId(), user.uid).catch((e) => console.warn('[accounts] Firebase account not deleted:', e.message));
   return { erased: true, recordings: r.recordings };
 }
 

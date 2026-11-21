@@ -112,7 +112,7 @@ t('Sakhi\'s voice only for her own replies in the learner\'s conversations', asy
 });
 
 t('the admin console: config is public, everything else needs an admin phone number', async () => {
-  assert.deepEqual((await call('GET', '/api/admin/config')).json, { loginRequired: true, firebase: { apiKey: 'web-key', authDomain: `${PROJECT}.firebaseapp.com`, projectId: PROJECT } });
+  assert.deepEqual((await call('GET', '/api/admin/config')).json, { loginRequired: true, login: 'firebase', firebase: { apiKey: 'web-key', authDomain: `${PROJECT}.firebaseapp.com`, projectId: PROJECT } });
   assert.equal((await call('GET', '/api/admin/overview')).status, 401);
   assert.equal((await call('GET', '/api/admin/overview', asha)).status, 403);
   assert.equal((await call('GET', '/api/admin/overview', login('u-test', '+919999900000'))).status, 403, 'the shared test number is never an admin');

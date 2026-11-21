@@ -15,9 +15,16 @@ async function tx(fn) {
 
 // ---- customers ------------------------------------------------------------------
 
-/** The customer for a Firebase login (created on first sign-in). */
+/**
+ * The customer for a login (created on first sign-in): found by login id, or else by phone number, so a person
+ * who signed in with Firebase and later with an OTP (or the other way round) stays one customer.
+ */
 export async function upsertUser({ firebaseUid, phone }) {
   if (!pool) return null;
+  const found = (await q(
+    `update users set last_seen_at = now(), phone = case when firebase_uid = $1 then coalesce($2, phone) else phone end where id = (select id from users where firebase_uid = $1 or ($2::text is not null and phone = $2)
+       order by (firebase_uid = $1) desc limit 1) returning *, false as created`, [firebaseUid, phone || null])).rows[0];
+  if (found) return found;
   const { rows } = await q(
     `insert into users (firebase_uid, phone, last_seen_at) values ($1, $2, now())
      on conflict (firebase_uid) do update set phone = coalesce(excluded.phone, users.phone), last_seen_at = now()
@@ -180,6 +187,7 @@ export async function eraseUser(userId, deleteFile) {
   await tx(async (c) => {
     await c.query(`update assessment_answers set transcript = null where assessment_id in (select id from assessments where user_id = $1)`, [userId]);
     await c.query(`update events set properties = properties - 'phone' - 'name' where user_id = $1`, [userId]);
+    await c.query('delete from otp_requests where phone = (select phone from users where id = $1)', [userId]);
     await c.query('delete from users where id = $1', [userId]);
     await c.query('update erasures set completed_at = now(), recordings = $2 where id = $1', [er.id, files.length]);
   });

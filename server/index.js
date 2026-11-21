@@ -20,6 +20,7 @@ import { migrate } from './db/migrate.js';
 import * as settings from './settings.js';
 import { handleLearn } from './learning/api.js';
 import { handleAdmin } from './admin/api.js';
+import { handleLogin } from './login.js';
 import * as lessons from './learning/lessons.js';
 import * as evalRuns from './learning/evalRuns.js';
 import { requestId, logRequest } from './http.js';
@@ -218,6 +219,7 @@ export const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   if (url.pathname.startsWith('/api/learn/')) return handleApi(req, res, url, () => handleLearn(req, res, url, { speak: speakTo }));
   if (url.pathname.startsWith('/api/admin/')) return handleApi(req, res, url, () => handleAdmin(req, res, url));
+  if (url.pathname.startsWith('/api/auth/')) return handleApi(req, res, url, () => handleLogin(req, res, url));
   try {
     if (isTeamPath(url.pathname)) return send(res, 404, { error: 'not found' });
     // /api/health for Cloud Run (it reserves paths ending in "z", like /healthz, for itself); /healthz for local use.
@@ -267,7 +269,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // A public server must know who's speaking and keep what they do. SAKHI_ALLOW_NO_LOGIN=1 is for a closed test
   // without accounts (nothing about customers is stored then).
   if (production && process.env.SAKHI_ALLOW_NO_LOGIN !== '1') {
-    const missing = [!loginEnabled() && 'FIREBASE_PROJECT_ID', !pool && 'DATABASE_URL'].filter(Boolean);
+    const missing = [!loginEnabled() && 'a login (MSG91_AUTHKEY + MSG91_WIDGET_ID + SESSION_SECRET, or FIREBASE_PROJECT_ID)', !pool && 'DATABASE_URL'].filter(Boolean);
     if (missing.length) { console.error(`Refusing to start in production without ${missing.join(' and ')} (or set SAKHI_ALLOW_NO_LOGIN=1 for a closed test).`); process.exit(1); }
   }
   if (pool) {

@@ -18,7 +18,7 @@
 //   GET  /api/admin/lessons                → lessons with how learners do in them
 import { pool } from '../db/pool.js';
 import * as settings from '../settings.js';
-import { caller, loginEnabled, projectId } from '../auth.js';
+import { caller, loginEnabled, firebaseEnabled, otpEnabled, projectId } from '../auth.js';
 import { production, LIMITS } from '../guard.js';
 import { spentToday, PRICES } from '../costs.js';
 import { structured as defaultStructured, providers } from '../llm/index.js';
@@ -106,8 +106,12 @@ export async function handleAdmin(req, res, url, deps = {}) {
   if (!url.pathname.startsWith('/api/admin/')) return false;
   const p = url.pathname, m = req.method;
   if (m === 'GET' && p === '/api/admin/config') {
-    const key = process.env.FIREBASE_WEB_API_KEY;
-    return send(res, 200, { loginRequired: loginEnabled(), firebase: loginEnabled() && key ? { apiKey: key, authDomain: `${projectId()}.firebaseapp.com`, projectId: projectId() } : null }), true;
+    // Sign-in by OTP (MSG91) when it's set up; otherwise Firebase's phone sign-in in the browser.
+    const key = process.env.FIREBASE_WEB_API_KEY, otp = otpEnabled();
+    return send(res, 200, {
+      loginRequired: loginEnabled(), login: otp ? 'otp' : firebaseEnabled() ? 'firebase' : null,
+      firebase: !otp && firebaseEnabled() && key ? { apiKey: key, authDomain: `${projectId()}.firebaseapp.com`, projectId: projectId() } : null,
+    }), true;
   }
   const who = await admin(req);
   res.locals = { user: `admin:${maskPhone(who.phone) || who.phone}` };
