@@ -3,6 +3,7 @@
 //   POST /api/auth/otp/send     { phone }                     → { requestId, codeLength, resendAfterSec, expiresInSec }
 //   POST /api/auth/otp/resend   { requestId, channel? }       → { ok, resendAfterSec }   (channel: sms | voice | whatsapp)
 //   POST /api/auth/otp/verify   { requestId, code, client? }  → { token, expiresAt, user: { id, phone, created } }
+//   POST /api/auth/truecaller   { code, codeVerifier, clientId, client? } → as verify (Truecaller one-tap, server/truecaller.js)
 //   POST /api/auth/refresh      (signed in)                    → { token, expiresAt }
 //   POST /api/auth/logout       (signed in)                    → { ok }
 //
@@ -17,6 +18,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { pool } from './db/pool.js';
 import * as msg91 from './msg91.js';
+import * as truecaller from './truecaller.js';
 import * as sessions from './sessions.js';
 import * as store from './store.js';
 import { caller } from './auth.js';
@@ -128,11 +130,42 @@ async function verifyCode(req) {
   // One use only: a second verify of the same request finds it already used.
   const { rowCount } = await pool.query('update otp_requests set verified_at = now() where id = $1 and verified_at is null', [r.id]);
   if (!rowCount) throw refuseFor('code_expired');
-  const user = await store.upsertUser({ firebaseUid: `phone:${r.phone}`, phone: r.phone });
-  if (user.created) await store.addEvent({ userId: user.id, name: 'user.created', properties: { via: 'otp' } });
-  const client = ['android', 'web', 'admin'].includes(b.client) ? b.client : null;
-  const s = await sessions.create(user.id, r.phone, client);
-  return { token: s.token, expiresAt: s.expiresAt.toISOString(), user: { id: user.id, phone: r.phone, created: !!user.created } };
+  return signIn(r.phone, b.client, 'otp');
+}
+
+/** A verified number becomes a customer (found or created) and a new session. */
+async function signIn(phone, client, via) {
+  const user = await store.upsertUser({ firebaseUid: `phone:${phone}`, phone });
+  if (user.created) await store.addEvent({ userId: user.id, name: 'user.created', properties: { via } });
+  const s = await sessions.create(user.id, phone, ['android', 'web', 'admin'].includes(client) ? client : null);
+  return { token: s.token, expiresAt: s.expiresAt.toISOString(), user: { id: user.id, phone, created: !!user.created } };
+}
+
+const perIpTruecaller = new RateLimit(() => LIMITS.perIpPerHour(), 3600_000);
+/**
+ * Truecaller one-tap: the app sends the authorization code and its PKCE verifier; Truecaller (not the app) tells
+ * us the verified number. Only this app's client ids are accepted, and only Indian mobile numbers.
+ */
+async function truecallerSignIn(req) {
+  const b = await readJson(req);
+  if (!truecaller.clientIds().includes(b.clientId)) throw refuse(400, 'truecaller_failed', 'Truecaller sign-in isn’t set up for this app. Please use your number instead.');
+  if (typeof b.code !== 'string' || !b.code || b.code.length > 2000 || typeof b.codeVerifier !== 'string' || !/^[\w.~-]{43,128}$/.test(b.codeVerifier)) {
+    throw refuse(400, 'truecaller_failed', 'Truecaller sign-in didn’t work. Please use your number instead.');
+  }
+  if (!perIpTruecaller.hit(clientIp(req))) throw refuseFor('too_many_requests');
+  let p;
+  try {
+    const t = await truecaller.accessToken({ clientId: b.clientId, code: b.code, codeVerifier: b.codeVerifier });
+    p = await truecaller.profile(t.token);
+  } catch (e) {
+    console.warn(`[login] Truecaller: ${e.message}`);
+    if (e.reason === 'unavailable') throw refuseFor('unavailable');
+    throw refuse(400, 'truecaller_failed', 'Truecaller sign-in didn’t work. Please use your number instead.');
+  }
+  const phone = indianMobile(p.phone);
+  if (!phone) throw refuse(400, 'invalid_number', 'Adam is for Indian mobile numbers for now. Please use one of those.');
+  const out = await signIn(phone, b.client, 'truecaller');
+  return { ...out, name: p.name };
 }
 
 async function signedIn(req) {
@@ -145,8 +178,12 @@ async function signedIn(req) {
 export async function handleLogin(req, res, url) {
   if (!url.pathname.startsWith('/api/auth/')) return false;
   if (req.method !== 'POST') throw fail(405, 'POST only');
-  if (!enabled()) throw refuseFor('unavailable');
   const p = url.pathname;
+  if (p === '/api/auth/truecaller') {
+    if (!sessions.enabled() || !truecaller.configured()) throw refuseFor('unavailable');
+    return send(res, 200, await truecallerSignIn(req)), true;
+  }
+  if (!enabled()) throw refuseFor('unavailable');
   if (p === '/api/auth/otp/send') return send(res, 200, await sendCode(req)), true;
   if (p === '/api/auth/otp/resend') return send(res, 200, await resendCode(req)), true;
   if (p === '/api/auth/otp/verify') return send(res, 200, await verifyCode(req)), true;

@@ -11,15 +11,29 @@ const GOOD = '424242';
 
 /** A fake MSG91 OTP widget API. mode.identifier: 'match' | 'other' | 'absent' (what verifyAccessToken says). */
 const mode = { identifier: 'match' };
+const tcMode = { verified: true };
 const calls = [];
 function startFake() {
   const sent = new Map(); let n = 0;
   return new Promise((ok) => {
     const s = createServer(async (req, res) => {
       let body = ''; for await (const c of req) body += c;
-      const b = JSON.parse(body || '{}'), path = req.url.replace('/api/v5/widget/', '');
+      let b = {}; try { b = JSON.parse(body || '{}'); } catch { /* a form (Truecaller) */ }
+      const path = req.url.replace('/api/v5/widget/', '');
       calls.push({ path, body: b, authkey: req.headers.authkey });
       const json = (o) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
+      const status = (code, o) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
+      if (req.url === '/v1/token') {
+        const f = new URLSearchParams(body);
+        const [, phone, verifier] = String(f.get('code')).split(':');
+        if (f.get('grant_type') !== 'authorization_code' || f.get('client_id') !== 'tc-client-release' || f.get('code_verifier') !== verifier) return status(403, { error: 'invalid_grant', error_description: 'Invalid authorization code' });
+        return json({ access_token: `at:${phone}`, expires_in: 3600, scope: 'openid phone profile', token_type: 'Bearer' });
+      }
+      if (req.url === '/v1/userinfo') {
+        const phone = String(req.headers.authorization).replace('Bearer at:', '');
+        if (!phone || phone.startsWith('Bearer')) return status(401, { status: 40101, message: 'Unauthorized' });
+        return json({ sub: '1362', given_name: 'Asha', family_name: 'Rao', phone_number: phone, phone_number_country_code: 'IN', phone_number_verified: tcMode.verified });
+      }
       if (req.headers.authkey !== 'test-authkey') return json({ message: 'AuthenticationFailure', type: 'error', code: '401' });
       if (path === 'sendOtp') { const id = `req-${++n}`; sent.set(id, b.identifier); return json({ type: 'success', message: id }); }
       if (path === 'retryOtp') return sent.has(b.reqId) ? json({ type: 'success', message: 'retry sent' }) : json({ type: 'error', message: 'invalid reqId', code: 702 });
@@ -42,6 +56,7 @@ before(async () => {
   msg91Base = `http://127.0.0.1:${fake.address().port}`;
   Object.assign(process.env, {
     DATABASE_URL: url, MSG91_AUTHKEY: 'test-authkey', MSG91_WIDGET_ID: 'widget-1', MSG91_BASE_URL: msg91Base,
+    TRUECALLER_BASE_URL: msg91Base, TRUECALLER_CLIENT_IDS: 'tc-client-debug,tc-client-release',
     SESSION_SECRET: 'x'.repeat(48), MSG91_TEST_PHONE: '+919999900000', MSG91_TEST_CODE: '123456', ADMIN_PHONES: '+919800000077,+919000000001', DEMO_PHONES: '+919000000001',
   });
   delete process.env.FIREBASE_PROJECT_ID;
@@ -204,4 +219,40 @@ t('the admin console accepts an OTP session for an admin number, and only that',
   const demo = await signIn('9000000001');
   assert.equal((await call('GET', '/api/admin/me', null, bearer(demo.token))).status, 403, 'a demo number is never an admin, even if listed');
   assert.deepEqual((await call('GET', '/api/admin/config')).json, { loginRequired: true, login: 'otp', firebase: null });
+});
+
+// ---- Truecaller one-tap ----
+const V = 'v'.repeat(50);
+const tc = (phone, extra = {}) => call('POST', '/api/auth/truecaller', { code: `code:${phone}:${V}`, codeVerifier: V, clientId: 'tc-client-release', client: 'android', ...extra });
+
+t('Truecaller: the verified number from Truecaller signs in, with the name', async () => {
+  const r = await tc('919876511111');
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(r.json.user.phone, '+919876511111');
+  assert.equal(r.json.name, 'Asha Rao');
+  assert.equal((await call('GET', '/api/me', null, bearer(r.json.token))).json.phone, '+919876511111');
+});
+
+t('Truecaller: a code with the wrong verifier, or for another app, is refused', async () => {
+  const wrong = await tc('919876511112', { codeVerifier: 'w'.repeat(50) });
+  assert.equal(wrong.status, 400);
+  assert.equal(wrong.json.error, 'truecaller_failed');
+  assert.equal((await tc('919876511112', { clientId: 'someone-else' })).json.error, 'truecaller_failed');
+  assert.equal((await tc('919876511112', { codeVerifier: 'short' })).json.error, 'truecaller_failed');
+  assert.equal((await pool.query(`select count(*)::int as n from users where phone = '+919876511112'`)).rows[0].n, 0);
+});
+
+t('Truecaller: an unverified number, or one outside India, is refused', async () => {
+  tcMode.verified = false;
+  const r = await tc('919876511113');
+  tcMode.verified = true;
+  assert.equal(r.json.error, 'truecaller_failed');
+  assert.equal((await tc('14155550000')).json.error, 'invalid_number');
+});
+
+t('Truecaller: the same customer as an SMS sign-in with that number', async () => {
+  const otp = await signIn('9876511114');
+  const r = await tc('919876511114');
+  assert.equal(r.json.user.id, otp.user.id);
+  assert.equal(r.json.user.created, false);
 });
