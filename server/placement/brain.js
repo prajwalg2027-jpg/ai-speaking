@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { structured as defaultStructured } from '../llm/index.js';
 import { normalizeForCompare } from '../normalize.js';
 
-export const BRAIN_SYSTEM = `You are Sakhi, a warm, encouraging English tutor on a voice call with an adult learner in India. This is your first chat with them: about two minutes and a few questions. You are getting to know them, helping them a little, and quietly working out how good their spoken English is. It must feel like talking to a kind teacher, never like a test: do not mention tests, levels, scores, or how many questions are left.
+export const BRAIN_SYSTEM = `You are Sakhi, a warm, encouraging English tutor on a voice call with an adult learner in India. This is your first chat with them: about two minutes. They have just told you their name, named a picture and read a line aloud; now you ask one to three questions. You are getting to know them, helping them a little, and quietly working out how good their spoken English is. It must feel like talking to a kind teacher, never like a test: do not mention tests, levels, scores, or how many questions are left.
 
 HOW YOU TALK
 - Like a person on a phone call: short sentences, everyday words, contractions (what's, I'm, don't). A voice reads your words aloud, so no lists, emojis, brackets or symbols.
@@ -94,8 +94,7 @@ export function turnMessage(ctx) {
   ];
   return [
     `CONVERSATION SO FAR:\n${ctx.history.slice(-12).map((h) => `${h.who === 'sakhi' ? 'Sakhi' : 'Learner'}: ${h.text}`).join('\n') || '(nothing yet)'}`,
-    ctx.hello ? `YOU JUST ASKED THEIR NAME, ONLY TO SAY HELLO: "${ctx.question.text}". Greet them (by name if they gave it). Their answer is not counted, whatever it is.`
-      : `CURRENT QUESTION (level ${ctx.question.target}): "${ctx.question.text}"`,
+    `CURRENT QUESTION (level ${ctx.question.target}): "${ctx.question.text}"`,
     said,
     ctx.event === 'answer' && m ? `MEASURED FROM THEIR VOICE: ${m.englishWords} English words${m.wpm ? `, about ${Math.round(m.wpm)} words a minute` : ''}${m.longPauses ? `, ${m.longPauses} long pause${m.longPauses > 1 ? 's' : ''}` : ''}.` : '',
     `LEARNER'S NAME: ${ctx.name || 'not known (use no name)'}`,
@@ -155,17 +154,23 @@ export function tipIsTheirs(tip, transcript) {
  * The closing feedback. answers: [{ transcript, level, evidence, tip }] (answered ones), level: the result.
  * → { doingWell: [2], practise: [2], closing, meta? }; never throws (plain lines for the level if the model fails).
  */
-export async function summarize({ answers, level }, { config, structured = defaultStructured, timeoutMs = 9000 } = {}) {
+/** Plain feedback for a level, without the AI. known: things the picture and the reading showed. */
+export function plainSummary({ answers, level, known = [] }) {
+  const fb = FALLBACK[level] || FALLBACK[2];
+  const fromTips = answers.filter((a) => a.tip).map((a) => `Say '${a.tip.better}' instead of '${a.tip.said}'.`);
+  const doingWell = [...known, ...fb.doingWell].slice(0, 2), practise = [...fromTips, ...fb.practise].slice(0, 2);
+  return { doingWell, practise, closing: `${doingWell[0]} ${practise[0]}` };
+}
+
+export async function summarize({ answers, level, known = [] }, { config, structured = defaultStructured, timeoutMs = 9000 } = {}) {
   const fixes = answers.filter((a) => a.tip).map((a) => `- they said '${a.tip.said}'; better: '${a.tip.better}'`);
   const user = [
     `WHAT THEY SAID:\n${answers.map((a) => `- ${a.transcript}`).join('\n') || '(almost nothing)'}`,
+    known.length ? `ALSO, EARLIER IN THE TALK: ${known.join(' ')}` : '',
     `FIXES:\n${fixes.join('\n') || '(none)'}`,
     `HOW STRONG THEIR ENGLISH IS: ${{ 1: 'a beginner', 2: 'basic', 3: 'good', 4: 'very good' }[level]} (don't say this; it sets how simple your words must be).`,
-  ].join('\n\n');
-  const fb = FALLBACK[level] || FALLBACK[2];
-  const fromTips = answers.filter((a) => a.tip).map((a) => `Say '${a.tip.better}' instead of '${a.tip.said}'.`);
-  const plain = { doingWell: fb.doingWell, practise: [...fromTips, ...fb.practise].slice(0, 2) };
-  plain.closing = `${plain.doingWell[0]} ${plain.practise[0]}`;
+  ].filter(Boolean).join('\n\n');
+  const plain = plainSummary({ answers, level, known });
   try {
     const { data, ...meta } = await structured({
       job: 'placementSummary', config, schema: Summary, schemaName: 'sakhi_summary', repair: repairSummary, maxTokens: 500, timeoutMs,

@@ -1,10 +1,15 @@
 // The conversation placement (Settings › Placement test › mode "conversation"): the alternative to the classic
 // five-part test in server/session.js, which stays as it is.
 //
-// A short talk of two to four questions. After each answer ONE AI call (brain.js) reacts to what the learner
-// said, gives one gentle fix, rates the answer 1 to 4 and asks the next question. Code decides what comes next
-// and the final level (level.js). The app sees the same reply shape as the classic test, so it needs no change:
-//   { sessionId, say: [{text, lang, pace}], card: null, cue, listen, task, done? }
+// The talk goes from easy to hard (the whole rule is in level.js):
+//   1. Hello     "Hi, my name is Sakhi. What is your name?"   (not counted)
+//   2. Picture   "What is this called in English?"            (a picture on the screen)
+//   3. Reading   one line on the screen, read out loud
+//   4. Talking   open questions, only for those who named the picture or read the line
+// Steps 1 to 3 need no AI: they are fixed lines, answered at once. In step 4, ONE AI call per answer (brain.js)
+// reacts to what the learner said, gives one gentle fix, rates the answer 1 to 4 and asks the next question.
+// The app sees the same reply shape as the classic test, so it needs no change:
+//   { sessionId, say: [{text, lang, pace}], card, cue, listen, task, done? }
 //
 // If the AI is slow or fails, the talk carries on: a plain acknowledgement, a level from the words alone, and a
 // reviewed question from the bank.
@@ -12,24 +17,27 @@ import { randomUUID } from 'node:crypto';
 import { LEVELS, PHRASES } from '../../shared/assessment.js';
 import { BANK } from '../../shared/bank.js';
 import { voiceLanguage } from '../../shared/languages.js';
-import { features } from '../scoring.js';
-import { isUnintelligible } from '../clarify.js';
+import { features, vocabHits, readAccuracy } from '../scoring.js';
+import { isUnintelligible, detectClarification } from '../clarify.js';
 import { makeLedger } from '../costs.js';
 import { speechSeconds } from '../sarvam.js';
 import { stripInventedNames, fixContractions } from '../tutor.js';
 import * as settings from '../settings.js';
-import { think, summarize, tipIsTheirs } from './brain.js';
-import { nextStep, placementLevel, missedLevel, clampLevel, WARM_UP } from './level.js';
+import { think, summarize, plainSummary, tipIsTheirs } from './brain.js';
+import { nextStep, placementLevel, missedLevel, clampLevel, qualifies, READ_OK, OPEN_START } from './level.js';
 
-const OPENING = {
-  en: "Hi! I'm Sakhi. Let's chat for two minutes, so I can understand your English.",
-  hi: 'नमस्ते! दो मिनट बात करते हैं, ताकि मैं आपकी अंग्रेज़ी समझ सकूँ। अंग्रेज़ी में बोलने की कोशिश कीजिए, थोड़े शब्द भी काफ़ी हैं।',
-};
-// The first thing she asks: closed, and not counted. Then an easy closed question, then they open up (level.js).
-const HELLO = { en: "First, what's your name?", hi: 'सबसे पहले, आपका नाम क्या है?' };
+const HELLO = { en: 'Hi, my name is Sakhi. What is your name?', hi: 'नमस्ते, मेरा नाम सखी है। आपका नाम क्या है?' };
+const HELLO_AGAIN = { en: 'What is your name?', hi: 'आपका नाम क्या है?' };
+const READ = { en: 'Please read this sentence out loud.', hi: 'स्क्रीन पर लिखा वाक्य ज़ोर से पढ़िए।' };
+const SAY = { meet: 'Nice to meet you!', yes: "Yes, that's right!", thanks: 'Thank you!', noProblem: 'No problem.' };
+const called = (word) => `In English, this is called '${word}'.`;
 const levelLine = (level) => `Thank you! Your English is at level ${level} of 4, ${LEVELS[level].name}.`;
 const ACK = { en: 'Okay.', hi: 'ठीक है।' };
 const INDIC = /[ऀ-ൿ]/;
+const pick = (list) => list[Math.floor(Math.random() * list.length)];
+// What the screen shows for the picture and the reading (the same card shapes as the classic test).
+const pictureCard = (v) => ({ text: v.screen, kind: 'task', look: 'emoji', band: { en: 'What is this? Say it in English.', hi: 'यह क्या है? अंग्रेज़ी में बोलिए।' } });
+const readCard = (v) => ({ text: v.screen, kind: 'read', look: 'sentence', band: { en: 'Read this sentence out loud.', hi: 'इस वाक्य को ज़ोर से पढ़िए।' } });
 
 const sessions = new Map();
 const TTL_MS = 2 * 60 * 60 * 1000;
@@ -56,7 +64,10 @@ const bankQuestion = (target) => { const pool = BANK.speak[target] || BANK.speak
 /** Lines worth generating ahead (the voice cache), and the fixed lines Sakhi may always say. */
 export function scriptedLines() {
   return [
-    line(OPENING.en), line(OPENING.hi, 0.95), line(HELLO.en), line(HELLO.hi, 0.95),
+    line(HELLO.en), line(HELLO.hi, 0.95), line(HELLO_AGAIN.en, 0.9), line(HELLO_AGAIN.hi, 0.9), ...Object.values(SAY).map((t) => line(t)),
+    ...BANK.vocab[1].flatMap((v) => [line(v.say), line(v.hindi, 0.95), line(v.simple || v.say, 0.9), line(v.hindi, 0.9), line(called(v.expect[0][0])), line(`${SAY.noProblem} ${called(v.expect[0][0])}`)]),
+    line(READ.en), line(READ.hi, 0.95), line(READ.en, 0.9), line(READ.hi, 0.9),
+    ...BANK.open.flatMap((o) => [line(o.simple), line(o.hindi, 0.95)]),
     line(PHRASES.didntHear, 0.95), line(PHRASES.moveOn), line(ACK.en), line(ACK.hi, 0.95),
     ...[1, 2, 3, 4].map((l) => line(levelLine(l))), line(LEVELS[1].hindi, 0.95), line(LEVELS[2].hindi, 0.95),
   ];
@@ -67,41 +78,109 @@ export function startSession({ lab = false } = {}) {
   const s = {
     id: randomUUID(), mode: 'conversation', lab, at: Date.now(), history: [], answers: [], ratings: [],
     profile: { name: null, facts: [], language: null },
-    q: { n: 0, hello: true, text: HELLO.en, target: WARM_UP, tries: 0, unheard: 0 },
+    q: { step: 'hello', text: HELLO.en, tries: 0 },
+    picture: null, read: null, // what the first two tasks showed (level.js)
     done: false, result: null, prev: null, ledger: makeLedger(),
   };
   sessions.set(s.id, s);
-  return respond(s, [line(OPENING.en), line(OPENING.hi, 0.95)], [line(HELLO.en), line(HELLO.hi, 0.95)], { plan: 'opening' });
+  return respond(s, [], [line(HELLO.en), line(HELLO.hi, 0.95)], { plan: 'opening' });
 }
 
 /** Say `before` (a reaction) and then `ask` (the question): the reply the app plays. */
 function respond(s, before, ask = [], extra = {}) {
-  const lines = [...before, ...ask];
+  const lines = [...before, ...ask], q = s.q;
   if (lines.length) s.lastSay = { lines, askAt: before.length, historyAt: s.history.length };
   for (const l of lines) s.history.push({ who: 'sakhi', text: l.text });
   return {
-    sessionId: s.id, say: lines, card: null, cue: { line: ask.length ? before.length : Math.max(0, lines.length - 1), word: 0 }, learnerLanguage: null,
-    listen: s.done ? null : { silenceMs: 1600, language: 'auto' },
-    task: s.done ? null : { id: `c${s.q.n}`, level: s.q.target, kind: 'open', item: null },
+    sessionId: s.id, say: lines, card: s.done ? null : q.card || null,
+    cue: { line: ask.length ? before.length : Math.max(0, lines.length - 1), word: 0 }, learnerLanguage: null,
+    // Reading is always English, so speech-to-text doesn't have to guess the language.
+    listen: s.done ? null : q.step === 'read' ? { silenceMs: 1300, language: 'en-IN' } : { silenceMs: q.step === 'open' ? 1600 : 1200, language: 'auto' },
+    task: s.done ? null : { id: q.step === 'open' ? `c${q.n}` : q.step, level: q.target ?? 1, kind: { hello: 'open', picture: 'vocab', read: 'read', open: 'open' }[q.step], item: q.item || null },
     ...extra,
   };
 }
 
+// ---- steps 1 to 3: hello, picture, reading (fixed lines, no AI) ------------------------------------------
+const NOT_A_NAME = new Set('yes no hello hi sorry what okay ok namaste hindi english repeat again fine good here ready from not very happy the my name is am'.split(' '));
+/** Their first name, only if they clearly said it ("My name is Ravi", "I am Ravi", or just "Ravi"). */
+export function nameIn(t) {
+  const cap = (w) => w[0].toUpperCase() + w.slice(1).toLowerCase();
+  const ok = (w) => w && /^[A-Za-z]{2,20}$/.test(w) && !NOT_A_NAME.has(w.toLowerCase());
+  const m = t.match(/\b(?:my name is|my name's|name is|i am|i'm|this is|myself)\s+([A-Za-z]+)/i);
+  if (m) return ok(m[1]) ? cap(m[1]) : null;
+  const w = t.replace(/[.!,?]/g, ' ').trim().split(/\s+/);
+  return w.length <= 2 && w.every(ok) ? cap(w[0]) : null;
+}
+const askAgain = (q) => (q.step === 'hello' ? [line(HELLO_AGAIN.en, 0.9), line(HELLO_AGAIN.hi, 0.9)]
+  : q.step === 'picture' ? [line(q.v.simple || q.v.say, 0.9), line(q.v.hindi, 0.9)] : [line(READ.en, 0.9), line(READ.hi, 0.9)]);
+
+function fixedStep(s, input, note, opts) {
+  const q = s.q, t = (input.transcript || '').trim();
+  const spoke = input.event === 'answer' && !isUnintelligible(t);
+  const acc = q.step === 'read' && spoke ? readAccuracy(q.v.screen, t) : null;
+  const asks = spoke && !(acc >= 0.3) ? detectClarification(t) : null; // "sorry?", "Hindi mein", "I don't know"…
+  const gaveUp = input.event === 'skip' || asks === 'dont_know';
+  const answered = spoke && !asks;
+  if (spoke) s.history.push({ who: 'learner', text: t });
+  const heard = spoke ? t : undefined;
+  if (!answered && !gaveUp && q.tries < 1) {
+    // Not an answer yet: once more, slower, with the Hindi (or "I couldn't hear that" if nothing came through).
+    q.tries++;
+    const unheard = input.event === 'live_failed' || (input.event === 'answer' && !spoke);
+    note('plan', { next: 'the same step again', why: unheard ? "didn't hear an answer" : asks || input.event });
+    return respond(s, unheard ? [line(PHRASES.didntHear, 0.95)] : [], askAgain(q), { heard });
+  }
+  const entry = { item: q.item || null, variantLevel: q.target ?? 1, neededHindi: q.tries > 0, languageCode: input.languageCode || null, skipped: !answered, transcript: spoke ? t : null };
+
+  if (q.step === 'hello') {
+    const name = answered ? nameIn(t) : null;
+    if (name) s.profile.name = name;
+    note('plan', { next: 'the picture', name });
+    const v = pick(BANK.vocab[1]);
+    s.q = { step: 'picture', v, item: v.id, text: v.say, target: 1, card: pictureCard(v), tries: 0 };
+    return respond(s, [line(answered ? (name ? `Nice to meet you, ${name}!` : SAY.meet) : ACK.en)], [line(v.say), line(v.hindi, 0.95)], { heard });
+  }
+
+  if (q.step === 'picture') {
+    const word = q.v.expect[0][0], hit = answered && vocabHits(t, [q.v.expect[0]])[0];
+    s.picture = { hit, word };
+    s.answers.push({ ...entry, questionId: 'picture', kind: 'vocab', features: { vocabHits: [hit] }, scores: { vocabulary: hit ? 4 : 0 } });
+    note('picture', { word, named: hit, heard: t || null });
+    // An everyday line for someone who knew the word; a very simple one otherwise.
+    const level = hit ? 2 : 1, v = pick(BANK.read[level]);
+    s.q = { step: 'read', v, item: v.id, text: READ.en, target: level, card: readCard(v), tries: 0 };
+    const reply = hit ? SAY.yes : answered ? called(word) : `${SAY.noProblem} ${called(word)}`;
+    return respond(s, [line(reply)], [line(READ.en), line(READ.hi, 0.95)], { heard });
+  }
+
+  // Reading.
+  s.read = { accuracy: answered ? acc : null, level: q.target };
+  s.answers.push({ ...entry, questionId: 'read', kind: 'read', features: { readAccuracy: answered ? acc : 0 }, scores: { pronunciation: answered ? +(acc * 4).toFixed(2) : 0 } });
+  const go = qualifies({ picture: s.picture?.hit, readAccuracy: s.read.accuracy });
+  note('read', { accuracy: s.read.accuracy, qualifies: go, why: go ? 'named the picture or read the line' : 'missed the picture and the reading' });
+  const reply = answered ? SAY.thanks : PHRASES.moveOn;
+  if (!go) return finish(s, reply, heard, note, opts);
+  const open = pick(BANK.open);
+  s.q = { step: 'open', n: 1, text: open.simple, target: OPEN_START, tries: 0, unheard: 0 };
+  return respond(s, [line(reply)], [line(open.simple), line(open.hindi, 0.95)], { heard });
+}
+
+// ---- step 4: open questions (one AI call per answer) ---------------------------------------------------
 /**
  * Everything the brain needs for this turn. Changes nothing, so the same turn can be given to several models
  * (the admin's model comparison).
  */
 export function buildCtx(s, input) {
   const max = settings.get('placement').maxQuestions;
-  // After the hello (not counted), whatever they said: the first counted question.
-  const after = (level) => (s.q.hello ? { done: false, target: WARM_UP } : nextStep([...s.ratings, { level }], max));
+  const after = (level) => nextStep([...s.ratings, { level }], max);
   const f = input.event === 'answer' ? features(input.transcript, { speechSec: input.speechSec, kind: 'open', timing: input.timing }) : null;
   return {
-    history: [...s.history], hello: !!s.q.hello, question: { text: s.q.text, target: s.q.target }, event: input.event, transcript: input.transcript || '',
+    history: [...s.history], question: { text: s.q.text, target: s.q.target }, event: input.event, transcript: input.transcript || '',
     measured: f && { englishWords: f.englishWordCount, wpm: f.speechRate ?? f.wpm, longPauses: f.longPauses ?? 0 }, features: f,
     name: s.profile.name, afterLevel: { 1: after(1), 2: after(2), 3: after(3), 4: after(4) },
     // Skipped, or already helped twice: move on (the question counts as missed). Otherwise: help and ask again.
-    notAnswered: input.event === 'skip' || s.q.tries >= (s.q.hello ? 1 : 2) ? { step: after(missedLevel(s.q.target)) } : { help: true },
+    notAnswered: input.event === 'skip' || s.q.tries >= 2 ? { step: after(missedLevel(s.q.target)) } : { help: true },
   };
 }
 
@@ -123,7 +202,8 @@ export async function handleTurn(s, input, trace, opts = {}) {
   const note = (step, data) => trace?.add(step, data);
   if (s.done) return respond(s, [], [], { done: s.result });
   if (!['answer', 'no_speech', 'live_failed', 'skip', 'repeat', 'in_hindi'].includes(input.event)) throw Object.assign(new Error(`unknown event "${input.event}"`), { status: 400 });
-  if (input.event === 'repeat') { note('plan', { next: 'the question again, slower' }); return respond(s, [], linesOf(s.q.text, 0.85)); }
+  if (input.event === 'repeat') { note('plan', { next: 'the question again, slower' }); return respond(s, [], s.q.step === 'open' ? linesOf(s.q.text, 0.85) : askAgain(s.q)); }
+  if (s.q.step !== 'open') return fixedStep(s, input, note, opts);
   if (input.event === 'live_failed' || (input.event === 'answer' && isUnintelligible(input.transcript))) {
     if (++s.q.unheard <= 2) { note('plan', { next: 'ask again', why: `didn't hear an answer (${s.q.unheard} of 3)` }); return respond(s, [line(PHRASES.didntHear, 0.95)]); }
     note('plan', { next: 'move on', why: "couldn't hear an answer three times" });
@@ -132,7 +212,7 @@ export async function handleTurn(s, input, trace, opts = {}) {
 
   // They talked over Sakhi before she reached her question: they were still finishing their last answer.
   // Go back to before that answer and take the two together as one.
-  if (input.event === 'answer' && input.interrupted && s.lastSay) {
+  if (input.event === 'answer' && input.interrupted && s.lastSay) { // (open questions only: earlier steps returned above)
     const heard = heardOf(s, input.interrupted);
     if (!heard.askHeard && s.prev) {
       const p = s.prev;
@@ -177,13 +257,6 @@ async function advance(s, ctx, out, input, note, opts) {
     note('plan', { next: 'help, then the same question again', try: q.tries });
     return respond(s, linesOf(reply), linesOf(question || q.text, 0.9), { heard });
   }
-  if (q.hello) {
-    // The hello isn't an answer to rate: on to the first counted question.
-    note('plan', { next: 'the first question', why: 'the hello is not counted' });
-    const ask = question || bankQuestion(WARM_UP);
-    s.q = { n: 1, text: ask, target: WARM_UP, tries: 0, unheard: 0 };
-    return respond(s, linesOf(withoutQuestions(reply)), linesOf(ask), { heard });
-  }
   const f = ctx.features || {};
   const entry = { questionId: `c${q.n}`, item: null, kind: 'open', variantLevel: q.target, question: q.text, neededHindi: false, languageCode: input.languageCode || null };
   if (answered) {
@@ -205,21 +278,26 @@ async function advance(s, ctx, out, input, note, opts) {
   if (step.done) return finish(s, withoutQuestions(reply), heard, note, opts);
   const ask = question || bankQuestion(step.target);
   if (!question) note('plan', { next: 'a reviewed question', why: 'the AI gave no question' });
-  s.q = { n: q.n + 1, text: ask, target: step.target, tries: 0, unheard: 0 };
+  s.q = { step: 'open', n: q.n + 1, text: ask, target: step.target, tries: 0, unheard: 0 };
   return respond(s, linesOf(withoutQuestions(reply)), linesOf(ask), { heard });
 }
 
 async function finish(s, reply, heard, note, opts) {
-  const { level, reasons } = placementLevel(s.ratings);
+  const { level, reasons } = placementLevel({ picture: s.picture?.hit, readAccuracy: s.read?.accuracy, ratings: s.ratings });
   const L = LEVELS[level];
-  const said = s.answers.filter((a) => !a.skipped).map((a) => ({ transcript: a.transcript, level: a.rated, evidence: a.evidence, tip: a.tip }));
-  const sum = await summarize({ answers: said, level }, { config: opts.summaryConfig || settings.get('placement').summary, structured: opts.structured });
+  const said = s.answers.filter((a) => a.kind === 'open' && !a.skipped).map((a) => ({ transcript: a.transcript, level: a.rated, evidence: a.evidence, tip: a.tip }));
+  // What the picture and the reading showed, in the learner's words.
+  const known = [s.picture?.hit && `You know English words like '${s.picture.word}'.`, (s.read?.accuracy ?? 0) >= READ_OK && 'You can read an English sentence out loud.'].filter(Boolean);
+  // The closing feedback is written from what they said in the open answers; without any, plain lines.
+  const sum = said.length ? await summarize({ answers: said, level, known }, { config: opts.summaryConfig || settings.get('placement').summary, structured: opts.structured })
+    : plainSummary({ answers: [], level, known });
   note('summary', { model: sum.meta ? `${sum.meta.provider}/${sum.meta.model}` : null, ms: sum.meta?.latencyMs ?? null, costInr: sum.meta?.costInr ?? null, closing: sum.closing, ...(sum.fallback ? { fallback: sum.fallback } : {}) });
   s.done = true;
   s.result = {
     level, name: L.name, blurb: L.blurb, hindi: L.hindi, overall: null, dims: {}, reasons, mode: 'conversation',
     doingWell: sum.doingWell, practise: sum.practise,
-    answers: s.answers.map((a) => ({ q: a.questionId, level: a.variantLevel, skipped: a.skipped, transcript: a.transcript, rated: a.rated, evidence: a.evidence, question: a.question, tip: a.tip })),
+    picture: s.picture, read: s.read,
+    answers: s.answers.map((a) => ({ q: a.questionId, level: a.variantLevel, skipped: a.skipped, transcript: a.transcript, ...(a.kind === 'open' ? { rated: a.rated, evidence: a.evidence, question: a.question, tip: a.tip } : {}) })),
   };
   note('plan', { next: 'finish', level, name: L.name, why: reasons });
   // The level in fixed words; then what went well and what's next. Beginners hear the Hindi line too.

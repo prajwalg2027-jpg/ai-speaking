@@ -260,10 +260,10 @@ const META = {
   'corrections.maxPerReply': { label: 'Most corrections shown per reply' },
   'placement.mode': { type: 'choice', label: 'Kind of placement test', options: [
     ['classic', 'Classic test', 'Five parts: about you, words, listening, reading, speaking. About five minutes.'],
-    ['conversation', 'Conversation', 'A short talk of 2 to 4 questions with a gentle tip after each answer. About two minutes.']] },
+    ['conversation', 'Conversation', 'Name, a picture, a line to read, then open questions for those who can go on, with a gentle tip after each answer. About two minutes.']] },
   'placement.brain': { label: 'AI for each turn (conversation)' },
   'placement.summary': { label: 'AI for the closing feedback (conversation)' },
-  'placement.maxQuestions': { label: 'Most questions in a conversation', help: '2 to 6. The talk ends sooner when the level is clear.' },
+  'placement.maxQuestions': { label: 'Most open questions in a conversation', help: '1 to 6, after the name, picture and reading. The talk ends sooner when the level is clear.' },
   'conversation.historyMessages': { label: 'Recent messages the tutor reads', help: 'More = better memory of the conversation, slightly slower and costlier.' },
   'limits.dailyBudgetInr': { label: 'Daily budget (₹)', help: 'When today’s AI spend reaches this, new conversations and messages pause until tomorrow.' },
   'limits.sessionsPerIpPerHour': { label: 'Placement tests per learner per hour' },
@@ -413,7 +413,10 @@ const speedCost = (x) => html`<p class="small muted lab-meta">Speed ${ms(x.ms)} 
 function progressLine(ratings, q) {
   const parts = [];
   if (ratings.length) parts.push(`Answers so far: ${ratings.map((r) => `level ${r.level} (asked ${r.asked}${r.missed ? ", couldn't answer" : ''})`).join(', ')}`);
-  if (q) parts.push(q.hello ? 'Now saying hello (asking their name; not counted)' : `Now asking question ${q.n}, a level ${q.level} question`);
+  if (q) parts.push(q.step === 'hello' ? 'Now: asking their name (not counted)'
+    : q.step === 'picture' ? `Now: a picture on their screen (${q.screen}). Type what they call it`
+    : q.step === 'read' ? `Now: a line on their screen to read out loud: "${q.screen}". Type what they read`
+    : `Now: open question ${q.n}, a level ${q.level} question`);
   return parts.join(' · ');
 }
 

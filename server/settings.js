@@ -32,13 +32,13 @@ export const SECTIONS = {
       mode: z.enum(['classic', 'conversation']),
       brain: llmJob,                                     // conversation mode: writes each of Sakhi's turns and rates the answer
       summary: llmJob,                                   // conversation mode: the closing feedback (once per test)
-      maxQuestions: z.number().int().min(2).max(6),
+      maxQuestions: z.number().int().min(1).max(6),          // open questions, after the name, the picture and the reading
     }),
     defaults: {
       mode: 'classic',
       brain: { provider: 'sarvam', model: 'sarvam-105b-conversations', temperature: 0.6 },
       summary: { provider: 'sarvam', model: 'sarvam-105b', temperature: 0.3 },
-      maxQuestions: 4,
+      maxQuestions: 3,
     },
   },
   corrections: {

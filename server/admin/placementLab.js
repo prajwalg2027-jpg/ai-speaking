@@ -39,6 +39,8 @@ function parse(schema, body) {
   if (!r.success) throw fail(400, r.error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`).join('; '));
   return r.data;
 }
+/** Where the talk is: the step, and what's on the learner's screen. */
+const stepOf = (s) => ({ step: s.q.step, ...(s.q.step === 'open' ? { n: s.q.n, level: s.q.target } : {}), ...(s.q.card ? { screen: s.q.card.text } : {}) });
 const label = (m) => `${m.provider}/${m.model}`;
 const ready = (m) => !!providers[m.provider]?.configured();
 const NOT_SET_UP = 'Not set up on the server: its API key is missing (deploy/llm-keys-setup.sh).';
@@ -71,7 +73,7 @@ export async function handlePlacementLab(req, res, url, deps = {}) {
     const s = conversation.getSession(t.sessionId);
     s.labModels = b;
     return send(res, 200, {
-      labId: s.id, say: t.say.map((l) => l.text), question: { n: s.q.n, level: s.q.target, ...(s.q.hello ? { hello: true } : {}) },
+      labId: s.id, say: t.say.map((l) => l.text), question: stepOf(s),
       models: [b.primary, ...b.others].map((x) => ({ model: label(x), configured: ready(x) })),
     }), true;
   }
@@ -85,7 +87,8 @@ export async function handlePlacementLab(req, res, url, deps = {}) {
     const input = { event: b.event, transcript: b.event === 'answer' ? b.message.trim() : '', speechSec: 0 };
     if (b.event === 'answer' && !input.transcript) throw fail(400, 'Type what the learner says.');
     // The same turn for every model: built before the primary's answer changes the conversation.
-    const thinks = b.event !== 'repeat' && !(b.event === 'answer' && isUnintelligible(input.transcript));
+    // Only the open questions use the AI: the hello, the picture and the reading are fixed lines.
+    const thinks = s.q.step === 'open' && b.event !== 'repeat' && !(b.event === 'answer' && isUnintelligible(input.transcript));
     const ctx = thinks ? conversation.buildCtx(s, input) : null;
     const trace = { list: [], add(step, data) { this.list.push({ step, ...data }); } };
     const [turn, alts] = await Promise.all([
@@ -96,7 +99,7 @@ export async function handlePlacementLab(req, res, url, deps = {}) {
     const rated = trace.list.find((x) => x.step === 'rated');
     const out = {
       say: turn.say.map((l) => l.text),
-      question: turn.task ? { n: s.q.n, level: s.q.target, ...(s.q.hello ? { hello: true } : {}) } : null,
+      question: turn.task ? stepOf(s) : null,
       primary: {
         model: label(primary), ...(brain ? { ms: brain.ms, costInr: brain.costInr, answered: brain.answered, level: brain.level, evidence: brain.evidence, tip: brain.tip, reply: brain.reply, question: brain.question } : {}),
         ...(failed ? { error: failed.why } : {}),
