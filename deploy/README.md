@@ -77,8 +77,18 @@ Before production.
 
 ## Admin console
 
-At `<server address>/admin/`: dashboard, live settings, playground, evaluations, conversations and lessons
-(`docs/LEARNING.md`). Sign-in is the same SMS code; only the numbers in `ADMIN_PHONES` get in (set by
+Its own address, one time (run it twice: before and after connecting the domain in Firebase):
+
+```
+PROJECT=cool-arch-515210-b0 ./deploy/admin-domain-setup.sh
+```
+
+admin.adamspeaks.in is a second Firebase Hosting site that forwards everything to the server, which shows the
+console at "/" there (`ADMIN_HOST`) and redirects the old `/admin/` address to it.
+
+At **https://admin.adamspeaks.in** (set up with `deploy/admin-domain-setup.sh`; until then, and on your own
+computer, at `<server address>/admin/`, which then redirects to it): dashboard, live settings, playground,
+evaluations, conversations and lessons (`docs/LEARNING.md`). Sign-in is the same SMS code; only the numbers in `ADMIN_PHONES` get in (set by
 `msg91-setup.sh`; run it again to change them).
 
 *Before MSG91:* phone login used Firebase (`deploy/firebase-setup.sh`, `deploy/admin-setup.sh`). The server

@@ -179,7 +179,7 @@ request still in progress, or a stale exercise), 429 (daily limit), 502 (the AI 
 Retries are safe: a message or exercise answer sent again with the same client id returns the stored result; a
 reply is saved at most once per learner message (database constraint), together with its corrections and evidence.
 
-## The admin console (`/admin/`)
+## The admin console (admin.adamspeaks.in; `/admin/` locally)
 
 Sign in with a phone number listed in `ADMIN_PHONES` (the team's test number is never accepted). Pages:
 **Overview** (learners, activity, reply times, spend vs budget, 14-day charts, placement levels, common mistakes,
