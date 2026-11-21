@@ -37,6 +37,8 @@ class FakePhoneAuth(var autoRead: Boolean = false, var codeLength: Int = 6) : Ph
     }
     override suspend fun verifyCode(verificationId: String, code: String): CodeResult =
         if (code == "123456".take(codeLength)) { currentUser = AuthUser("uid-1", sentTo); CodeResult.SignedIn } else CodeResult.Failed(Reason.WRONG_CODE, null)
+    override suspend fun signInWithTruecaller(code: String, codeVerifier: String, clientId: String): CodeResult =
+        if (code == "good") { currentUser = AuthUser("uid-tc", "+919876500000"); CodeResult.SignedIn } else CodeResult.Failed(Reason.TRUECALLER_FAILED, null)
     override fun signOut() { currentUser = null }
 }
 
@@ -69,6 +71,18 @@ class AuthFlowTest {
         assertEquals("+919876543210", indianMobile("098765 43210"))
         assertNull(indianMobile("12345 67890")) // mobiles start with 6–9
         assertNull(indianMobile("98765"))
+    }
+
+    @Test fun `Truecaller signs in from the number screen, and a failure says to use the number`() {
+        val auth = FakePhoneAuth()
+        val vm = AuthViewModel(auth, api, events(auth))
+        vm.signInWithTruecaller("bad", "v", "client-1")
+        assertEquals("Truecaller sign-in didn’t work. Please enter your number instead.", (waitFor(vm) { (it as? Gate.Phone)?.error != null } as Gate.Phone).error)
+        vm.truecallerUnavailable()
+        assertEquals("Truecaller didn’t work this time. Please enter your number.", (vm.gate.value as Gate.Phone).note)
+        reply("""{"id":"u1","phone":"+919876500000","missingConsents":[]}""")
+        vm.signInWithTruecaller("good", "v", "client-1")
+        assertEquals(Gate.Ready, waitFor(vm) { it == Gate.Ready })
     }
 
     @Test fun `a 4-digit code when the server says so`() {

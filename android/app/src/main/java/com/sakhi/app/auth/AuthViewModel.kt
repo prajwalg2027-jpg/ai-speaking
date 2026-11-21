@@ -71,6 +71,16 @@ class AuthViewModel(private val auth: PhoneAuth, private val api: SakhiApi, priv
         viewModelScope.launch { handle(auth.verifyCode(g.verificationId, g.code), g.phone) }
     }
 
+    /** Truecaller gave an authorization code: the server checks it with Truecaller and signs in. */
+    fun signInWithTruecaller(code: String, codeVerifier: String, clientId: String) {
+        val g = _gate.value as? Gate.Phone ?: return
+        _gate.value = g.copy(busy = true, error = null)
+        viewModelScope.launch { handle(auth.signInWithTruecaller(code, codeVerifier, clientId), "") }
+    }
+
+    /** Truecaller couldn't sign them in (not closed by them): carry on with the number. */
+    fun truecallerUnavailable() = _gate.update { if (it is Gate.Phone) it.copy(busy = false, note = "Truecaller didn’t work this time. Please enter your number.") else it }
+
     fun changeNumber() { ticker?.cancel(); _gate.value = Gate.Phone(number = ((_gate.value as? Gate.Code)?.phone ?: "").removePrefix("+91")) }
 
     private suspend fun handle(r: CodeResult, phone: String) {
@@ -146,6 +156,7 @@ class AuthViewModel(private val auth: PhoneAuth, private val api: SakhiApi, priv
         Reason.WRONG_CODE -> "That code isn't right. Check the SMS and try again."
         Reason.CODE_EXPIRED -> "That code has expired. Tap “Send again”."
         Reason.NETWORK -> "No internet connection. Check it and try again."
+        Reason.TRUECALLER_FAILED -> "Truecaller sign-in didn’t work. Please enter your number instead."
         Reason.OTHER -> "Something went wrong. Please try again."
     }
 }

@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit
 @Serializable private data class SendBody(val phone: String)
 @Serializable private data class ResendBody(val requestId: String)
 @Serializable private data class VerifyBody(val requestId: String, val code: String, val client: String = "android")
+@Serializable private data class TruecallerBody(val code: String, val codeVerifier: String, val clientId: String, val client: String = "android")
 @Serializable private data class Sent(val requestId: String, val codeLength: Int = 6, val resendAfterSec: Int = 30)
 @Serializable private data class SessionUser(val id: String, val phone: String)
 @Serializable private data class Session(val token: String, val expiresAt: String, val user: SessionUser? = null)
@@ -101,6 +102,11 @@ class OtpPhoneAuth(
         if (status in 200..299) { save(SakhiJson.decodeFromString<Session>(body)); lastRequestId = null; CodeResult.SignedIn } else failure(status, body)
     }
 
+    override suspend fun signInWithTruecaller(code: String, codeVerifier: String, clientId: String): CodeResult = request {
+        val (status, body) = post("/api/auth/truecaller", SakhiJson.encodeToString(TruecallerBody.serializer(), TruecallerBody(code, codeVerifier, clientId)))
+        if (status in 200..299) { save(SakhiJson.decodeFromString<Session>(body)); CodeResult.SignedIn } else failure(status, body)
+    }
+
     override fun signOut() {
         val token = prefs.getString(TOKEN, null)
         clear()
@@ -126,6 +132,7 @@ class OtpPhoneAuth(
             "too_many_requests" -> Reason.TOO_MANY_REQUESTS
             "wrong_code" -> Reason.WRONG_CODE
             "code_expired" -> Reason.CODE_EXPIRED
+            "truecaller_failed" -> Reason.TRUECALLER_FAILED
             else -> if (code == 429) Reason.TOO_MANY_REQUESTS else Reason.OTHER
         }
         return CodeResult.Failed(reason, r?.reason)

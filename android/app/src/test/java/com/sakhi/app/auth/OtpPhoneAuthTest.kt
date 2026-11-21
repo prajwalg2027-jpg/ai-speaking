@@ -75,6 +75,18 @@ class OtpPhoneAuthTest {
         assertEquals("a resend keeps it", CodeResult.Sent("r-4", 4), auth.sendCode(activity, "+919000000001", resend = true))
     }
 
+    @Test fun `Truecaller code and verifier go to the server, which signs in`() = runBlocking {
+        reply(200, session)
+        assertEquals(CodeResult.SignedIn, auth.signInWithTruecaller("tc-code", "v".repeat(50), "client-1"))
+        val r = web.takeRequest()
+        assertEquals("/api/auth/truecaller", r.url.encodedPath)
+        val body = r.body!!.utf8()
+        assertTrue(body, body.contains(""""code":"tc-code"""") && body.contains(""""clientId":"client-1"""") && body.contains(""""codeVerifier":""""))
+        assertEquals("tok-1", auth.idToken())
+        reply(400, """{"error":"truecaller_failed"}""")
+        assertEquals(Reason.TRUECALLER_FAILED, (auth.signInWithTruecaller("bad", "v".repeat(50), "client-1") as CodeResult.Failed).reason)
+    }
+
     @Test fun `send again uses the same request`() = runBlocking {
         reply(200, """{"requestId":"r-9"}""")
         auth.sendCode(activity, "+919876543210")

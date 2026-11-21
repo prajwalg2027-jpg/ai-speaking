@@ -7,6 +7,7 @@
 #
 #   PROJECT=cool-arch-515210-b0 MSG91_WIDGET_ID=<widget id> OTP_LENGTH=4 ADMIN_PHONES=+919812345678 \
 #     DEMO_PHONES=+919000000001 ./deploy/msg91-setup.sh
+#   (optional) TRUECALLER_CLIENT_IDS=<release id>,<test build id> for Truecaller one-tap sign-in.
 #   OTP_LENGTH: the widget's OTP length (4 to 8). DEMO_PHONES: numbers set up under the widget's Demo Credentials
 #   (they can never be admins). (optional) TEST_PHONE + TEST_CODE: a test number handled by this server instead.
 #
@@ -20,6 +21,7 @@ WIDGET="${MSG91_WIDGET_ID:?Set MSG91_WIDGET_ID to the OTP widget id from MSG91 (
 ADMIN_PHONES="${ADMIN_PHONES:-}"
 OTP_LENGTH="${OTP_LENGTH:-6}"
 DEMO_PHONES="${DEMO_PHONES:-}"
+TRUECALLER_CLIENT_IDS="${TRUECALLER_CLIENT_IDS:-}"
 REGION="${REGION:-asia-south1}"
 SERVICE="${SERVICE:-adam}"
 RUNTIME_SA="adam-runtime@${PROJECT}.iam.gserviceaccount.com"
@@ -69,6 +71,7 @@ step "Giving the server its settings (a new revision, about a minute)"
 VARS="^;^MSG91_WIDGET_ID=${WIDGET};OTP_LENGTH=${OTP_LENGTH}"
 [[ -n "$ADMIN_PHONES" ]] && VARS="${VARS};ADMIN_PHONES=${ADMIN_PHONES}"
 [[ -n "$DEMO_PHONES" ]] && VARS="${VARS};DEMO_PHONES=${DEMO_PHONES}"
+[[ -n "$TRUECALLER_CLIENT_IDS" ]] && VARS="${VARS};TRUECALLER_CLIENT_IDS=${TRUECALLER_CLIENT_IDS}"
 [[ -n "${TEST_PHONE:-}" ]] && VARS="${VARS};MSG91_TEST_PHONE=${TEST_PHONE};MSG91_TEST_CODE=${TEST_CODE};FIREBASE_TEST_PHONE=${TEST_PHONE}"
 gcloud run services update "$SERVICE" --region "$REGION" --quiet \
   --update-secrets "MSG91_AUTHKEY=msg91-authkey:latest,SESSION_SECRET=adam-session-secret:latest" \

@@ -11,6 +11,9 @@ coroutines = "1.11.0"
 robolectric = "4.18.1"
 
 [libraries]
+# The Truecaller SDK pulls in an old Fragment library; this current one keeps activity results working.
+androidx-fragment = { module = "androidx.fragment:fragment-ktx", version = "1.8.6" }
+truecaller-sdk = { module = "com.truecaller.android.sdk:truecaller-sdk", version = "3.3.0" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
 androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }

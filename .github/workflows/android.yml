@@ -18,6 +18,9 @@ jobs:
     timeout-minutes: 30
     env:
       HAS_KEYSTORE: ${{ secrets.SAKHI_KEYSTORE_B64 != '' }}
+      # Truecaller one-tap sign-in (Truecaller developer console; not secret). Empty: SMS code only.
+      TRUECALLER_CLIENT_ID: ${{ vars.TRUECALLER_CLIENT_ID }}
+      TRUECALLER_CLIENT_ID_DEBUG: ${{ vars.TRUECALLER_CLIENT_ID_DEBUG }}
     defaults:
       run:
         working-directory: android

@@ -15,7 +15,7 @@ sealed interface CodeResult {
     data class Failed(val reason: Reason, val message: String?) : CodeResult
 }
 
-enum class Reason { INVALID_NUMBER, TOO_MANY_REQUESTS, WRONG_CODE, CODE_EXPIRED, NETWORK, OTHER }
+enum class Reason { INVALID_NUMBER, TOO_MANY_REQUESTS, WRONG_CODE, CODE_EXPIRED, NETWORK, TRUECALLER_FAILED, OTHER }
 
 /**
  * Phone OTP sign-in. The real one goes through the Adam server, which uses MSG91 ([OtpPhoneAuth]); tests use a
@@ -30,6 +30,8 @@ interface PhoneAuth {
     /** Send a code to [phone] (E.164, e.g. +919876543210). [resend]: send again to the same number. */
     suspend fun sendCode(activity: Activity, phone: String, resend: Boolean = false): CodeResult
     suspend fun verifyCode(verificationId: String, code: String): CodeResult
+    /** Truecaller one-tap: the server exchanges [code] (with its PKCE [codeVerifier]) for the verified number. */
+    suspend fun signInWithTruecaller(code: String, codeVerifier: String, clientId: String): CodeResult = CodeResult.Failed(Reason.OTHER, null)
     fun signOut()
 }
 

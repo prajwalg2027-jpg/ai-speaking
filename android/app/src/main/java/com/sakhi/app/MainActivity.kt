@@ -38,6 +38,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.activity.compose.LocalActivity
 import com.sakhi.app.auth.AuthViewModel
 import com.sakhi.app.auth.Gate
+import com.sakhi.app.auth.TruecallerSignIn
 import com.sakhi.app.conversation.ConversationViewModel
 import com.sakhi.app.ui.LoginActions
 import com.sakhi.app.ui.LoginFlow
@@ -54,9 +55,15 @@ class MainActivity : ComponentActivity() {
         viewModelFactory { initializer { AuthViewModel(container.auth, container.api, container.events) } }
     }
 
+    private lateinit var truecaller: TruecallerSignIn
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        truecaller = TruecallerSignIn(this, BuildConfig.TRUECALLER_CLIENT_ID,
+            onCode = { code, verifier -> authVm.signInWithTruecaller(code, verifier, truecaller.clientId) },
+            onFailure = { cancelled -> if (!cancelled) authVm.truecallerUnavailable() })
+        truecaller.init()
         // A voice conversation can't go on unseen: leaving the app ends it (and frees the microphone).
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStop(owner: LifecycleOwner) { if (!isChangingConfigurations) vm.onBackgrounded() }
@@ -67,6 +74,7 @@ class MainActivity : ComponentActivity() {
                 val updateRequired by container.appConfig.updateRequired.collectAsStateWithLifecycle()
                 if (updateRequired) { UpdateScreen { openPlayStore() }; return@SakhiTheme }
                 val gate by authVm.gate.collectAsStateWithLifecycle()
+                val truecallerReady by truecaller.available.collectAsStateWithLifecycle()
                 LaunchedEffect(Unit) { container.refusals.collect { authVm.onServerRefusal(it) } }
                 LaunchedEffect(Unit) { container.events.log("app.opened") }
                 if (gate != Gate.Ready) {
@@ -76,6 +84,7 @@ class MainActivity : ComponentActivity() {
                         LoginActions(
                             onNumber = authVm::onNumber, sendCode = { authVm.sendCode(activity) }, onCode = authVm::onCode, verify = authVm::verify,
                             resend = { authVm.resend(activity) }, changeNumber = authVm::changeNumber, agree = authVm::agree, retry = authVm::check,
+                            truecaller = if (truecallerReady) truecaller::start else null,
                         ),
                         termsUrl = "https://adamspeaks.in/terms", privacyUrl = "https://adamspeaks.in/privacy",
                     )

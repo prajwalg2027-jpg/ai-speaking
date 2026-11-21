@@ -18,6 +18,8 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.Sakhi">
+        <!-- Truecaller one-tap sign-in: this build's client id (build.gradle.kts; empty = off). -->
+        <meta-data android:name="com.truecaller.android.sdk.ClientId" android:value="@string/truecaller_client_id" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

@@ -66,6 +66,8 @@ class LoginActions(
     val changeNumber: () -> Unit = {},
     val agree: (adult: Boolean, terms: Boolean, recordings: Boolean) -> Unit = { _, _, _ -> },
     val retry: () -> Unit = {},
+    /** Truecaller one-tap, when the Truecaller app can sign them in (null: not offered). */
+    val truecaller: (() -> Unit)? = null,
 )
 
 /** Phone number → code → consents. Shown until the person is signed in and has agreed. */
@@ -100,8 +102,11 @@ fun LoginFlow(gate: Gate, actions: LoginActions, termsUrl: String, privacyUrl: S
 @Composable
 private fun PhoneStep(g: Gate.Phone, a: LoginActions) {
     Title("Let's get started", "चलिए शुरू करते हैं")
-    Body("Enter your mobile number. We'll send you a code by SMS.")
     g.note?.let { Body(it) }
+    a.truecaller?.let { tc ->
+        Primary("Continue with Truecaller", busy = g.busy, onClick = tc)
+        Body("Or enter your mobile number, and we'll send you a code by SMS.")
+    } ?: Body("Enter your mobile number. We'll send you a code by SMS.")
     Field(
         value = g.number, onValue = a.onNumber, label = "Mobile number", prefix = "+91  ",
         keyboard = KeyboardType.Phone, error = g.error, onDone = a.sendCode,

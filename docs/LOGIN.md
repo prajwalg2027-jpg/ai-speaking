@@ -62,7 +62,8 @@ before keeps their account (matched by number).
 | `ADMIN_PHONES` | env | Numbers allowed into `/admin/` |
 | `MSG91_TEST_PHONE`, `MSG91_TEST_CODE` | env | Optional: a number that signs in with a fixed code, no SMS (never an admin) |
 | `OTP_PER_PHONE_PER_HOUR`, `OTP_PER_IP_PER_HOUR`, `OTP_PER_DAY` | env | Limits (5, 20, 3,000) |
-| `MSG91_BASE_URL` | env | Tests only |
+| `TRUECALLER_CLIENT_IDS` | env | The app's Truecaller client ids (release, test build), comma-separated |
+| `MSG91_BASE_URL`, `TRUECALLER_BASE_URL` | env | Tests only |
 
 ## Tests
 
@@ -78,3 +79,38 @@ with a live call. The **successful** `verifyAccessToken` answer isn't documented
 the verified number anywhere in it and refuses a different one; if it carries no number, the server relies on
 its own record of which number the code was sent to (and logs the answer's field names, so the first real
 sign-in shows the shape). Try it with your own number before release.
+
+## Truecaller one-tap (Android)
+
+People with the Truecaller app see **Continue with Truecaller** above the number field; everyone else (and anyone
+who closes the sheet or picks "another number") uses the SMS code.
+
+```
+app (auth/TruecallerSignIn.kt)              Adam server (server/truecaller.js)          Truecaller
+  state + PKCE verifier/challenge,
+  scopes openid phone profile ──────────────────────────────────────────────────▶ consent sheet
+  ◀──────────────────────────────── authorization code (state checked) ─────────
+  POST /api/auth/truecaller {code, codeVerifier, clientId}
+  ─────────────────────────────────▶ POST /v1/token (code + verifier) ──────────▶
+                                    GET /v1/userinfo ──────────────────────────▶ verified phone_number
+  ◀── {token, expiresAt, user, name}  only listed client ids, verified Indian mobiles
+```
+
+The number comes from Truecaller to the server, never from the app. One phone number is one customer, however
+they signed in.
+
+**Setup.** At [Truecaller's developer console](https://sdk-console-noneu.truecaller.com/login): create a project,
+then add an Android credential per build, each giving a **client id** (not secret):
+- test build: package `in.adamspeaks.app.dev`, SHA-1 `A8:2F:BB:92:C2:A9:DF:BA:F4:47:7D:38:3F:3C:BD:A0:88:28:62:36`
+  (the shared test-build key, `android/app/debug.keystore`);
+- Play release: package `in.adamspeaks.app`, SHA-1 of the **app signing key** (Play Console › App integrity).
+
+Select the scopes **openid, phone, profile**. Then: the server gets both ids
+(`TRUECALLER_CLIENT_IDS=<release id>,<test id>` in `deploy/msg91-setup.sh`), and the app builds get theirs as
+GitHub repository variables `TRUECALLER_CLIENT_ID` and `TRUECALLER_CLIENT_ID_DEBUG` (or `truecaller.clientId` /
+`truecaller.clientIdDebug` in `android/local.properties`). Without an id the button simply doesn't appear.
+Before release, submit the project for Truecaller's review ("Moving to production" in their docs).
+
+Tests: `test/login.test.js` (fake Truecaller: success, wrong verifier, another app's id, unverified number, a
+number outside India, same customer as SMS); `OtpPhoneAuthTest`, `AuthFlowTest` (the app's side). The consent
+sheet itself needs a phone with Truecaller, so it's checked by hand.

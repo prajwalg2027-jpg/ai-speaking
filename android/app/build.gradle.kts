@@ -13,6 +13,11 @@ fun setting(name: String, env: String): String? = (findProperty(name) as String?
 val debugServer = setting("sakhi.serverUrl", "SAKHI_DEBUG_SERVER_URL") ?: "https://adam-nfgw4g4xwa-el.a.run.app" // the live server; your Mac: local.properties
 val releaseServer = setting("sakhi.releaseServerUrl", "SAKHI_SERVER_URL") ?: "https://adam-nfgw4g4xwa-el.a.run.app" // later: https://api.adamspeaks.in
 
+// Truecaller one-tap sign-in: each build has its own client id from Truecaller's developer console (package name
+// + signing SHA-1). Not secret. Empty = no Truecaller button (the SMS code only).
+val truecallerDebug = setting("truecaller.clientIdDebug", "TRUECALLER_CLIENT_ID_DEBUG").orEmpty()
+val truecallerRelease = setting("truecaller.clientId", "TRUECALLER_CLIENT_ID").orEmpty()
+
 // Phone login: the app asks the Adam server for an OTP, and the server sends it with MSG91 (server/login.js).
 // Nothing about the SMS provider is in the app.
 
@@ -56,17 +61,21 @@ android {
         debug {
             applicationIdSuffix = ".dev"
             buildConfigField("String", "SERVER_URL", "\"$debugServer\"")
+            buildConfigField("String", "TRUECALLER_CLIENT_ID", "\"$truecallerDebug\"")
+            resValue("string", "truecaller_client_id", truecallerDebug)
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "SERVER_URL", "\"$releaseServer\"")
+            buildConfigField("String", "TRUECALLER_CLIENT_ID", "\"$truecallerRelease\"")
+            resValue("string", "truecaller_client_id", truecallerRelease)
             signingConfig = signingConfigs.findByName("release")
         }
     }
 
-    buildFeatures { compose = true; buildConfig = true }
+    buildFeatures { compose = true; buildConfig = true; resValues = true }
 
     testOptions { unitTests { isIncludeAndroidResources = true; isReturnDefaultValues = true } }
 
@@ -94,6 +103,8 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.truecaller.sdk)
+    implementation(libs.androidx.fragment)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
 

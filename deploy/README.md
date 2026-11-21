@@ -47,6 +47,9 @@ Limits (to protect the SMS budget): Indian mobile numbers only; 5 codes per numb
 3,000 codes a day in all (`OTP_PER_PHONE_PER_HOUR`, `OTP_PER_IP_PER_HOUR`, `OTP_PER_DAY` change them); 5 tries
 per code; a code lasts 10 minutes and works once.
 
+Truecaller one-tap sign-in (optional): see `docs/LOGIN.md` › Truecaller for the client ids, then add
+`TRUECALLER_CLIENT_IDS=<release id>,<test id>` to the command above.
+
 ## Admin console
 
 At `<server address>/admin/`: dashboard, live settings, playground, evaluations, conversations and lessons
