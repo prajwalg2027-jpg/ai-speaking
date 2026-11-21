@@ -1,4 +1,5 @@
-// Adam admin console: dashboard, live settings, playground (A vs B), evaluations, conversations, lessons.
+// Adam admin console: dashboard, live settings, playground (A vs B), evaluations, conversations, lessons, team.
+// What each person sees follows their role's permissions; the server checks every request itself.
 // Plain modules, no build step. Talks to /api/admin (server/admin/api.js). Everything shown from learners is
 // escaped (html`` below), never inserted as markup.
 
@@ -78,6 +79,11 @@ async function signOut() {
   location.reload();
 }
 
+let me = { permissions: [] };
+const can = (p) => me.permissions.includes(p);
+// The permission each page needs.
+const NEEDS = { overview: 'dashboard.view', settings: 'settings.view', playground: 'playground.use', evals: 'evals.view', conversations: 'conversations.view', lessons: 'lessons.view', team: 'team.manage' };
+
 async function boot() {
   const cfg = await fetch('/api/admin/config').then((r) => r.json());
   if (cfg.loginRequired && cfg.login === 'otp') {
@@ -93,14 +99,15 @@ async function boot() {
   }
   const signedIn = cfg.loginRequired;
   try {
-    const me = await api('/me');
-    $('#who').innerHTML = fmt(html`<span>${me.phone === 'local' ? 'Local development (no login)' : me.phone}</span>${signedIn ? html`<button class="link" id="signout">Sign out</button>` : ''}`);
+    me = await api('/me');
+    $('#who').innerHTML = fmt(html`<span>${me.phone === 'local' ? 'Local development (no login)' : me.name || me.phone} · <span class="badge">${me.roleName}</span></span>${signedIn ? html`<button class="link" id="signout">Sign out</button>` : ''}`);
     $('#signout')?.addEventListener('click', signOut);
   } catch (e) {
     if (e.status === 401 && cfg.login === 'otp') { tokenStore.set(null); return otpLoginPage(); }
-    if (e.status === 403 && signedIn) return show(html`<div class="card login"><h1>Not an admin</h1><p>This phone number isn't on the admin list (<code>ADMIN_PHONES</code> on the server).</p><button id="out">Use another number</button></div>`), $('#out').addEventListener('click', signOut);
+    if (e.status === 403 && signedIn) return show(html`<div class="card login"><h1>No access</h1><p>${e.message}</p><button id="out">Use another number</button></div>`), $('#out').addEventListener('click', signOut);
     return show(html`<div class="card login"><h1>Can't open the console</h1><p class="err">${e.message}</p></div>`);
   }
+  for (const a of $$('#nav a')) a.hidden = !can(NEEDS[a.getAttribute('href').slice(1)]);
   $('#nav').hidden = false;
   window.addEventListener('hashchange', route);
   route();
@@ -150,11 +157,15 @@ function firebaseLoginPage() {
   });
 }
 
-const PAGES = { overview, settings, playground, evals, conversations, lessons };
+const PAGES = { overview, settings, playground, evals, conversations, lessons, team };
 async function route() {
-  const [name, arg] = (location.hash.slice(1) || 'overview').split('/');
-  const page = PAGES[name] || overview;
-  $$('#nav a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === `#${name in PAGES ? name : 'overview'}`));
+  const first = Object.keys(PAGES).find((k) => can(NEEDS[k]));
+  if (!first) return show(html`<div class="card"><h2>Nothing to show yet</h2><p class="muted">Your role (${me.roleName}) doesn't include any pages. Ask an owner.</p></div>`);
+  let [name, arg] = (location.hash.slice(1) || first).split('/');
+  if (!(name in PAGES)) name = first;
+  if (!can(NEEDS[name])) return show(html`<div class="card"><h2>Not in your role</h2><p class="muted">Your role (${me.roleName}) doesn't include this page.</p></div>`);
+  const page = PAGES[name];
+  $$('#nav a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === `#${name}`));
   show(html`<p class="muted"><span class="spin"></span> Loading…</p>`);
   charts.clear();
   try { await page(arg && decodeURIComponent(arg)); }
@@ -317,10 +328,11 @@ async function settings() {
     </form>`;
   });
   show(html`
-    <div class="page-head"><div><h1>Settings</h1><p class="muted">Changes apply within seconds on every server, with no deploy. Every change is recorded below.</p></div></div>
+    <div class="page-head"><div><h1>Settings</h1><p class="muted">Changes apply within seconds on every server, with no deploy. Every change is recorded below.${can('settings.edit') ? '' : html` <strong>Read only:</strong> your role (${me.roleName}) can't change settings.`}</p></div></div>
     <datalist id="models"><option value="sarvam-105b"><option value="sarvam-105b-conversations"></datalist>
     ${sections}
     <div class="card"><h2>Change history</h2>${h.changes.length ? html`<div class="table-wrap"><table><tr><th>When</th><th>Section</th><th>By</th><th>What changed</th></tr>${h.changes.map((c) => html`<tr><td>${when(c.changed_at)}</td><td>${s.sections[c.key]?.label || c.key}</td><td>${c.changed_by || '–'}</td><td class="small">${diff(c.old_value, c.new_value).slice(0, 6).map((d) => html`<div>${d}</div>`)}</td></tr>`)}</table></div>` : html`<p class="muted">No changes yet.</p>`}</div>`);
+  if (!can('settings.edit')) for (const form of $$('form[data-key]')) { for (const el of $$('input, select, textarea', form)) el.disabled = true; for (const b of $$('button', form)) b.hidden = true; }
   for (const form of $$('form[data-key]')) {
     const key = form.dataset.key;
     form.addEventListener('submit', async (e) => {
@@ -409,7 +421,8 @@ async function evals(id) {
     <div class="page-head"><div><h1>Evaluations</h1><p class="muted">How well corrections work, on ${dataset.items} hand-labelled learner messages (${dataset.version}). Each message gets one tutor reply; A shows its corrections after the rules, B also checks them. So the only difference is the check.</p></div></div>
     <div class="grid g2 section">
       <div class="card"><h2>Latest result</h2>${latest ? html`<p class="small muted">${when(latest.finished_at)} · ${latest.config?.intensity} intensity · prompt ${latest.prompt_version} · tutor ${latest.config?.llm?.tutor?.model}</p>${compareBars(latest.summary)}` : html`<p class="muted">No finished runs yet.</p>`}</div>
-      <form class="card" id="start"><h2>Run an evaluation</h2>
+      ${can('evals.run') ? '' : html`<div class="card"><h2>Run an evaluation</h2><p class="muted">Your role (${me.roleName}) can see evaluations but not start them.</p></div>`}
+      <form class="card" id="start" ${can('evals.run') ? '' : raw('hidden')}><h2>Run an evaluation</h2>
         <p class="small muted">Uses the current settings and the real AI. The full set takes 2–4 minutes and costs about ₹2.</p>
         <label class="f">Correction intensity<select id="eint"><option value="">Default</option><option value="gentle">Gentle</option><option value="balanced">Balanced</option><option value="strict">Strict</option></select></label>
         <h3>Only these groups (none = all)</h3><div class="row">${dataset.groups.map((g) => html`<label class="check small"><input type="checkbox" value="${g}"> ${humanize(g)}</label>`)}</div>
@@ -476,6 +489,103 @@ async function lessons() {
     <div class="card"><div class="table-wrap"><table><tr><th>Lesson</th><th>Kind</th><th class="num">Level</th><th class="num">Version</th><th class="num">Started</th><th class="num">Finished</th><th class="num">Average score</th></tr>
     ${rows.map((l) => html`<tr><td>${l.title}${l.active ? '' : html` <span class="badge">off</span>`}</td><td>${humanize(l.category)}</td><td class="num">${l.level}</td><td class="num">${l.version}</td><td class="num">${l.started}</td><td class="num">${l.completed}</td><td class="num">${l.avgScorePct == null ? '–' : `${l.avgScorePct}%`}</td></tr>`)}
     </table></div></div>`);
+}
+
+// ---- Team ----------------------------------------------------------------------------------------
+const actionWords = { 'member.added': 'added', 'member.changed': 'changed', 'member.removed': 'removed', 'role.created': 'made role', 'role.changed': 'changed role', 'role.deleted': 'deleted role' };
+function auditLine(c) {
+  const d = c.detail || {};
+  if (c.action === 'member.added') return `${c.target} as ${d.role}${d.name ? ` (${d.name})` : ''}`;
+  if (c.action === 'member.changed') return `${c.target}: ${Object.entries(d.to || {}).map(([k, v]) => `${k} ${d.from?.[k] ?? '–'} → ${v}`).join(', ')}`;
+  if (c.action === 'member.removed') return `${c.target} (was ${d.role})`;
+  if (c.action === 'role.changed' && d.to?.permissions) return `${c.target}: ${d.to.permissions.join(', ') || 'no permissions'}`;
+  return c.target;
+}
+const permChecks = (perms, chosen, { disabled = false } = {}) => html`<div class="perms">${Object.entries(perms).map(([k, label]) =>
+  html`<label class="check small"><input type="checkbox" value="${k}" ${chosen.includes(k) ? raw('checked') : ''} ${disabled ? raw('disabled') : ''}> <span>${label}</span></label>`)}</div>`;
+
+async function team() {
+  const [t, a] = await Promise.all([api('/team'), api('/team/audit')]);
+  const roleName = Object.fromEntries(t.roles.map((r) => [r.id, r.name]));
+  const isOwner = me.role === 'owner';
+  const mayGive = (r) => isOwner || (!r.everything && r.permissions.every(can));
+  const roleOptions = (current) => t.roles.filter((r) => mayGive(r) || r.id === current).map((r) => html`<option value="${r.id}" ${r.id === current ? raw('selected') : ''}>${r.name}</option>`);
+  const locked = (m) => m.fromServer || m.phone === me.phone || (m.role === 'owner' && !isOwner);
+  show(html`
+    <div class="page-head"><div><h1>Team</h1><p class="muted">Who can open this console and what each person can do. People sign in with their phone number (an SMS code). Changes apply at once.</p></div></div>
+    <div class="card section"><h2>People</h2>
+      <div class="table-wrap"><table><tr><th>Name</th><th>Phone</th><th>Role</th><th>Status</th><th>Last seen</th><th></th></tr>
+      ${t.members.map((m) => html`<tr data-phone="${m.phone}">
+        <td>${m.name || '–'}${m.phone === me.phone ? html` <span class="badge">you</span>` : ''}</td>
+        <td>${m.phone}</td>
+        <td>${locked(m) ? html`${roleName[m.role] || m.role}${m.fromServer ? html` <span class="muted small" data-tip="In ADMIN_PHONES on the server: always an owner, changed only there">· server settings</span>` : ''}` : html`<select data-role>${roleOptions(m.role)}</select>`}</td>
+        <td>${m.active ? html`<span class="status good">active</span>` : html`<span class="status warn">paused</span>`}</td>
+        <td class="small">${m.fromServer ? '–' : when(m.lastSeenAt)}</td>
+        <td class="row end">${locked(m) ? '' : html`<button class="link" data-pause>${m.active ? 'Pause' : 'Resume'}</button><button class="link danger" data-remove>Remove</button>`}</td></tr>`)}
+      </table></div>
+      <form id="addm" class="row end" style="margin-top:14px">
+        <label class="f">Phone number<input name="phone" type="tel" placeholder="+91 98765 43210" required></label>
+        <label class="f">Name<input name="name" placeholder="Optional"></label>
+        <label class="f">Role<select name="role">${roleOptions('support')}</select></label>
+        <button class="primary" type="submit">Add</button>
+      </form><p class="err" id="merr" role="alert"></p>
+    </div>
+    <div class="card section"><h2>Roles</h2><p class="muted small">What each role allows. Owner always has everything${isOwner ? '' : '; you can only give out permissions you have yourself'}.</p>
+      <div class="grid g2">${t.roles.map((r) => html`<form class="card role" data-id="${r.id}">
+        <div class="section-head"><h3>${r.name}</h3><span class="badge">${r.members} ${r.members === 1 ? 'person' : 'people'}</span></div>
+        ${r.description ? html`<p class="muted small">${r.description}</p>` : ''}
+        ${r.everything ? (r.description ? '' : html`<p class="small">Everything, including the team.</p>`) : html`${permChecks(t.permissions, r.permissions, { disabled: !mayGive(r) })}
+          ${mayGive(r) ? html`<div class="row"><button class="primary" type="submit">Save</button>${r.builtin ? '' : html`<button type="button" class="link danger" data-delrole>Delete</button>`}</div>` : ''}`}
+        <p class="err" data-err></p></form>`)}</div>
+      <form id="addr" class="card" style="margin-top:14px"><h3>New role</h3>
+        <div class="row"><label class="f">Name<input name="name" required maxlength="40" placeholder="e.g. Content team"></label><label class="f" style="flex:1">What it's for<input name="description" maxlength="200" placeholder="Optional"></label></div>
+        ${permChecks(Object.fromEntries(Object.entries(t.permissions).filter(([k]) => isOwner || can(k))), [])}
+        <div class="row"><button class="primary" type="submit">Make role</button></div><p class="err" id="rerr"></p></form>
+    </div>
+    <div class="card"><h2>Team changes</h2>${a.changes.length ? html`<div class="table-wrap"><table><tr><th>When</th><th>By</th><th>What</th><th>Details</th></tr>
+      ${a.changes.map((c) => html`<tr><td>${when(c.at)}</td><td>${c.actor}</td><td>${actionWords[c.action] || c.action}</td><td class="small">${auditLine(c)}</td></tr>`)}</table></div>` : html`<p class="muted">No changes yet.</p>`}</div>`);
+
+  const done = (msg) => { toast(msg); route(); };
+  const member = (el) => decodeURIComponent(el.closest('tr').dataset.phone);
+  const enc = encodeURIComponent;
+  $('#addm').addEventListener('submit', async (e) => {
+    e.preventDefault(); $('#merr').textContent = '';
+    const f = new FormData(e.target);
+    try { await api('/team/members', { method: 'POST', body: { phone: f.get('phone'), name: f.get('name') || undefined, role: f.get('role') } }); done('Added. They can sign in now.'); }
+    catch (x) { $('#merr').textContent = x.message; }
+  });
+  for (const sel of $$('select[data-role]')) sel.addEventListener('change', async () => {
+    try { await api(`/team/members/${enc(member(sel))}`, { method: 'PUT', body: { role: sel.value } }); done('Role changed'); }
+    catch (x) { $('#merr').textContent = x.message; route(); }
+  });
+  for (const b of $$('[data-pause]')) b.addEventListener('click', async () => {
+    const active = b.textContent !== 'Pause';
+    try { await api(`/team/members/${enc(member(b))}`, { method: 'PUT', body: { active } }); done(active ? 'Access resumed' : 'Access paused'); }
+    catch (x) { $('#merr').textContent = x.message; }
+  });
+  for (const b of $$('[data-remove]')) b.addEventListener('click', async () => {
+    if (!confirm(`Remove ${member(b)} from the team? They lose access at once.`)) return;
+    try { await api(`/team/members/${enc(member(b))}`, { method: 'DELETE' }); done('Removed'); }
+    catch (x) { $('#merr').textContent = x.message; }
+  });
+  for (const form of $$('form.role')) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try { await api(`/team/roles/${enc(form.dataset.id)}`, { method: 'PUT', body: { permissions: $$('input:checked', form).map((i) => i.value) } }); done('Role saved'); }
+      catch (x) { $('[data-err]', form).textContent = x.message; }
+    });
+    $('[data-delrole]', form)?.addEventListener('click', async () => {
+      if (!confirm('Delete this role?')) return;
+      try { await api(`/team/roles/${enc(form.dataset.id)}`, { method: 'DELETE' }); done('Role deleted'); }
+      catch (x) { $('[data-err]', form).textContent = x.message; }
+    });
+  }
+  $('#addr').addEventListener('submit', async (e) => {
+    e.preventDefault(); $('#rerr').textContent = '';
+    const f = new FormData(e.target);
+    try { await api('/team/roles', { method: 'POST', body: { name: f.get('name'), description: f.get('description') || undefined, permissions: $$('#addr input:checked').map((i) => i.value) } }); done('Role made'); }
+    catch (x) { $('#rerr').textContent = x.message; }
+  });
 }
 
 boot().catch((e) => show(html`<div class="card"><h2>Can't start</h2><p class="err">${e.message}</p></div>`));

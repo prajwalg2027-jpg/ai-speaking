@@ -59,7 +59,7 @@ before keeps their account (matched by number).
 | `OTP_LENGTH` | env | The widget's OTP length, 4 to 8 (default 6; ours is 4). The app shows and checks that many digits |
 | `DEMO_PHONES` | env | Numbers under the widget's Demo Credentials (reviewers know their code): never admins |
 | `SESSION_SECRET` | Secret Manager `adam-session-secret` | Signs session tokens (made randomly by `deploy/msg91-setup.sh`) |
-| `ADMIN_PHONES` | env | Numbers allowed into `/admin/` |
+| `ADMIN_PHONES` | env | Numbers that are always admin console owners (others: the Team page) |
 | `MSG91_TEST_PHONE`, `MSG91_TEST_CODE` | env | Optional: a number that signs in with a fixed code, no SMS (never an admin) |
 | `OTP_PER_PHONE_PER_HOUR`, `OTP_PER_IP_PER_HOUR`, `OTP_PER_DAY` | env | Limits (5, 20, 3,000) |
 | `TRUECALLER_CLIENT_IDS` | env | The app's Truecaller client ids (release, test build), comma-separated |

@@ -181,13 +181,35 @@ reply is saved at most once per learner message (database constraint), together 
 
 ## The admin console (adamspeaks.in/admin; `/admin/` locally)
 
-Sign in with a phone number listed in `ADMIN_PHONES` (the team's test number is never accepted). Pages:
+Sign in with a phone number on the admin team (the test and demo numbers are never accepted). Pages:
 **Overview** (learners, activity, reply times, spend vs budget, 14-day charts, placement levels, common mistakes,
 corrections stopped by the check) · **Settings** (AI models per job, correction strategy and intensity, limits and
 budget, features, placement cut-offs; validated, applied within seconds without a deploy, every change recorded with
 who made it) · **Playground** (a message through A and B side by side, nothing saved) · **Evaluations** (start a run,
 compare, see every message where A and B differ) · **Conversations** (transcripts with corrections shown and not
-shown, timings, cost; phone numbers partly hidden) · **Lessons** (started, finished, average score).
+shown, timings, cost; phone numbers partly hidden) · **Lessons** (started, finished, average score) · **Team**
+(people and roles).
+
+### Team and roles (`server/admin/team.js`)
+
+People sign in with their phone number; their **role** decides what they can do. The server checks the permission
+on every request (the console only hides what a role can't use), and changes apply at once.
+
+| Role | Can |
+|---|---|
+| **Owner** | Everything, including the team. The numbers in `ADMIN_PHONES` are always owners (changed only there). |
+| **Admin** | Everything except the team |
+| **Analyst** | Dashboard, lessons, settings and evaluations, read only |
+| **Support** | Dashboard, learners' conversations, lessons |
+| *Your own* | Any mix of the permissions below (Team › New role) |
+
+Permissions: see the dashboard · read learners' conversations · see lessons · see settings · change settings · use
+the playground · see evaluations · start evaluations · manage the team.
+
+Rules: only owners add, change or remove owners; someone who manages the team without being an owner can't give
+out (or take away) permissions they don't have; nobody changes their own access; built-in roles can't be deleted
+and the Owner role can't be changed; the test and demo numbers can never be on the team. Paused or removed people
+lose access on their next click. Every team change is recorded (Team › Team changes).
 
 Setup on Google Cloud: `deploy/admin-setup.sh` (see `deploy/README.md`). Locally (no login) it's open at
 `http://localhost:3000/admin/`.
@@ -206,7 +228,7 @@ every 30 s on each server; changes from the console apply at once on the server 
 |---|---|
 | `OPENAI_API_KEY` | Optional. Lets the console choose OpenAI for an AI job. Put it in Secret Manager, never in a file |
 | `OPENAI_BASE_URL` | Optional. Another OpenAI-compatible endpoint |
-| `ADMIN_PHONES` | Comma-separated phone numbers allowed into the admin console (`+91…`) |
+| `ADMIN_PHONES` | Comma-separated phone numbers that are always owners of the admin console (`+91…`); add others on the Team page |
 | `FIREBASE_WEB_API_KEY` | Firebase web app key for the console's sign-in (public by design) |
 | `FIREBASE_TEST_PHONE` | The team test number never allowed as admin (default `+919999900000`) |
 | `SAKHI_LEARN_MESSAGES_PER_DAY` | Default for the per-learner daily limit (admin setting wins) |

@@ -79,8 +79,9 @@ Before production.
 
 At **https://adamspeaks.in/admin** (the website forwards `/admin` and the admin and sign-in APIs to the server;
 `<server address>/admin/` works too): dashboard, live settings, playground, evaluations, conversations and lessons
-(`docs/LEARNING.md`). Sign-in is the same SMS code; only the numbers in `ADMIN_PHONES` get in (set by
-`msg91-setup.sh`; run it again to change them).
+(`docs/LEARNING.md`). Sign-in is the same SMS code. The numbers in `ADMIN_PHONES` (set by `msg91-setup.sh`) are
+always **owners**; owners add everyone else on the console's **Team** page, each with a role (Owner, Admin, Analyst,
+Support, or your own) that decides what they can see and change. See `docs/LEARNING.md` › Team and roles.
 
 *Before MSG91:* phone login used Firebase (`deploy/firebase-setup.sh`, `deploy/admin-setup.sh`). The server
 still accepts Firebase logins from older app builds while people update; new builds use MSG91 only.

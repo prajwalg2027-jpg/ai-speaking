@@ -1,6 +1,6 @@
 // The admin console's API, under /api/admin (the page itself is public/admin/). Sign-in is the same phone login
-// as the app; only phone numbers listed in ADMIN_PHONES (comma-separated, +91…) get in, and every settings change
-// is recorded with who made it. In local development without login, the console is open; a production server
+// as the app; only the admin team gets in, and each request needs a permission of the person's role (team.js:
+// people, roles, ADMIN_PHONES as owners). Every settings change is recorded with who made it. In local development without login, the console is open; a production server
 // without login keeps it closed.
 //
 //   GET  /api/admin/config                 (no login) → how the page signs in
@@ -16,10 +16,12 @@
 //   GET  /api/admin/conversations          → recent learning conversations
 //   GET  /api/admin/conversations/:id      → the messages, corrections shown and dropped, timings
 //   GET  /api/admin/lessons                → lessons with how learners do in them
+//   /api/admin/team/**                     → people and roles (team.js)
 import { pool } from '../db/pool.js';
 import * as settings from '../settings.js';
-import { caller, loginEnabled, firebaseEnabled, otpEnabled, projectId } from '../auth.js';
-import { production, LIMITS } from '../guard.js';
+import { loginEnabled, firebaseEnabled, otpEnabled, projectId } from '../auth.js';
+import { LIMITS } from '../guard.js';
+import { whoIs, need, handleTeam, PERMISSIONS } from './team.js';
 import { spentToday, PRICES } from '../costs.js';
 import { structured as defaultStructured, providers } from '../llm/index.js';
 import { readJson, send, fail, route, isUuid } from '../http.js';
@@ -29,26 +31,9 @@ import * as evalRuns from '../learning/evalRuns.js';
 import * as payments from '../payments.js';
 import { z } from 'zod';
 
-// Numbers that sign in with a fixed, shared code are never admins: the team's test number (Firebase's or ours),
-// and DEMO_PHONES (MSG91 demo credentials, given to app store reviewers).
-const list = (v) => String(v || '').split(',').map((s) => s.trim()).filter(Boolean);
-const neverAdmin = () => new Set([process.env.FIREBASE_TEST_PHONE || '+919999900000', process.env.MSG91_TEST_PHONE, ...list(process.env.DEMO_PHONES)].filter(Boolean));
-const adminPhones = () => { const no = neverAdmin(); return new Set(list(process.env.ADMIN_PHONES).filter((p) => !no.has(p))); };
 const q = async (sql, params) => (await pool.query(sql, params)).rows;
 const one = async (sql, params) => (await q(sql, params))[0] || null;
 const maskPhone = (p) => (p ? `${p.slice(0, 5)}•••••${p.slice(-3)}` : null);
-
-/** The admin making the request. → { phone } */
-async function admin(req) {
-  if (!loginEnabled()) {
-    if (production) throw fail(403, 'the admin console needs phone login on a public server');
-    return { phone: 'local' };
-  }
-  const who = await caller(req);
-  if (!who) throw fail(401, 'login required');
-  if (!adminPhones().has(who.phone)) throw fail(403, 'this phone number is not an admin');
-  return { phone: who.phone };
-}
 
 const needDb = () => { if (!pool) throw fail(503, 'this needs the database (DATABASE_URL)'); };
 
@@ -116,15 +101,17 @@ export async function handleAdmin(req, res, url, deps = {}) {
       firebase: !otp && firebaseEnabled() && key ? { apiKey: key, authDomain: `${projectId()}.firebaseapp.com`, projectId: projectId() } : null,
     }), true;
   }
-  const who = await admin(req);
+  const who = await whoIs(req);
   res.locals = { user: `admin:${maskPhone(who.phone) || who.phone}` };
   const structured = deps.structured || defaultStructured;
   let a;
 
-  if (m === 'GET' && p === '/api/admin/me') return send(res, 200, { phone: who.phone }), true;
-  if (m === 'GET' && p === '/api/admin/overview') return send(res, 200, await overview()), true;
+  if (m === 'GET' && p === '/api/admin/me') return send(res, 200, { ...who, permissionLabels: PERMISSIONS }), true;
+  if (await handleTeam(req, res, url, who)) return true;
+  if (m === 'GET' && p === '/api/admin/overview') return need(who, 'dashboard.view'), send(res, 200, await overview()), true;
 
   if (m === 'GET' && p === '/api/admin/settings') {
+    need(who, 'settings.view');
     const now = settings.all();
     return send(res, 200, {
       sections: Object.fromEntries(Object.entries(settings.SECTIONS).map(([k, s]) => [k, { label: s.label, value: now[k], defaults: s.defaults, changed: JSON.stringify(now[k]) !== JSON.stringify(s.defaults) }])),
@@ -132,18 +119,21 @@ export async function handleAdmin(req, res, url, deps = {}) {
       prices: PRICES,
     }), true;
   }
-  if (m === 'GET' && p === '/api/admin/settings/history') return send(res, 200, { changes: await settings.history(100) }), true;
+  if (m === 'GET' && p === '/api/admin/settings/history') return need(who, 'settings.view'), send(res, 200, { changes: await settings.history(100) }), true;
   if (m === 'PUT' && (a = route('/api/admin/settings/:key', p))) {
+    need(who, 'settings.edit');
     const b = await readJson(req);
     if (a.key === 'llm') for (const [job, cfg] of Object.entries(b.value || {})) if (cfg?.provider && !providers[cfg.provider]?.configured()) throw fail(400, `${cfg.provider} is not set up on the server (its API key is missing), so ${job} can't use it`);
     return send(res, 200, { value: await settings.set(a.key, b.value, who.phone) }), true;
   }
   if (m === 'POST' && (a = route('/api/admin/settings/:key/reset', p))) {
+    need(who, 'settings.edit');
     if (!settings.SECTIONS[a.key]) throw fail(404, 'unknown section');
     return send(res, 200, { value: await settings.reset(a.key, who.phone) }), true;
   }
 
   if (m === 'POST' && p === '/api/admin/playground') {
+    need(who, 'playground.use');
     const b = Playground.safeParse(await readJson(req));
     if (!b.success) throw fail(400, b.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
     const t = await tutorTurn({ structured, settings: { corrections: settings.get('corrections'), conversation: settings.get('conversation') }, compare: true, strategy: 'single',
@@ -152,26 +142,26 @@ export async function handleAdmin(req, res, url, deps = {}) {
   }
 
   if (m === 'GET' && p === '/api/admin/evals') {
-    needDb();
+    need(who, 'evals.view'); needDb();
     const ds = await loadDataset();
     const runs = (await evalRuns.list(30)).map((r) => ({ ...r, progress: evalRuns.progressOf(r.id) }));
     return send(res, 200, { runs, dataset: { version: ds.version, items: ds.items.length, groups: [...new Set(ds.items.map((i) => i.group))] } }), true;
   }
   if (m === 'POST' && p === '/api/admin/evals') {
-    needDb();
+    need(who, 'evals.run'); needDb();
     const b = await readJson(req);
     const id = await evalRuns.start({ intensity: ['gentle', 'balanced', 'strict'].includes(b.intensity) ? b.intensity : undefined, only: Array.isArray(b.only) ? b.only.map(String) : null, startedBy: who.phone, structured });
     return send(res, 202, { id }), true;
   }
   if (m === 'GET' && (a = route('/api/admin/evals/:id', p))) {
-    needDb();
+    need(who, 'evals.view'); needDb();
     const r = isUuid(a.id) ? await evalRuns.get(a.id) : null;
     if (!r) throw fail(404, 'run not found');
     return send(res, 200, { ...r, progress: evalRuns.progressOf(r.id) }), true;
   }
 
   if (m === 'GET' && p === '/api/admin/conversations') {
-    needDb();
+    need(who, 'conversations.view'); needDb();
     const rows = await q(`select c.id, c.mode, c.title, c.started_at, c.last_message_at, u.phone, u.name,
         (select count(*)::int from messages m where m.conversation_id = c.id and m.role = 'learner') as learner_messages,
         (select count(*)::int from corrections k join messages m on m.id = k.message_id where m.conversation_id = c.id) as corrections,
@@ -180,7 +170,7 @@ export async function handleAdmin(req, res, url, deps = {}) {
     return send(res, 200, { conversations: rows.map((r) => ({ ...r, phone: maskPhone(r.phone) })) }), true;
   }
   if (m === 'GET' && (a = route('/api/admin/conversations/:id', p))) {
-    needDb();
+    need(who, 'conversations.view'); needDb();
     const c = isUuid(a.id) ? await one(`select c.*, u.phone, u.name from conversations c left join users u on u.id = c.user_id where c.id = $1`, [a.id]) : null;
     if (!c) throw fail(404, 'conversation not found');
     const msgs = await q('select * from messages where conversation_id = $1 order by created_at, id', [c.id]);
@@ -188,7 +178,7 @@ export async function handleAdmin(req, res, url, deps = {}) {
     return send(res, 200, { conversation: { ...c, phone: maskPhone(c.phone) }, messages: msgs.map((x) => ({ ...x, corrections: corr.filter((k) => k.message_id === x.id) })) }), true;
   }
   if (m === 'GET' && p === '/api/admin/lessons') {
-    needDb();
+    need(who, 'lessons.view'); needDb();
     const rows = await q(`select l.id, l.title, l.category, l.level, l.version, l.active,
         count(s.id)::int as started, count(s.id) filter (where s.status = 'completed')::int as completed,
         round(avg(s.correct_count::numeric / nullif((l.content->>'exerciseCount')::int, 0)) filter (where s.status = 'completed') * 100)::int as "avgScorePct"
