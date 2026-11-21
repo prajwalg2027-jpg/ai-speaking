@@ -21,6 +21,7 @@ import * as settings from './settings.js';
 import { handleLearn } from './learning/api.js';
 import { handleAdmin } from './admin/api.js';
 import { handleLogin } from './login.js';
+import * as payments from './payments.js';
 import * as lessons from './learning/lessons.js';
 import * as evalRuns from './learning/evalRuns.js';
 import { requestId, logRequest } from './http.js';
@@ -118,7 +119,7 @@ async function handleAccount(req, res, url) {
   if (route === 'POST /api/me/consents') return send(res, 200, await accounts.saveConsents(user, (await json(req)).consents));
   if (route === 'PATCH /api/me/attributes') { const b = await json(req); return send(res, 200, await accounts.saveAttributes(user, b.attributes, b.source)); }
   if (route === 'POST /api/events') return send(res, 200, await accounts.saveEvents(user, (await json(req, 256 * 1024)).events));
-  if (route === 'DELETE /api/me') return send(res, 200, await accounts.erase(user));
+  if (route === 'DELETE /api/me') { await payments.cancelAllFor(user.id); return send(res, 200, await accounts.erase(user)); } // no more charges, then erase
   send(res, 404, { error: 'not found' });
 }
 
@@ -220,6 +221,7 @@ export const server = createServer(async (req, res) => {
   if (url.pathname.startsWith('/api/learn/')) return handleApi(req, res, url, () => handleLearn(req, res, url, { speak: speakTo }));
   if (url.pathname.startsWith('/api/admin/')) return handleApi(req, res, url, () => handleAdmin(req, res, url));
   if (url.pathname.startsWith('/api/auth/')) return handleApi(req, res, url, () => handleLogin(req, res, url));
+  if (url.pathname.startsWith('/api/pay/') || url.pathname === '/api/razorpay/webhook') return handleApi(req, res, url, () => payments.handlePayments(req, res, url));
   try {
     if (isTeamPath(url.pathname)) return send(res, 404, { error: 'not found' });
     // /api/health for Cloud Run (it reserves paths ending in "z", like /healthz, for itself); /healthz for local use.

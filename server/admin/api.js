@@ -26,6 +26,7 @@ import { readJson, send, fail, route, isUuid } from '../http.js';
 import { tutorTurn } from '../learning/tutor.js';
 import { loadDataset } from '../learning/eval.js';
 import * as evalRuns from '../learning/evalRuns.js';
+import * as payments from '../payments.js';
 import { z } from 'zod';
 
 // Numbers that sign in with a fixed, shared code are never admins: the team's test number (Firebase's or ours),
@@ -88,7 +89,7 @@ async function overview() {
       count(*) filter (where metadata->>'checkError' is not null)::int as "checkErrors"
     from messages where role = 'tutor' and reply_to is not null and created_at > now() - interval '7 days'`);
   return {
-    totals, levels, mistakes, latency, quality,
+    totals, levels, mistakes, latency, quality, payments: { ...(await payments.summary()), required: payments.required(), priceInr: settings.get('payments').priceInr },
     series: { days, messages: days.map((d) => messages[d] || 0), activeLearners: days.map((d) => learnersActive[d] || 0), tests: days.map((d) => tests[d] || 0), signups: days.map((d) => signups[d] || 0) },
     spend: { todayInr: +spentToday().toFixed(2), budgetInr: LIMITS.dailyBudgetInr, note: 'this server instance since it started today' },
     llm: settings.get('llm'), strategy: settings.get('corrections').strategy,

@@ -28,6 +28,7 @@ import { readBody, readJson, send, fail, route, isUuid } from '../http.js';
 import * as repo from './repo.js';
 import * as lessons from './lessons.js';
 import { runtime as defaultRuntime } from './runtime.js';
+import { requireAccess } from '../payments.js';
 import { z } from 'zod';
 
 const transcribeLimit = new RateLimit(300, 60 * 60 * 1000); // per learner per hour
@@ -95,6 +96,10 @@ export async function handleLearn(req, res, url, deps = {}) {
   if (m === 'GET' && p === '/api/learn/progress') return send(res, 200, await repo.progress(user.id)), true;
 
   if (m === 'GET' && p === '/api/learn/conversations') return send(res, 200, { conversations: (await repo.conversations(user.id)).map(conversationView) }), true;
+  // Starting or continuing practice or a lesson needs a subscription, when payments are on (payments.js).
+  const paid = m === 'POST' && (p === '/api/learn/conversations' || /^\/api\/learn\/(conversations\/[^/]+\/messages|lessons\/[^/]+\/start|lesson-sessions\/[^/]+\/attempts|voice\/transcribe)$/.test(p));
+  if (paid) await requireAccess(user.id);
+
   if (m === 'POST' && p === '/api/learn/conversations') {
     const b = await readJson(req);
     const pr = await repo.profile(user.id, settings.get('corrections').defaultIntensity);

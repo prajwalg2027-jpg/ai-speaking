@@ -217,6 +217,11 @@ async function overview() {
       <div class="card tile"><div class="label">Placement tests (7 days)</div><div class="value">${n0(t.tests7d)}</div><div class="sub">finished</div></div>
       <div class="card tile"><div class="label">Corrections shown (7 days)</div><div class="value">${n0(t.corrections7d)}</div><div class="sub">over ${n0(t.replies7d)} replies · ${n0(o.quality?.droppedByCheck)} stopped by the check</div></div>
     </div>
+    ${o.payments ? html`<div class="grid g4 section">
+      <div class="card tile"><div class="label">Subscribers</div><div class="value">${n0(o.payments.activeSubscribers)}</div><div class="sub">${o.payments.required ? html`paywall on · ₹${o.payments.priceInr}/month` : 'paywall off (Settings › Payments)'}</div></div>
+      <div class="card tile"><div class="label">Revenue this month</div><div class="value">${inr((o.payments.revenueThisMonthPaise || 0) / 100, 0)}</div><div class="sub">captured payments, before fees and GST</div></div>
+      <div class="card tile"><div class="label">Cancelled (30 days)</div><div class="value">${n0(o.payments.cancelled30d)}</div><div class="sub">subscriptions</div></div>
+    </div>` : ''}
     <div class="grid g2 section">
       ${chart('Practice messages per day', s.messages, 'messages')}
       ${chart('Active learners per day', s.activeLearners, 'learners')}
@@ -233,7 +238,7 @@ async function overview() {
 }
 
 // ---- Settings -------------------------------------------------------------------------------------
-const ORDER = ['corrections', 'llm', 'conversation', 'limits', 'features', 'scoring'];
+const ORDER = ['payments', 'corrections', 'llm', 'conversation', 'limits', 'features', 'scoring'];
 const JOBS = { tutor: 'Tutor replies', verify: 'Correction check (strategy B)', lessonEval: 'Lesson marking' };
 const META = {
   'corrections.strategy': { type: 'choice', label: 'How corrections are made', options: [
@@ -248,6 +253,8 @@ const META = {
   'limits.turnsPerSession': { label: 'Turns in one placement test' },
   'limits.listenSecPerSession': { label: 'Listening seconds per placement test' },
   'limits.learnMessagesPerDay': { label: 'Practice messages per learner per day' },
+  'payments.enabled': { type: 'bool', label: 'Learning needs a subscription (the paywall is on)' },
+  'payments.priceInr': { label: 'Price per month (₹)', help: 'A new price makes a new Razorpay plan; people already subscribed keep their price.' },
   'features.learningModule': { type: 'bool', label: 'Learning module (practice conversations and lessons) is on' },
   'scoring.levelCutoffs': { label: 'Level cut-offs (overall score needed)' },
   'scoring.firstGuess': { label: 'First guess after the opening answer' },

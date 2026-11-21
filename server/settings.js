@@ -56,6 +56,14 @@ export const SECTIONS = {
       learnMessagesPerDay: num('SAKHI_LEARN_MESSAGES_PER_DAY', 400),
     },
   },
+  payments: {
+    label: 'Payments',
+    schema: z.strictObject({
+      enabled: z.boolean(),                              // the learning module needs a subscription
+      priceInr: z.number().int().min(1).max(100_000),    // a month; a new price makes a new Razorpay plan
+    }),
+    defaults: { enabled: false, priceInr: 299 },
+  },
   features: {
     label: 'Features',
     schema: z.strictObject({ learningModule: z.boolean() }),
