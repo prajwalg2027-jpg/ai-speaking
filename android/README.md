@@ -19,15 +19,12 @@ can't be pointed elsewhere.
 
 ## Phone login
 
-The app opens on phone OTP sign-in (Firebase Authentication), then asks the person to confirm they're 18 or
-older and agree to the terms, the privacy policy and keeping voice recordings. Only then does the conversation
-start. Every request, and the live speech connection, carries the Firebase login token, which the server checks.
-The account button (top right) has *Sign out* and *Delete my account and data* (Google Play requires in-app deletion).
-
-Firebase settings come from `google-services.json` (Firebase console › Project settings › Your apps): put it
-at `android/app/google-services.json` (never committed) or in the GitHub secret `GOOGLE_SERVICES_JSON`. A build
-without it skips login, for development against a local server. Register both package names (`in.adamspeaks.app`,
-`in.adamspeaks.app.dev`) and the SHA-256 signing fingerprints in Firebase, or phone sign-in is refused.
+The app opens on phone OTP sign-in, then asks the person to confirm they're 18 or older and agree to the terms,
+the privacy policy and keeping voice recordings. Only then does the conversation start. The code is sent by SMS
+through the Adam server, which uses MSG91 (`server/login.js`): nothing about the SMS provider is in the app. The
+server returns a session token (60 days, refreshed when under a week is left) that goes on every request and on
+the live speech connection. The account button (top right) has *Sign out* and *Delete my account and data*
+(Google Play requires in-app deletion). The test number set on the server signs in with its fixed code.
 
 ## How it works
 
@@ -40,7 +37,7 @@ without it skips login, for development against a local server. Register both pa
 | No lost words | `audio/AudioGate.kt`, `audio/PcmRing.kt` | Mic audio is kept for 10 s while not listening (not billed) and sent from where the learner started talking. |
 | Speaker routing | `audio/AudioRouting.kt` | Communication mode + loudspeaker (headset if connected); audio focus ends the conversation on a phone call. |
 | Server API | `net/SakhiApi.kt`, `net/LiveConnection.kt`, `net/Models.kt` | Same endpoints as the web app; `/api/live` WebSocket for speech-to-text. |
-| Sign-in | `auth/AuthViewModel.kt`, `auth/FirebasePhoneAuth.kt`, `auth/AuthHttp.kt`, `ui/LoginScreens.kt` | Phone → code → consents; the token is added to every request and refreshed after a 401. |
+| Sign-in | `auth/AuthViewModel.kt`, `auth/OtpPhoneAuth.kt`, `auth/AuthHttp.kt`, `ui/LoginScreens.kt` | Phone → code → consents; the session token is added to every request and refreshed before it expires (or after a 401). |
 | Screen | `ui/SakhiScreen.kt`, `ui/Orb.kt`, `ui/theme/Theme.kt` | The design handoff: Molten orb, conversation, fanned card, hint, result, mic screen. Light and dark. |
 
 Leaving the app ends the conversation (a voice conversation can't go on unseen, and Android limits background microphone use).
