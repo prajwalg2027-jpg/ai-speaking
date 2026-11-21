@@ -28,7 +28,7 @@ const ENDED = ['cancelled', 'halted', 'completed', 'expired', 'paused'];
 /** Does this learner have paid access right now? → the subscription that gives it, or null */
 export async function access(userId, now = new Date()) {
   if (!pool || !userId) return null;
-  const subs = await q('select * from subscriptions where user_id = $1 order by created_at desc limit 10', [userId]);
+  const subs = await q(`select * from subscriptions where user_id = $1 and (provider <> 'razorpay' or live = $2) order by created_at desc limit 10`, [userId, rzp.live()]);
   return subs.find((s) => OPEN.includes(s.status) || (ENDED.includes(s.status) && s.current_end && s.current_end > now)) || null;
 }
 
@@ -43,16 +43,16 @@ export async function requireAccess(userId) {
 
 /** The Razorpay plan for the current price (made on first use; a new price makes a new plan). */
 async function planFor(priceInr) {
-  const p = await one(`select provider_plan_id from payment_plans where provider = 'razorpay' and price_inr = $1 order by id desc limit 1`, [priceInr]);
+  const p = await one(`select provider_plan_id from payment_plans where provider = 'razorpay' and price_inr = $1 and live = $2 order by id desc limit 1`, [priceInr, rzp.live()]);
   if (p) return p.provider_plan_id;
   const id = await rzp.createPlan(priceInr);
-  await pool.query(`insert into payment_plans (provider, price_inr, provider_plan_id) values ('razorpay', $1, $2) on conflict do nothing`, [priceInr, id]);
+  await pool.query(`insert into payment_plans (provider, price_inr, provider_plan_id, live) values ('razorpay', $1, $2, $3) on conflict do nothing`, [priceInr, id, rzp.live()]);
   return id;
 }
 
 async function status(userId) {
   const s = await access(userId);
-  const latest = s || (await one('select * from subscriptions where user_id = $1 order by created_at desc limit 1', [userId]));
+  const latest = s || (await one(`select * from subscriptions where user_id = $1 and (provider <> 'razorpay' or live = $2) order by created_at desc limit 1`, [userId, rzp.live()]));
   return {
     required: required(), active: !!s, priceInr: settings.get('payments').priceInr,
     status: latest?.status || null, provider: latest?.provider || null,
@@ -63,6 +63,8 @@ async function status(userId) {
 
 /** Store Razorpay's view of a subscription (fetched from Razorpay, so the order events arrive in can't mislead us). */
 async function refresh(providerId) {
+  const ours = await one(`select live from subscriptions where provider = 'razorpay' and provider_subscription_id = $1`, [providerId]);
+  if (!ours || ours.live !== rzp.live()) return null;
   const st = rzp.subscriptionState(await rzp.fetchSubscription(providerId));
   return one(`update subscriptions set status = $2, current_start = coalesce($3, current_start), current_end = coalesce($4, current_end), updated_at = now()
       where provider_subscription_id = $1 returning *`, [providerId, st.status, st.currentStart, st.currentEnd]);
@@ -78,22 +80,22 @@ async function startRazorpay(user) {
       and created_at > now() - interval '1 day' order by created_at desc limit 1`, [user.id, planId]);
   if (!s) {
     const r = await rzp.createSubscription({ planId, userId: user.id });
-    s = await one(`insert into subscriptions (user_id, provider, provider_subscription_id, provider_plan_id, price_inr, status) values ($1, 'razorpay', $2, $3, $4, $5) returning *`,
-      [user.id, r.id, planId, priceInr, r.status || 'created']);
+    s = await one(`insert into subscriptions (user_id, provider, provider_subscription_id, provider_plan_id, price_inr, status, live) values ($1, 'razorpay', $2, $3, $4, $5, $6) returning *`,
+      [user.id, r.id, planId, priceInr, r.status || 'created', rzp.live()]);
   }
   return { subscriptionId: s.provider_subscription_id, keyId: rzp.keyId(), priceInr, name: 'Adam', description: `Learning with Sakhi · ₹${priceInr}/month`, contact: user.phone || null };
 }
 
 async function verifyRazorpay(user, b) {
   // The subscription must be one we created for this learner; its id comes from our records, not from the app.
-  const s = await one(`select * from subscriptions where provider = 'razorpay' and provider_subscription_id = $1 and user_id = $2`, [String(b.subscriptionId || ''), user.id]);
+  const s = await one(`select * from subscriptions where provider = 'razorpay' and provider_subscription_id = $1 and user_id = $2 and live = $3`, [String(b.subscriptionId || ''), user.id, rzp.live()]);
   if (!s) throw fail(404, 'subscription not found');
   if (!rzp.paymentSignatureOk({ paymentId: b.paymentId, subscriptionId: s.provider_subscription_id, signature: b.signature })) {
     console.warn(`[pay] bad payment signature for ${s.provider_subscription_id}`);
     throw fail(400, 'payment_not_verified', { reason: 'We couldn’t confirm that payment. If money was taken, it will be refunded automatically; please contact us.' });
   }
-  await pool.query(`insert into payments (user_id, subscription_id, provider, provider_payment_id, status) values ($1, $2, 'razorpay', $3, 'authorized')
-      on conflict (provider_payment_id) do nothing`, [user.id, s.id, b.paymentId]);
+  await pool.query(`insert into payments (user_id, subscription_id, provider, provider_payment_id, status, live) values ($1, $2, 'razorpay', $3, 'authorized', $4)
+      on conflict (provider_payment_id) do nothing`, [user.id, s.id, b.paymentId, s.live]);
   await refresh(s.provider_subscription_id);
   return status(user.id);
 }
@@ -123,11 +125,11 @@ async function webhook(req, res) {
     const s = await refresh(subId);
     const p = e.payload?.payment?.entity;
     if (s && p?.id) {
-      await pool.query(`insert into payments (user_id, subscription_id, provider, provider_payment_id, amount_paise, status) values ($1, $2, 'razorpay', $3, $4, $5)
+      await pool.query(`insert into payments (user_id, subscription_id, provider, provider_payment_id, amount_paise, status, live) values ($1, $2, 'razorpay', $3, $4, $5, $6)
           on conflict (provider_payment_id) do update set amount_paise = excluded.amount_paise, status = excluded.status`,
-      [s.user_id, s.id, p.id, Number.isFinite(p.amount) ? p.amount : null, p.status || null]);
+      [s.user_id, s.id, p.id, Number.isFinite(p.amount) ? p.amount : null, p.status || null, s.live]);
     }
-    if (!s) console.warn(`[pay] webhook for a subscription we don't know: ${subId}`);
+    if (!s) console.warn(`[pay] webhook for a subscription we don't know (or from the other mode, test/live): ${subId}`);
   }
   send(res, 200, { ok: true });
 }
@@ -135,7 +137,7 @@ async function webhook(req, res) {
 /** Before an account is erased: stop its Razorpay subscriptions now (no more charges). */
 export async function cancelAllFor(userId) {
   if (!pool || !rzp.configured()) return;
-  for (const s of await q(`select * from subscriptions where user_id = $1 and provider = 'razorpay' and status = any($2)`, [userId, [...OPEN, 'created']])) {
+  for (const s of await q(`select * from subscriptions where user_id = $1 and provider = 'razorpay' and status = any($2) and live = $3`, [userId, [...OPEN, 'created'], rzp.live()])) {
     await rzp.cancelSubscription(s.provider_subscription_id, { atCycleEnd: false }).catch((e) => console.warn(`[pay] cancel on erase failed: ${e.message}`));
   }
 }
@@ -163,11 +165,13 @@ export async function handlePayments(req, res, url) {
   throw fail(404, 'not found');
 }
 
-/** For the admin dashboard. */
+/** For the admin dashboard: the numbers for the mode the Razorpay key is in (test numbers while testing). */
 export async function summary() {
   if (!pool) return null;
-  return one(`select
-      (select count(distinct user_id)::int from subscriptions where status = any($1) or (status = any($2) and current_end > now())) as "activeSubscribers",
-      (select coalesce(sum(amount_paise), 0)::int from payments where status = 'captured' and created_at >= date_trunc('month', now() at time zone 'Asia/Kolkata') at time zone 'Asia/Kolkata') as "revenueThisMonthPaise",
-      (select count(*)::int from subscriptions where status = 'cancelled' and updated_at > now() - interval '30 days') as "cancelled30d"`, [OPEN, ENDED]);
+  const live = rzp.live();
+  const row = await one(`select
+      (select count(distinct user_id)::int from subscriptions where live = $3 and (status = any($1) or (status = any($2) and current_end > now()))) as "activeSubscribers",
+      (select coalesce(sum(amount_paise), 0)::int from payments where live = $3 and status = 'captured' and created_at >= date_trunc('month', now() at time zone 'Asia/Kolkata') at time zone 'Asia/Kolkata') as "revenueThisMonthPaise",
+      (select count(*)::int from subscriptions where live = $3 and status = 'cancelled' and updated_at > now() - interval '30 days') as "cancelled30d"`, [OPEN, ENDED, live]);
+  return { ...row, testMode: !live, configured: rzp.configured() };
 }

@@ -67,6 +67,13 @@ precision 96.5% vs 93.9%, wrong corrections on correct English 3.2% vs 7.3%, rec
 app doesn't use the learning API yet. Admin setup on Google Cloud: `deploy/admin-setup.sh` (not yet run).
 Keep prompt examples apart from `shared/eval/` sentences, or evaluations stop meaning anything.
 
+## Payments (Nov 2026)
+
+The score is free; "Start learning" opens a ₹299/month subscription through Razorpay (`docs/PAYMENTS.md`). The
+server decides access (signatures checked, state from Razorpay); test and live mode are kept apart. Razorpay is for
+sideloaded builds now; **before the Play release**, add Google Play Billing with user choice billing (the plan is in
+`docs/PAYMENTS.md`). Setup: `deploy/razorpay-setup.sh` (test keys first).
+
 ## Pending (as of the handoff)
 
 Needs Prajwal: Google Play account type (personal → 14-day closed test with 12 testers); lawyer review of the

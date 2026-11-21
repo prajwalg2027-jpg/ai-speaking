@@ -22,7 +22,7 @@ function startFake() {
       const b = body ? JSON.parse(body) : {};
       rz.calls.push({ method: req.method, path: req.url, body: b });
       const json = (code, o) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
-      if (req.headers.authorization !== `Basic ${Buffer.from(`rzp_test_key:${KEY_SECRET}`).toString('base64')}`) return json(401, { error: { code: 'BAD_REQUEST_ERROR', description: 'Authentication failed' } });
+      if (![`rzp_test_key`, `rzp_live_key`].some((k) => req.headers.authorization === `Basic ${Buffer.from(`${k}:${KEY_SECRET}`).toString('base64')}`)) return json(401, { error: { code: 'BAD_REQUEST_ERROR', description: 'Authentication failed' } });
       if (req.method === 'POST' && req.url === '/v1/plans') { const id = `plan_${String(++n).padStart(14, '0')}`; rz.plans.push({ id, amount: b.item.amount }); return json(200, { id }); }
       if (req.method === 'POST' && req.url === '/v1/subscriptions') { const id = `sub_${String(++n).padStart(14, '0')}`; rz.subs.set(id, { id, plan_id: b.plan_id, status: 'created', current_start: null, current_end: null, notes: b.notes }); return json(200, rz.subs.get(id)); }
       const m = /^\/v1\/subscriptions\/([^/]+)(\/cancel)?$/.exec(req.url);
@@ -168,6 +168,22 @@ t('the admin dashboard shows subscribers and this month’s revenue', async () =
   assert.equal(o.payments.activeSubscribers, 1);
   assert.equal(o.payments.revenueThisMonthPaise, 29900);
   assert.equal(o.payments.required, true);
+});
+
+t('switching from test keys to live keys: test plans and subscriptions are left behind', async () => {
+  process.env.RAZORPAY_KEY_ID = 'rzp_live_key';
+  try {
+    const st = (await call('GET', '/api/pay/status', asha)).json;
+    assert.deepEqual([st.active, st.status], [false, null]); // her test-mode subscription doesn't count in live mode
+    const plans = rz.plans.length;
+    const r = await call('POST', '/api/pay/razorpay/subscription', ravi);
+    assert.equal(r.json.keyId, 'rzp_live_key');
+    assert.equal(rz.plans.length, plans + 1); // a live plan, not the test one
+    const o = (await call('GET', '/api/admin/overview', admin)).json;
+    assert.deepEqual([o.payments.activeSubscribers, o.payments.revenueThisMonthPaise, o.payments.testMode], [0, 0, false]);
+  } finally { process.env.RAZORPAY_KEY_ID = 'rzp_test_key'; }
+  assert.equal((await call('GET', '/api/pay/status', asha)).json.active, true);
+  assert.equal((await call('GET', '/api/admin/overview', admin)).json.payments.testMode, true);
 });
 
 t('erasing an account cancels its subscription now and keeps the payment record without the person', async () => {

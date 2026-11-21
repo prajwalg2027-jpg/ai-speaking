@@ -218,7 +218,7 @@ async function overview() {
       <div class="card tile"><div class="label">Corrections shown (7 days)</div><div class="value">${n0(t.corrections7d)}</div><div class="sub">over ${n0(t.replies7d)} replies · ${n0(o.quality?.droppedByCheck)} stopped by the check</div></div>
     </div>
     ${o.payments ? html`<div class="grid g4 section">
-      <div class="card tile"><div class="label">Subscribers</div><div class="value">${n0(o.payments.activeSubscribers)}</div><div class="sub">${o.payments.required ? html`paywall on · ₹${o.payments.priceInr}/month` : 'paywall off (Settings › Payments)'}</div></div>
+      <div class="card tile"><div class="label">Subscribers</div><div class="value">${n0(o.payments.activeSubscribers)}</div><div class="sub">${o.payments.required ? html`paywall on · ₹${o.payments.priceInr}/month` : 'paywall off (Settings › Payments)'}${o.payments.testMode && o.payments.configured ? ' · Razorpay TEST mode' : ''}${o.payments.configured === false ? ' · Razorpay not set up' : ''}</div></div>
       <div class="card tile"><div class="label">Revenue this month</div><div class="value">${inr((o.payments.revenueThisMonthPaise || 0) / 100, 0)}</div><div class="sub">captured payments, before fees and GST</div></div>
       <div class="card tile"><div class="label">Cancelled (30 days)</div><div class="value">${n0(o.payments.cancelled30d)}</div><div class="sub">subscriptions</div></div>
     </div>` : ''}

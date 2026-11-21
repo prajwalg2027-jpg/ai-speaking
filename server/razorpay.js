@@ -10,6 +10,8 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 const base = () => process.env.RAZORPAY_BASE_URL || 'https://api.razorpay.com';
 export const keyId = () => process.env.RAZORPAY_KEY_ID || '';
+/** Live keys (rzp_live_…) or test keys (rzp_test_…): the two modes' plans and subscriptions are separate. */
+export const live = () => !keyId().startsWith('rzp_test_');
 export const configured = () => !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
 export const webhookConfigured = () => !!process.env.RAZORPAY_WEBHOOK_SECRET;
 

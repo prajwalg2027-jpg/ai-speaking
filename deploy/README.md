@@ -50,6 +50,19 @@ per code; a code lasts 10 minutes and works once.
 Truecaller one-tap sign-in (optional): see `docs/LOGIN.md` › Truecaller for the client ids, then add
 `TRUECALLER_CLIENT_IDS=<release id>,<test id>` to the command above.
 
+## Payments with Razorpay (one time, about 15 minutes)
+
+The learning module is a monthly subscription (₹299, an admin setting), paid through Razorpay after the free score.
+Start with Razorpay's **test** keys, then switch to live:
+
+```
+PROJECT=cool-arch-515210-b0 RAZORPAY_KEY_ID=rzp_test_XXXXXXXXXXXXXX ./deploy/razorpay-setup.sh
+```
+
+It asks for the key secret (hidden), checks it with Razorpay, stores it and a webhook secret in Secret Manager, and
+prints the webhook to add in Razorpay. Then turn the paywall on in the admin console (Settings › Payments). All the
+steps, going live, and what Google Play needs before the Play release: `docs/PAYMENTS.md`.
+
 ## Admin console
 
 At `<server address>/admin/`: dashboard, live settings, playground, evaluations, conversations and lessons
