@@ -19,6 +19,10 @@ REST), **Bulbul v4 Flash** (voice), **Sarvam-105B** (scoring) and **Mayura** (Hi
   are used and why, the turn pipeline, latency tactics, and **how misunderstandings are
   handled** in both directions.
 
+## Website
+The public landing page and privacy policy for **adamspeaks.in** live in [`website/`](website/README.md)
+(static, hosted on Firebase Hosting in Google Cloud).
+
 ## Run it
 ```bash
 npm install
