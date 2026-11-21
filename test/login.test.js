@@ -42,7 +42,7 @@ before(async () => {
   msg91Base = `http://127.0.0.1:${fake.address().port}`;
   Object.assign(process.env, {
     DATABASE_URL: url, MSG91_AUTHKEY: 'test-authkey', MSG91_WIDGET_ID: 'widget-1', MSG91_BASE_URL: msg91Base,
-    SESSION_SECRET: 'x'.repeat(48), MSG91_TEST_PHONE: '+919999900000', MSG91_TEST_CODE: '123456', ADMIN_PHONES: '+919800000077',
+    SESSION_SECRET: 'x'.repeat(48), MSG91_TEST_PHONE: '+919999900000', MSG91_TEST_CODE: '123456', ADMIN_PHONES: '+919800000077,+919000000001', DEMO_PHONES: '+919000000001',
   });
   delete process.env.FIREBASE_PROJECT_ID;
   ({ pool } = await import('../server/db/pool.js'));
@@ -85,6 +85,13 @@ t('sending: MSG91 is called by the server with its key, the widget and the numbe
   assert.equal(r.json.codeLength, 6);
   assert.deepEqual(calls[0], { path: 'sendOtp', body: { widgetId: 'widget-1', identifier: '919876543210' }, authkey: 'test-authkey' });
   assert.ok(!JSON.stringify(r.json).includes('req-'), 'MSG91’s request id stays on the server');
+});
+
+t('the code length follows the MSG91 widget (OTP_LENGTH)', async () => {
+  process.env.OTP_LENGTH = '4';
+  const r = await call('POST', '/api/auth/otp/send', { phone: '9876500099' });
+  delete process.env.OTP_LENGTH;
+  assert.equal(r.json.codeLength, 4);
 });
 
 t('a wrong code is refused; after 5 tries the request is locked', async () => {
@@ -194,5 +201,7 @@ t('the admin console accepts an OTP session for an admin number, and only that',
   const admin = await signIn('9800000077');
   assert.equal((await call('GET', '/api/admin/me', null, bearer(admin.token))).json.phone, '+919800000077');
   assert.equal((await call('GET', '/api/admin/me', null, bearer(first.token))).status, 403);
+  const demo = await signIn('9000000001');
+  assert.equal((await call('GET', '/api/admin/me', null, bearer(demo.token))).status, 403, 'a demo number is never an admin, even if listed');
   assert.deepEqual((await call('GET', '/api/admin/config')).json, { loginRequired: true, login: 'otp', firebase: null });
 });

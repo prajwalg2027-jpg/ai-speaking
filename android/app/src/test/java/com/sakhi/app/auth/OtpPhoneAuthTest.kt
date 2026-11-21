@@ -68,6 +68,13 @@ class OtpPhoneAuthTest {
         assertEquals(Reason.NETWORK, (auth.sendCode(activity, "+919876543210") as CodeResult.Failed).reason)
     }
 
+    @Test fun `the code length comes from the server`() = runBlocking {
+        reply(200, """{"requestId":"r-4","codeLength":4}""")
+        assertEquals(CodeResult.Sent("r-4", 4), auth.sendCode(activity, "+919000000001"))
+        reply(200, """{"ok":true}""")
+        assertEquals("a resend keeps it", CodeResult.Sent("r-4", 4), auth.sendCode(activity, "+919000000001", resend = true))
+    }
+
     @Test fun `send again uses the same request`() = runBlocking {
         reply(200, """{"requestId":"r-9"}""")
         auth.sendCode(activity, "+919876543210")

@@ -5,17 +5,21 @@
 #   - lets the server's account read both, and gives the server the widget id and the admin numbers,
 #   - optionally a test number with a fixed code (for the team and the Play Store review; no SMS is sent).
 #
-#   PROJECT=cool-arch-515210-b0 MSG91_WIDGET_ID=<widget id> ADMIN_PHONES=+919812345678 ./deploy/msg91-setup.sh
-#   (optional) TEST_PHONE=+919999900000 TEST_CODE=<6 digits you choose>
+#   PROJECT=cool-arch-515210-b0 MSG91_WIDGET_ID=<widget id> OTP_LENGTH=4 ADMIN_PHONES=+919812345678 \
+#     DEMO_PHONES=+919000000001 ./deploy/msg91-setup.sh
+#   OTP_LENGTH: the widget's OTP length (4 to 8). DEMO_PHONES: numbers set up under the widget's Demo Credentials
+#   (they can never be admins). (optional) TEST_PHONE + TEST_CODE: a test number handled by this server instead.
 #
-# Before: in MSG91 (msg91.com) → OTP → Widget, create a widget for SMS with a 6-digit OTP, turn OFF captcha and
-# invisible OTP (not supported for server-side use), and copy its Widget ID. Your authkey is under Authkey.
+# Before: in MSG91 (msg91.com) → OTP → Widget, create a widget for SMS, turn OFF captcha and invisible OTP (not
+# supported for server-side use), and copy its Widget ID. Your authkey is under Authkey.
 # Run in Cloud Shell after deploy/cloudrun.sh. Safe to run again: to change the key, the admins or the widget.
 set -euo pipefail
 
 PROJECT="${PROJECT:?Set PROJECT to your Google Cloud project ID}"
 WIDGET="${MSG91_WIDGET_ID:?Set MSG91_WIDGET_ID to the OTP widget id from MSG91 (OTP › Widget)}"
 ADMIN_PHONES="${ADMIN_PHONES:-}"
+OTP_LENGTH="${OTP_LENGTH:-6}"
+DEMO_PHONES="${DEMO_PHONES:-}"
 REGION="${REGION:-asia-south1}"
 SERVICE="${SERVICE:-adam}"
 RUNTIME_SA="adam-runtime@${PROJECT}.iam.gserviceaccount.com"
@@ -23,16 +27,20 @@ step() { echo; echo "› $*"; }
 gcloud config set project "$PROJECT" >/dev/null
 
 [[ "$WIDGET" =~ ^[A-Za-z0-9]{8,64}$ ]] || { echo "That doesn't look like a widget id: '$WIDGET'"; exit 1; }
+[[ "$OTP_LENGTH" =~ ^[4-8]$ ]] || { echo "OTP_LENGTH must be the widget's OTP length, 4 to 8"; exit 1; }
+phone_ok() { [[ "$1" =~ ^\+[1-9][0-9]{7,14}$ ]] || { echo "Not a phone number in international form: '$1' (like +919812345678)"; exit 1; }; }
+IFS=',' read -ra DEMOS <<< "$DEMO_PHONES"
+for d in "${DEMOS[@]}"; do phone_ok "$d"; done
 if [[ -n "$ADMIN_PHONES" ]]; then
   IFS=',' read -ra PHONES <<< "$ADMIN_PHONES"
   for p in "${PHONES[@]}"; do
-    [[ "$p" =~ ^\+[1-9][0-9]{7,14}$ ]] || { echo "Not a phone number in international form: '$p' (like +919812345678)"; exit 1; }
-    [[ "$p" != "${TEST_PHONE:-+919999900000}" ]] || { echo "$p is the test number: it can't be an admin."; exit 1; }
+    phone_ok "$p"
+    for no in "${TEST_PHONE:-+919999900000}" "${DEMOS[@]}"; do [[ "$p" != "$no" ]] || { echo "$p signs in with a shared code (test or demo): it can't be an admin."; exit 1; }; done
   done
 fi
 if [[ -n "${TEST_PHONE:-}" ]]; then
   [[ "$TEST_PHONE" =~ ^\+91[6-9][0-9]{9}$ ]] || { echo "TEST_PHONE must be an Indian mobile number like +919999900000"; exit 1; }
-  [[ "${TEST_CODE:-}" =~ ^[0-9]{6}$ ]] || { echo "TEST_CODE must be 6 digits"; exit 1; }
+  [[ "${TEST_CODE:-}" =~ ^[0-9]{4,8}$ ]] || { echo "TEST_CODE must be 4 to 8 digits"; exit 1; }
 fi
 
 step "MSG91 authkey (Secret Manager: msg91-authkey)"
@@ -58,8 +66,9 @@ done
 
 step "Giving the server its settings (a new revision, about a minute)"
 # "^;^" makes ";" the separator, so commas inside ADMIN_PHONES stay in the value.
-VARS="^;^MSG91_WIDGET_ID=${WIDGET}"
+VARS="^;^MSG91_WIDGET_ID=${WIDGET};OTP_LENGTH=${OTP_LENGTH}"
 [[ -n "$ADMIN_PHONES" ]] && VARS="${VARS};ADMIN_PHONES=${ADMIN_PHONES}"
+[[ -n "$DEMO_PHONES" ]] && VARS="${VARS};DEMO_PHONES=${DEMO_PHONES}"
 [[ -n "${TEST_PHONE:-}" ]] && VARS="${VARS};MSG91_TEST_PHONE=${TEST_PHONE};MSG91_TEST_CODE=${TEST_CODE};FIREBASE_TEST_PHONE=${TEST_PHONE}"
 gcloud run services update "$SERVICE" --region "$REGION" --quiet \
   --update-secrets "MSG91_AUTHKEY=msg91-authkey:latest,SESSION_SECRET=adam-session-secret:latest" \

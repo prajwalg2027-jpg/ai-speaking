@@ -20,7 +20,7 @@ sealed interface Gate {
     data object Checking : Gate
     data class Offline(val message: String) : Gate
     data class Phone(val number: String = "", val error: String? = null, val busy: Boolean = false, val note: String? = null) : Gate
-    data class Code(val phone: String, val verificationId: String, val code: String = "", val error: String? = null, val busy: Boolean = false, val resendIn: Int = 30) : Gate
+    data class Code(val phone: String, val verificationId: String, val code: String = "", val error: String? = null, val busy: Boolean = false, val resendIn: Int = 30, val length: Int = 6) : Gate
     data class Consents(val missing: List<String>, val error: String? = null, val busy: Boolean = false) : Gate
     data object Ready : Gate
 }
@@ -48,7 +48,7 @@ class AuthViewModel(private val auth: PhoneAuth, private val api: SakhiApi, priv
     }
 
     fun onNumber(text: String) = _gate.update { if (it is Gate.Phone) it.copy(number = text.filter { c -> c.isDigit() || c == ' ' || c == '+' }.take(16), error = null) else it }
-    fun onCode(text: String) = _gate.update { if (it is Gate.Code) it.copy(code = text.filter(Char::isDigit).take(6), error = null) else it }
+    fun onCode(text: String) = _gate.update { if (it is Gate.Code) it.copy(code = text.filter(Char::isDigit).take(it.length), error = null) else it }
 
     fun sendCode(activity: Activity) {
         val g = _gate.value as? Gate.Phone ?: return
@@ -66,7 +66,7 @@ class AuthViewModel(private val auth: PhoneAuth, private val api: SakhiApi, priv
 
     fun verify() {
         val g = _gate.value as? Gate.Code ?: return
-        if (g.code.length != 6) { _gate.value = g.copy(error = "Enter the 6-digit code"); return }
+        if (g.code.length != g.length) { _gate.value = g.copy(error = "Enter the ${g.length}-digit code"); return }
         _gate.value = g.copy(busy = true, error = null)
         viewModelScope.launch { handle(auth.verifyCode(g.verificationId, g.code), g.phone) }
     }
@@ -75,7 +75,7 @@ class AuthViewModel(private val auth: PhoneAuth, private val api: SakhiApi, priv
 
     private suspend fun handle(r: CodeResult, phone: String) {
         when (r) {
-            is CodeResult.Sent -> { _gate.value = Gate.Code(phone, r.verificationId); startResendTimer() }
+            is CodeResult.Sent -> { _gate.value = Gate.Code(phone, r.verificationId, length = r.codeLength); startResendTimer() }
             CodeResult.SignedIn -> { ticker?.cancel(); events.log("login.completed"); afterSignIn() }
             is CodeResult.Failed -> {
                 val msg = message(r.reason)

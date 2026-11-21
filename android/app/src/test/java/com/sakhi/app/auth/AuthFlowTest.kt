@@ -24,7 +24,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /** A phone login that behaves like the real one, without a server. */
-class FakePhoneAuth(var autoRead: Boolean = false) : PhoneAuth {
+class FakePhoneAuth(var autoRead: Boolean = false, var codeLength: Int = 6) : PhoneAuth {
     override val configured = true
     override var currentUser: AuthUser? = null
     var token = "token-1"
@@ -33,10 +33,10 @@ class FakePhoneAuth(var autoRead: Boolean = false) : PhoneAuth {
     override suspend fun sendCode(activity: Activity, phone: String, resend: Boolean): CodeResult {
         sentTo = phone
         if (autoRead) { currentUser = AuthUser("uid-1", phone); return CodeResult.SignedIn }
-        return CodeResult.Sent("verif-1")
+        return CodeResult.Sent("verif-1", codeLength)
     }
     override suspend fun verifyCode(verificationId: String, code: String): CodeResult =
-        if (code == "123456") { currentUser = AuthUser("uid-1", sentTo); CodeResult.SignedIn } else CodeResult.Failed(Reason.WRONG_CODE, null)
+        if (code == "123456".take(codeLength)) { currentUser = AuthUser("uid-1", sentTo); CodeResult.SignedIn } else CodeResult.Failed(Reason.WRONG_CODE, null)
     override fun signOut() { currentUser = null }
 }
 
@@ -69,6 +69,21 @@ class AuthFlowTest {
         assertEquals("+919876543210", indianMobile("098765 43210"))
         assertNull(indianMobile("12345 67890")) // mobiles start with 6–9
         assertNull(indianMobile("98765"))
+    }
+
+    @Test fun `a 4-digit code when the server says so`() {
+        val auth = FakePhoneAuth(codeLength = 4)
+        val vm = AuthViewModel(auth, api, events(auth))
+        vm.onNumber("90000 00001"); vm.sendCode(activity)
+        val code = waitFor(vm) { it is Gate.Code } as Gate.Code
+        assertEquals(4, code.length)
+        vm.onCode("12"); vm.verify()
+        assertEquals("Enter the 4-digit code", (vm.gate.value as Gate.Code).error)
+        vm.onCode("123456")
+        assertEquals("1234", (vm.gate.value as Gate.Code).code)
+        reply("""{"id":"u1","phone":"+919000000001","missingConsents":[]}""")
+        vm.verify()
+        assertEquals(Gate.Ready, waitFor(vm) { it == Gate.Ready })
     }
 
     @Test fun `phone, code, consents, then the conversation`() {

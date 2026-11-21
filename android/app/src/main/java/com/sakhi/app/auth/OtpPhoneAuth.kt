@@ -48,6 +48,7 @@ class OtpPhoneAuth(
     private val background = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val refreshing = Mutex()
     private var lastRequestId: String? = null
+    private var lastCodeLength = 6
 
     override val configured = true
 
@@ -83,13 +84,14 @@ class OtpPhoneAuth(
         val id = lastRequestId
         if (resend && id != null) {
             val (code, body) = post("/api/auth/otp/resend", SakhiJson.encodeToString(ResendBody.serializer(), ResendBody(id)))
-            if (code in 200..299) CodeResult.Sent(id) else failure(code, body)
+            if (code in 200..299) CodeResult.Sent(id, lastCodeLength) else failure(code, body)
         } else {
             val (code, body) = post("/api/auth/otp/send", SakhiJson.encodeToString(SendBody.serializer(), SendBody(phone)))
             if (code in 200..299) {
                 val s = SakhiJson.decodeFromString<Sent>(body)
                 lastRequestId = s.requestId
-                CodeResult.Sent(s.requestId)
+                lastCodeLength = s.codeLength.coerceIn(4, 8)
+                CodeResult.Sent(s.requestId, lastCodeLength)
             } else failure(code, body)
         }
     }

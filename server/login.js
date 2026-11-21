@@ -11,8 +11,9 @@
 // each hour, a daily cap on all codes (each SMS costs money), and 5 tries per code. Errors are
 // { error: invalid_number | too_many_requests | wrong_code | code_expired | unavailable, reason }.
 //
-// The team's test number (MSG91_TEST_PHONE + MSG91_TEST_CODE, e.g. for the Play Store review) signs in with its
-// fixed code and sends no SMS.
+// The team's test number (MSG91_TEST_PHONE + MSG91_TEST_CODE) signs in with its fixed code and sends no SMS.
+// (MSG91's own "Demo Credentials" do the same inside MSG91; list those numbers in DEMO_PHONES so they can never
+// be admins.)
 import { timingSafeEqual } from 'node:crypto';
 import { pool } from './db/pool.js';
 import * as msg91 from './msg91.js';
@@ -22,7 +23,8 @@ import { caller } from './auth.js';
 import { RateLimit, clientIp } from './guard.js';
 import { readJson, send, fail } from './http.js';
 
-export const CODE_LENGTH = 6;
+/** Digits in a code: must match the MSG91 widget's OTP length (OTP_LENGTH, 4 to 8; default 6). */
+export const codeLength = () => Math.min(8, Math.max(4, Number(process.env.OTP_LENGTH) || 6));
 const EXPIRES_SEC = 600, RESEND_AFTER_SEC = 30, MAX_RESENDS = 3, MAX_ATTEMPTS = 5;
 const num = (k, d) => (Number.isFinite(Number(process.env[k])) && process.env[k] !== '' ? Number(process.env[k]) : d);
 const LIMITS = {
@@ -74,7 +76,7 @@ async function sendCode(req) {
     [phone, ref, ip, EXPIRES_SEC]);
   // Old requests aren't needed once they've expired (keep a month for abuse checks).
   pool.query(`delete from otp_requests where created_at < now() - interval '30 days'`).catch(() => {});
-  return { requestId: r.id, codeLength: CODE_LENGTH, resendAfterSec: RESEND_AFTER_SEC, expiresInSec: EXPIRES_SEC };
+  return { requestId: r.id, codeLength: codeLength(), resendAfterSec: RESEND_AFTER_SEC, expiresInSec: EXPIRES_SEC };
 }
 
 const pending = async (id) => {

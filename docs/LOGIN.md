@@ -32,7 +32,7 @@ app / admin page                 Adam server (server/login.js)                MS
 
 | | Body | Answer |
 |---|---|---|
-| `POST /api/auth/otp/send` | `{phone}` (any common Indian form) | `{requestId, codeLength: 6, resendAfterSec: 30, expiresInSec: 600}` |
+| `POST /api/auth/otp/send` | `{phone}` (any common Indian form) | `{requestId, codeLength, resendAfterSec: 30, expiresInSec: 600}` (`codeLength` = `OTP_LENGTH`) |
 | `POST /api/auth/otp/resend` | `{requestId, channel?}` (`sms`, `voice`, `whatsapp`) | `{ok, resendAfterSec}`; 30 s apart, 3 at most |
 | `POST /api/auth/otp/verify` | `{requestId, code, client?}` | `{token, expiresAt, user: {id, phone, created}}` |
 | `POST /api/auth/refresh` | signed in | `{token, expiresAt}` |
@@ -55,7 +55,9 @@ before keeps their account (matched by number).
 | Name | Where | Meaning |
 |---|---|---|
 | `MSG91_AUTHKEY` | Secret Manager `msg91-authkey` | MSG91 account authkey |
-| `MSG91_WIDGET_ID` | env | The OTP widget (6-digit OTP, captcha and invisible OTP off) |
+| `MSG91_WIDGET_ID` | env | The OTP widget (captcha and invisible OTP off) |
+| `OTP_LENGTH` | env | The widget's OTP length, 4 to 8 (default 6; ours is 4). The app shows and checks that many digits |
+| `DEMO_PHONES` | env | Numbers under the widget's Demo Credentials (reviewers know their code): never admins |
 | `SESSION_SECRET` | Secret Manager `adam-session-secret` | Signs session tokens (made randomly by `deploy/msg91-setup.sh`) |
 | `ADMIN_PHONES` | env | Numbers allowed into `/admin/` |
 | `MSG91_TEST_PHONE`, `MSG91_TEST_CODE` | env | Optional: a number that signs in with a fixed code, no SMS (never an admin) |

@@ -112,8 +112,8 @@ private fun PhoneStep(g: Gate.Phone, a: LoginActions) {
 @Composable
 private fun CodeStep(g: Gate.Code, a: LoginActions) {
     Title("Enter the code", "कोड डालिए")
-    Body("We sent a 6-digit code to ${g.phone.replaceFirst("+91", "+91 ")}. It may fill in by itself.")
-    Field(value = g.code, onValue = a.onCode, label = "6-digit code", keyboard = KeyboardType.NumberPassword, error = g.error, onDone = a.verify, big = true)
+    Body("We sent a ${g.length}-digit code to ${g.phone.replaceFirst("+91", "+91 ")}. It may fill in by itself.")
+    Field(value = g.code, onValue = a.onCode, label = "${g.length}-digit code", keyboard = KeyboardType.NumberPassword, error = g.error, onDone = a.verify, big = true)
     Primary("Continue · आगे बढ़ें", busy = g.busy, onClick = a.verify)
     Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
         TextButton(a.changeNumber) { Text("Change number", color = Sakhi.colors.ink2) }

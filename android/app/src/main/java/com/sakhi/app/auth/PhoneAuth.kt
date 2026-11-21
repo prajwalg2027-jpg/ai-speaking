@@ -8,7 +8,8 @@ data class AuthUser(val uid: String, val phone: String?)
 /** What happened after asking for a code. */
 sealed interface CodeResult {
     /** The SMS was sent; the person types the code (or Android reads it). */
-    data class Sent(val verificationId: String) : CodeResult
+    /** [codeLength]: how many digits the code has (the server says; MSG91 widgets use 4 to 8). */
+    data class Sent(val verificationId: String, val codeLength: Int = 6) : CodeResult
     /** Android verified the number by itself (read the SMS): already signed in. */
     data object SignedIn : CodeResult
     data class Failed(val reason: Reason, val message: String?) : CodeResult

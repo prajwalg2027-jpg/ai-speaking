@@ -26,21 +26,22 @@ account only the access it needs. Database tables are created and updated automa
 Learners and admins sign in with an SMS code sent by **MSG91**. The server sends and checks the code (MSG91's key
 never leaves it), then gives the app its own login session (`server/login.js`, `docs/LOGIN.md`).
 
-1. In [MSG91](https://msg91.com): **OTP › Widget › Create**. Channel SMS, **OTP length 6**, and turn **off** captcha
-   and invisible OTP (they don't work when the server calls MSG91). Copy the **Widget ID**.
+1. In [MSG91](https://msg91.com): **OTP › Widget › Create**. Channel SMS, and turn **off** captcha and invisible OTP
+   (they don't work when the server calls MSG91). Note its OTP length (ours: 4). Copy the **Widget ID**. For app
+   store reviewers, add a number under **Demo Credentials** (ours: +91 90000 00001).
 2. Indian SMS needs DLT: MSG91's widget uses its own approved OTP template; if it asks you for a DLT template or
    sender ID, follow its steps there.
 3. Find your **authkey** (MSG91 › Authkey). Don't paste it anywhere except the prompt in step 4.
 4. In Cloud Shell, from the `ai-speaking` folder (your own widget id and number; several admins: commas):
 
 ```bash
-PROJECT=cool-arch-515210-b0 MSG91_WIDGET_ID=your-widget-id ADMIN_PHONES=+919812345678 ./deploy/msg91-setup.sh
+PROJECT=cool-arch-515210-b0 MSG91_WIDGET_ID=your-widget-id OTP_LENGTH=4 ADMIN_PHONES=+919812345678 DEMO_PHONES=+919000000001 ./deploy/msg91-setup.sh
 ```
 
 It asks for the authkey (hidden as you type) and stores it in Secret Manager, makes a random session secret,
-and gives both to the server with the widget id and the admin numbers. Add
-`TEST_PHONE=+919999900000 TEST_CODE=<6 digits>` for a test number that signs in with a fixed code and sends no
-SMS (for the team and the Play Store review); a test number can never be an admin.
+and gives both to the server with the widget id, the code length and the admin numbers. Demo numbers (MSG91's
+Demo Credentials, whose code reviewers know) can never be admins. Instead of MSG91's demo you can have this server
+handle a test number: `TEST_PHONE=+919999900000 TEST_CODE=<4–8 digits>`.
 
 Limits (to protect the SMS budget): Indian mobile numbers only; 5 codes per number and 20 per address an hour;
 3,000 codes a day in all (`OTP_PER_PHONE_PER_HOUR`, `OTP_PER_IP_PER_HOUR`, `OTP_PER_DAY` change them); 5 tries
