@@ -6,6 +6,15 @@
     ],
     "cleanUrls": true,
     "trailingSlash": false,
+    "rewrites": [
+      {
+        "source": "/internal/**",
+        "run": {
+          "serviceId": "adam",
+          "region": "asia-south1"
+        }
+      }
+    ],
     "ignore": [
       "firebase.json",
       "**/.*"

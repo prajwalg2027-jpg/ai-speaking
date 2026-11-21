@@ -48,3 +48,9 @@ dig +short NS adamspeaks.in
 - `minVersionCode`: apps older than this ask the learner to update from Google Play.
 
 Deploy the website after editing it. Apps pick the change up within about 5 minutes of their next start.
+
+## /internal/** (pre-production only; remove before launch)
+
+`firebase.json` sends `/internal/**` to the Adam server on Cloud Run, which serves the team's test build download
+page (`server/builds.js` on the app branch; set up with `deploy/builds-setup.sh`). Remove the rewrite before the
+public launch (docs/HANDOFF.md › Before production, on the app branch).
