@@ -80,6 +80,15 @@ the verified number anywhere in it and refuses a different one; if it carries no
 its own record of which number the code was sent to (and logs the answer's field names, so the first real
 sign-in shows the shape). Try it with your own number before release.
 
+## The order of the ways in (Android, `auth/SignInChain.kt`)
+
+When the number screen first shows, the app tries, in order:
+1. **Truecaller one-tap**, if the Truecaller app can sign them in (waits up to 2.5 s for it to be ready);
+2. otherwise, or if Truecaller doesn't sign them in, **Google's phone number picker** (Play services Phone Number
+   Hint: the SIM numbers, no permission). Choosing a number sends its code at once;
+3. otherwise (no picker, no SIM number, or closed), the **number field**, focused with the number keyboard.
+"Continue with Truecaller" stays on the number screen to try again.
+
 ## Truecaller one-tap (Android)
 
 People with the Truecaller app see **Continue with Truecaller** above the number field; everyone else (and anyone

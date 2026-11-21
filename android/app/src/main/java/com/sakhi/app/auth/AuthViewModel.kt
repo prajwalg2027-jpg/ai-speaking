@@ -19,7 +19,8 @@ import java.io.IOException
 sealed interface Gate {
     data object Checking : Gate
     data class Offline(val message: String) : Gate
-    data class Phone(val number: String = "", val error: String? = null, val busy: Boolean = false, val note: String? = null) : Gate
+    /** [focus]: open the keyboard on the number field (Truecaller and the number picker didn't sign them in). */
+    data class Phone(val number: String = "", val error: String? = null, val busy: Boolean = false, val note: String? = null, val focus: Boolean = false) : Gate
     data class Code(val phone: String, val verificationId: String, val code: String = "", val error: String? = null, val busy: Boolean = false, val resendIn: Int = 30, val length: Int = 6) : Gate
     data class Consents(val missing: List<String>, val error: String? = null, val busy: Boolean = false) : Gate
     data object Ready : Gate
@@ -70,6 +71,18 @@ class AuthViewModel(private val auth: PhoneAuth, private val api: SakhiApi, priv
         _gate.value = g.copy(busy = true, error = null)
         viewModelScope.launch { handle(auth.verifyCode(g.verificationId, g.code), g.phone) }
     }
+
+    /** A number chosen in Google's number picker: its code is sent at once. */
+    fun useNumber(e164: String, activity: Activity) {
+        val g = _gate.value as? Gate.Phone ?: return
+        val phone = indianMobile(e164)
+        if (phone == null) { _gate.value = g.copy(number = e164.filter { it.isDigit() }.takeLast(10), error = "Adam is for Indian mobile numbers for now.", focus = true); return }
+        _gate.value = g.copy(number = phone.removePrefix("+91"), error = null)
+        sendCode(activity)
+    }
+
+    /** Neither Truecaller nor the picker: they type the number (the keyboard opens). */
+    fun typeNumber() = _gate.update { if (it is Gate.Phone) it.copy(busy = false, focus = true) else it }
 
     /** Truecaller gave an authorization code: the server checks it with Truecaller and signs in. */
     fun signInWithTruecaller(code: String, codeVerifier: String, clientId: String) {

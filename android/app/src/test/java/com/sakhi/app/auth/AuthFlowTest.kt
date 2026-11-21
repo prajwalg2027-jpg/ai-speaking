@@ -85,6 +85,29 @@ class AuthFlowTest {
         assertEquals(Gate.Ready, waitFor(vm) { it == Gate.Ready })
     }
 
+    @Test fun `a number chosen in Google's picker gets its code at once`() {
+        val auth = FakePhoneAuth()
+        val vm = AuthViewModel(auth, api, events(auth))
+        vm.useNumber("+919876543210", activity)
+        val code = waitFor(vm) { it is Gate.Code } as Gate.Code
+        assertEquals("+919876543210", code.phone)
+        assertEquals("+919876543210", auth.sentTo)
+    }
+
+    @Test fun `a picked number outside India, or no picker, opens the keyboard on the number field`() {
+        val auth = FakePhoneAuth()
+        val vm = AuthViewModel(auth, api, events(auth))
+        vm.useNumber("+14155550000", activity)
+        val g = vm.gate.value as Gate.Phone
+        assertEquals("Adam is for Indian mobile numbers for now.", g.error)
+        assertTrue(g.focus)
+        assertNull(auth.sentTo)
+        val fresh = AuthViewModel(auth, api, events(auth))
+        assertTrue(!(fresh.gate.value as Gate.Phone).focus)
+        fresh.typeNumber()
+        assertTrue((fresh.gate.value as Gate.Phone).focus)
+    }
+
     @Test fun `a 4-digit code when the server says so`() {
         val auth = FakePhoneAuth(codeLength = 4)
         val vm = AuthViewModel(auth, api, events(auth))

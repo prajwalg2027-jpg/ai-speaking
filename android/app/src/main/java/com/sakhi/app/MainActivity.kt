@@ -38,6 +38,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.activity.compose.LocalActivity
 import com.sakhi.app.auth.AuthViewModel
 import com.sakhi.app.auth.Gate
+import com.sakhi.app.auth.PhoneNumberHint
+import com.sakhi.app.auth.SignInChain
 import com.sakhi.app.auth.TruecallerSignIn
 import com.sakhi.app.conversation.ConversationViewModel
 import com.sakhi.app.ui.LoginActions
@@ -45,6 +47,9 @@ import com.sakhi.app.ui.LoginFlow
 import com.sakhi.app.ui.SakhiScreen
 import com.sakhi.app.ui.theme.SakhiTheme
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.first
+import androidx.lifecycle.lifecycleScope
 
 class MainActivity : ComponentActivity() {
     private val container by lazy { (application as SakhiApplication).container }
@@ -56,13 +61,24 @@ class MainActivity : ComponentActivity() {
     }
 
     private lateinit var truecaller: TruecallerSignIn
+    private lateinit var numberPicker: PhoneNumberHint
+    private lateinit var signInChain: SignInChain
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // The way in, in order: Truecaller, then Google's number picker, then typing the number (auth/SignInChain.kt).
         truecaller = TruecallerSignIn(this, BuildConfig.TRUECALLER_CLIENT_ID,
-            onCode = { code, verifier -> authVm.signInWithTruecaller(code, verifier, truecaller.clientId) },
-            onFailure = { cancelled -> if (!cancelled) authVm.truecallerUnavailable() })
+            onCode = { code, verifier -> signInChain.finished(); authVm.signInWithTruecaller(code, verifier, truecaller.clientId) },
+            onFailure = { cancelled -> if (signInChain.running) signInChain.truecallerFailed() else if (!cancelled) authVm.truecallerUnavailable() })
+        numberPicker = PhoneNumberHint(this,
+            onNumber = { number -> signInChain.finished(); authVm.useNumber(number, this) },
+            onUnavailable = { signInChain.pickerFailed() })
+        signInChain = SignInChain(lifecycleScope,
+            truecallerReady = { truecaller.clientId.isNotBlank() && withTimeoutOrNull(2_500) { truecaller.available.first { it } } == true },
+            startTruecaller = truecaller::start,
+            startNumberPicker = numberPicker::start,
+            typeNumber = authVm::typeNumber)
         truecaller.init()
         // A voice conversation can't go on unseen: leaving the app ends it (and frees the microphone).
         lifecycle.addObserver(object : DefaultLifecycleObserver {
@@ -77,6 +93,11 @@ class MainActivity : ComponentActivity() {
                 val truecallerReady by truecaller.available.collectAsStateWithLifecycle()
                 LaunchedEffect(Unit) { container.refusals.collect { authVm.onServerRefusal(it) } }
                 LaunchedEffect(Unit) { container.events.log("app.opened") }
+                // The number screen (not after a code was sent): run the order of ways in, once.
+                val onNumberScreen = gate is Gate.Phone
+                LaunchedEffect(onNumberScreen, gate == Gate.Ready) {
+                    if (gate == Gate.Ready) signInChain.reset() else if (onNumberScreen) signInChain.begin()
+                }
                 if (gate != Gate.Ready) {
                     val activity = LocalActivity.current ?: this@MainActivity
                     LoginFlow(

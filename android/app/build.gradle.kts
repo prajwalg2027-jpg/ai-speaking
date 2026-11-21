@@ -105,6 +105,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.truecaller.sdk)
     implementation(libs.androidx.fragment)
+    implementation(libs.play.services.auth)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
 

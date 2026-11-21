@@ -32,6 +32,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +40,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.semantics.Role
@@ -109,7 +112,7 @@ private fun PhoneStep(g: Gate.Phone, a: LoginActions) {
     } ?: Body("Enter your mobile number. We'll send you a code by SMS.")
     Field(
         value = g.number, onValue = a.onNumber, label = "Mobile number", prefix = "+91  ",
-        keyboard = KeyboardType.Phone, error = g.error, onDone = a.sendCode,
+        keyboard = KeyboardType.Number, error = g.error, onDone = a.sendCode, focus = g.focus,
     )
     Primary("Send code · कोड भेजें", busy = g.busy, onClick = a.sendCode)
 }
@@ -162,7 +165,9 @@ private fun ConsentStep(g: Gate.Consents, a: LoginActions, termsUrl: String, pri
 @Composable private fun Body(t: String) = Text(t, style = MaterialTheme.typography.bodyMedium.copy(color = Sakhi.colors.ink2))
 
 @Composable
-private fun Field(value: String, onValue: (String) -> Unit, label: String, keyboard: KeyboardType, error: String?, onDone: () -> Unit, prefix: String? = null, big: Boolean = false) {
+private fun Field(value: String, onValue: (String) -> Unit, label: String, keyboard: KeyboardType, error: String?, onDone: () -> Unit, prefix: String? = null, big: Boolean = false, focus: Boolean = false) {
+    val focuser = remember { FocusRequester() }
+    LaunchedEffect(focus) { if (focus) runCatching { focuser.requestFocus() } }
     val c = Sakhi.colors
     OutlinedTextField(
         value = value, onValueChange = onValue, label = { Text(label) }, singleLine = true,
@@ -174,7 +179,7 @@ private fun Field(value: String, onValue: (String) -> Unit, label: String, keybo
         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = c.accentDeep, focusedLabelColor = c.accentDeep, cursorColor = c.accentDeep,
             unfocusedContainerColor = c.surface, focusedContainerColor = c.surface),
         shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().focusRequester(focuser),
     )
 }
 
