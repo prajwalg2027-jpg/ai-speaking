@@ -41,6 +41,13 @@ import com.sakhi.app.auth.Gate
 import com.sakhi.app.auth.PhoneNumberHint
 import com.sakhi.app.auth.SignInChain
 import com.sakhi.app.auth.TruecallerSignIn
+import com.sakhi.app.pay.LinkButton
+import com.sakhi.app.pay.PaywallSheet
+import com.sakhi.app.pay.PaywallViewModel
+import com.sakhi.app.pay.RazorpayCheckout
+import com.sakhi.app.pay.subscriptionLine
+import com.razorpay.PaymentData
+import com.razorpay.PaymentResultWithDataListener
 import com.sakhi.app.conversation.ConversationViewModel
 import com.sakhi.app.ui.LoginActions
 import com.sakhi.app.ui.LoginFlow
@@ -51,10 +58,13 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.first
 import androidx.lifecycle.lifecycleScope
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
     private val container by lazy { (application as SakhiApplication).container }
     private val vm: ConversationViewModel by viewModels {
         viewModelFactory { initializer { ConversationViewModel(application, container) } }
+    }
+    private val payVm: PaywallViewModel by viewModels {
+        viewModelFactory { initializer { PaywallViewModel(container.api, container.events) } }
     }
     private val authVm: AuthViewModel by viewModels {
         viewModelFactory { initializer { AuthViewModel(container.auth, container.api, container.events) } }
@@ -63,6 +73,15 @@ class MainActivity : ComponentActivity() {
     private lateinit var truecaller: TruecallerSignIn
     private lateinit var numberPicker: PhoneNumberHint
     private lateinit var signInChain: SignInChain
+
+    // Razorpay Checkout's result (it calls the activity). The server confirms the payment before anything unlocks.
+    override fun onPaymentSuccess(paymentId: String?, data: PaymentData?) {
+        payVm.onPaid(paymentId ?: data?.paymentId, data?.signature, data?.data?.optString("razorpay_subscription_id"))
+    }
+    override fun onPaymentError(code: Int, response: String?, data: PaymentData?) {
+        val description = runCatching { org.json.JSONObject(response ?: "").optJSONObject("error")?.optString("description") }.getOrNull()
+        payVm.onPayFailed(cancelled = code == RazorpayCheckout.CANCELLED, description = description)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -80,6 +99,7 @@ class MainActivity : ComponentActivity() {
             startNumberPicker = numberPicker::start,
             typeNumber = authVm::typeNumber)
         truecaller.init()
+        RazorpayCheckout.preload(this)
         // A voice conversation can't go on unseen: leaving the app ends it (and frees the microphone).
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStop(owner: LifecycleOwner) { if (!isChangingConfigurations) vm.onBackgrounded() }
@@ -128,15 +148,23 @@ class MainActivity : ComponentActivity() {
                     onRestart = vm::restart,
                     onLogoLongPress = if (container.server.canOverride) ({ serverDialog = true }) else null,
                     micBlocked = micBlocked,
-                    onAccount = if (container.auth.configured) ({ accountOpen = true }) else null,
+                    onAccount = if (container.auth.configured) ({ payVm.loadAccount(); accountOpen = true }) else null,
+                    onStartLearning = payVm::open,
                     onAllowMic = {
                         if (hasMic()) { micBlocked = false; vm.onOrbTap() }
                         else if (shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)) ask.launch(Manifest.permission.RECORD_AUDIO)
                         else startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
                     },
                 )
+                val paywall by payVm.state.collectAsStateWithLifecycle()
+                PaywallSheet(paywall,
+                    onSubscribe = { payVm.subscribe { s -> RazorpayCheckout.open(this@MainActivity, s, BRAND_HEX) } },
+                    onRetry = payVm::open, onDismiss = payVm::dismiss)
+                val pay by payVm.account.collectAsStateWithLifecycle()
                 if (accountOpen) AccountDialog(
                     phone = container.auth.currentUser?.phone,
+                    subscription = pay?.let { subscriptionLine(it.active, it.paidUntil, it.cancelAtEnd) },
+                    onCancelSubscription = if (pay?.active == true && pay?.cancelAtEnd == false) ({ payVm.cancel() }) else null,
                     onDismiss = { accountOpen = false },
                     onSignOut = { accountOpen = false; vm.onBackgrounded(); authVm.signOut() },
                     onDelete = { authVm.deleteAccount().also { if (it) { accountOpen = false; vm.onBackgrounded() } } },
@@ -175,7 +203,24 @@ private fun UpdateScreen(onUpdate: () -> Unit) {
 
 /** Signed-in account: sign out, or erase everything (Google Play requires in-app account deletion). */
 @androidx.compose.runtime.Composable
-private fun AccountDialog(phone: String?, onDismiss: () -> Unit, onSignOut: () -> Unit, onDelete: suspend () -> Boolean) {
+private fun AccountDialog(
+    phone: String?, onDismiss: () -> Unit, onSignOut: () -> Unit, onDelete: suspend () -> Boolean,
+    subscription: String? = null, onCancelSubscription: (suspend () -> Boolean)? = null,
+) {
+    var cancelling by remember { mutableStateOf(false) }
+    var cancelFailed by remember { mutableStateOf(false) }
+    var busyCancel by remember { mutableStateOf(false) }
+    val cancelScope = rememberCoroutineScope()
+    if (cancelling && onCancelSubscription != null) {
+        AlertDialog(
+            onDismissRequest = { if (!busyCancel) cancelling = false },
+            title = { Text("Cancel your subscription?") },
+            text = { Text(if (cancelFailed) "Couldn't cancel right now. Check your internet and try again." else "It won't renew. You keep learning until the end of the month you've paid for.") },
+            confirmButton = { TextButton({ busyCancel = true; cancelScope.launch { cancelFailed = !onCancelSubscription(); busyCancel = false; if (!cancelFailed) cancelling = false } }, enabled = !busyCancel) { Text(if (busyCancel) "Cancelling…" else "Cancel subscription") } },
+            dismissButton = { TextButton({ cancelling = false; cancelFailed = false }, enabled = !busyCancel) { Text("Keep it") } },
+        )
+        return
+    }
     var confirming by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
@@ -187,8 +232,9 @@ private fun AccountDialog(phone: String?, onDismiss: () -> Unit, onSignOut: () -
             Text(when {
                 failed -> "Couldn't delete right now. Check your internet and try again."
                 confirming -> "This permanently deletes your account, your voice recordings, and everything Adam knows about you. It can't be undone."
-                else -> "Signed in as ${phone ?: "your phone number"}."
+                else -> "Signed in as ${phone ?: "your phone number"}." + (subscription?.let { "\n\n$it" } ?: "")
             })
+            if (!confirming && !failed && onCancelSubscription != null) LinkButton("Cancel subscription") { cancelling = true }
         },
         confirmButton = {
             if (confirming) TextButton({ busy = true; scope.launch { failed = !onDelete(); busy = false } }, enabled = !busy) { Text(if (busy) "Deleting…" else "Delete everything") }
@@ -213,3 +259,6 @@ private fun ServerDialog(current: String, default: String, done: (String?) -> Un
         dismissButton = { TextButton({ done(default) }) { Text("Use default") } },
     )
 }
+
+/** Razorpay Checkout's colour: the app's deep accent. */
+private const val BRAND_HEX = "#993C25"

@@ -12,11 +12,12 @@ import java.io.IOException
 import java.io.InputStream
 
 /** A refused or failed request. [error] is the server's error code (e.g. "consent_required"); [missing] lists consents. */
-class ServerException(message: String, val status: Int = 0, val error: String = "", val missing: List<String> = emptyList()) : IOException(message)
+/** [reason]: the server's sentence for the person, when it gave one. */
+class ServerException(message: String, val status: Int = 0, val error: String = "", val missing: List<String> = emptyList(), val reason: String? = null) : IOException(message)
 
 private fun refusal(code: Int, text: String, what: String): ServerException {
     val body = runCatching { SakhiJson.decodeFromString<ErrorBody>(text) }.getOrNull()
-    return ServerException("$what (HTTP $code): ${body?.reason ?: body?.error ?: text.take(200)}", code, body?.error.orEmpty(), body?.missing.orEmpty())
+    return ServerException("$what (HTTP $code): ${body?.reason ?: body?.error ?: text.take(200)}", code, body?.error.orEmpty(), body?.missing.orEmpty(), body?.reason)
 }
 
 /** A streamed voice clip: raw 16-bit mono PCM at [sampleRate]. Close it when done. */
@@ -38,6 +39,12 @@ class SakhiApi(private val client: OkHttpClient, private val baseUrl: () -> Stri
     suspend fun sendEvents(events: List<AppEvent>) { call<kotlinx.serialization.json.JsonObject>(request("/api/events").post(SakhiJson.encodeToString(EventsRequest(events)).toRequestBody(jsonType)).build()) }
     /** Erase everything about this customer (their right under India's data protection law). */
     suspend fun deleteMe() { call<kotlinx.serialization.json.JsonObject>(request("/api/me").delete().build()) }
+
+    // Payments: the learning module's subscription.
+    suspend fun payStatus(): PayStatus = get("/api/pay/status")
+    suspend fun startRazorpay(): CheckoutStart = post("/api/pay/razorpay/subscription", "{}")
+    suspend fun verifyRazorpay(v: VerifyPayment): PayStatus = post("/api/pay/razorpay/verify", SakhiJson.encodeToString(v))
+    suspend fun cancelSubscription(): PayStatus = post("/api/pay/cancel", "{}")
 
     /** Opens Sakhi's voice for one line; the body streams while Bulbul generates it. */
     suspend fun speak(req: SpeakRequest): VoiceStream = withContext(Dispatchers.IO) {

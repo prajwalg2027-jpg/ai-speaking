@@ -93,6 +93,20 @@ data class Me(
     val missingConsents: List<String> = emptyList(),
 )
 
+// ---- Payments (server/payments.js) ----
+/** Whether the learning module needs a subscription, and whether they have one. */
+@Serializable data class PayStatus(
+    val required: Boolean = false,
+    val active: Boolean = false,
+    val priceInr: Int = 0,
+    val status: String? = null,
+    val paidUntil: String? = null,
+    val cancelAtEnd: Boolean = false,
+)
+/** What Razorpay Checkout needs to take the first payment of a subscription. */
+@Serializable data class CheckoutStart(val subscriptionId: String, val keyId: String, val priceInr: Int, val name: String, val description: String, val contact: String? = null)
+@Serializable data class VerifyPayment(val paymentId: String, val subscriptionId: String, val signature: String)
+
 @Serializable data class Consent(val purpose: String, val version: String, val granted: Boolean)
 @Serializable data class ConsentsRequest(val consents: List<Consent>)
 @Serializable data class MissingConsents(val missingConsents: List<String> = emptyList())

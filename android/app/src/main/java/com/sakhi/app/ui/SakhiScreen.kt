@@ -40,6 +40,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -87,6 +88,7 @@ fun SakhiScreen(
     micBlocked: Boolean,
     onAllowMic: () -> Unit,
     onAccount: (() -> Unit)? = null,
+    onStartLearning: () -> Unit = {},
 ) {
     val c = Sakhi.colors
     Box(
@@ -98,7 +100,7 @@ fun SakhiScreen(
             Header(onLogoLongPress, onAccount)
             if (micBlocked) { MicScreen(onAllowMic); return@Column }
             if (state.session == SessionState.RESULT && state.result != null) {
-                ResultView(state.result, onRestart, Modifier.weight(1f)); return@Column
+                ResultView(state.result, onStartLearning, onRestart, Modifier.weight(1f)); return@Column
             }
             Conversation(state.messages, Modifier.weight(1f))
             AnimatedVisibility(state.card != null) { state.card?.let { TaskCard(it, reducedMotion) } }
@@ -278,7 +280,7 @@ private val SKILLS = listOf("comprehension" to "Understanding", "vocabulary" to 
 private val SKILL_WORDS = listOf("Just starting", "Growing", "Steady", "Strong", "Shining")
 
 @Composable
-private fun ResultView(r: Result, onRestart: () -> Unit, modifier: Modifier) {
+private fun ResultView(r: Result, onStartLearning: () -> Unit, onRestart: () -> Unit, modifier: Modifier) {
     val c = Sakhi.colors
     var how by remember { mutableStateOf(false) }
     Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -286,10 +288,11 @@ private fun ResultView(r: Result, onRestart: () -> Unit, modifier: Modifier) {
         Text(r.name, style = MaterialTheme.typography.headlineLarge)
         Text(r.blurb, style = MaterialTheme.typography.bodyLarge)
         r.hindi?.let { Text(it, style = MaterialTheme.typography.bodyMedium.copy(color = c.ink2)) }
-        Button(onRestart, Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
+        Button(onStartLearning, Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = c.accentDeep, contentColor = c.onPrimary)) {
             Text("Start learning · सीखना शुरू करें", style = MaterialTheme.typography.labelLarge.copy(color = c.onPrimary))
         }
+        TextButton(onRestart, Modifier.fillMaxWidth()) { Text("Take the test again", color = c.ink2) }
         if (r.doingWell.isNotEmpty() || r.practise.isNotEmpty()) ResultCard {
             if (r.doingWell.isNotEmpty()) { CardTitle("What went well"); r.doingWell.forEach { Bullet(it) } }
             if (r.practise.isNotEmpty()) { CardTitle("What we’ll practise next"); r.practise.forEach { Bullet(it) } }
