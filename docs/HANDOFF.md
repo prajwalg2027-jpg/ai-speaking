@@ -74,6 +74,15 @@ server decides access (signatures checked, state from Razorpay); test and live m
 sideloaded builds now; **before the Play release**, add Google Play Billing with user choice billing (the plan is in
 `docs/PAYMENTS.md`). Setup: `deploy/razorpay-setup.sh` (test keys first).
 
+## Before production (Prajwal asked: remove these at launch)
+
+- **The test build download page** (`adamspeaks.in/internal/<token>`, pre-production only). Every push to
+  `tutor-conversation` or `main` uploads the debug APK there. Remove it all before the public launch: run
+  `deploy/builds-teardown.sh`, then delete `server/builds.js` (and its two lines in `server/index.js`),
+  `test/builds.test.js`, the "test build page" steps in `.github/workflows/android.yml`, the `/internal/**`
+  rewrite in the website's `firebase.json`, the three GitHub variables, and both `deploy/builds-*.sh` scripts.
+- Razorpay-only builds stay off the Play Store until Play Billing is in (`docs/PAYMENTS.md`).
+
 ## Pending (as of the handoff)
 
 Needs Prajwal: Google Play account type (personal → 14-day closed test with 12 testers); lawyer review of the

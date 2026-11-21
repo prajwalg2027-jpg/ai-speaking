@@ -31,6 +31,16 @@ export async function gcsDownload(bucket, path) {
   return Buffer.from(await res.arrayBuffer());
 }
 
+/** An object as a stream: { body (a web ReadableStream), size }, or null if it doesn't exist. */
+export async function gcsStream(bucket, path) {
+  const res = await fetch(`https://storage.googleapis.com/storage/v1/b/${enc(bucket)}/o/${enc(path)}?alt=media`, {
+    headers: { authorization: `Bearer ${await accessToken()}` },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Cloud Storage download ${res.status}`);
+  return { body: res.body, size: Number(res.headers.get('content-length')) || 0 };
+}
+
 export async function gcsDelete(bucket, path) {
   const res = await fetch(`https://storage.googleapis.com/storage/v1/b/${enc(bucket)}/o/${enc(path)}`, {
     method: 'DELETE', headers: { authorization: `Bearer ${await accessToken()}` },

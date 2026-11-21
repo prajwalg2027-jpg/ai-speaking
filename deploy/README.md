@@ -63,6 +63,18 @@ It asks for the key secret (hidden), checks it with Razorpay, stores it and a we
 prints the webhook to add in Razorpay. Then turn the paywall on in the admin console (Settings › Payments). All the
 steps, going live, and what Google Play needs before the Play release: `docs/PAYMENTS.md`.
 
+## Test build download page (pre-production only; remove before launch)
+
+The latest debug APK for testers at `https://adamspeaks.in/internal/<random token>`, refreshed by every push to
+`tutor-conversation` or `main` (GitHub Actions uploads it; the page isn't linked or indexed). One time:
+
+```
+PROJECT=cool-arch-515210-b0 ./deploy/builds-setup.sh
+```
+
+then add the three GitHub variables it prints. Removing it: `deploy/builds-teardown.sh` and `docs/HANDOFF.md` ›
+Before production.
+
 ## Admin console
 
 At `<server address>/admin/`: dashboard, live settings, playground, evaluations, conversations and lessons

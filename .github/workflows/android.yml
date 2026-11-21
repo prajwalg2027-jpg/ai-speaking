@@ -16,6 +16,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write # to sign in to Google Cloud without a stored key (publishing the test build)
     env:
       HAS_KEYSTORE: ${{ secrets.SAKHI_KEYSTORE_B64 != '' }}
       # Truecaller one-tap sign-in (Truecaller developer console; not secret). Empty: SMS code only.
@@ -38,7 +41,7 @@ jobs:
       - name: Lint
         run: ./gradlew :app:lintDebug
       - name: Debug APK
-        run: ./gradlew :app:assembleDebug
+        run: ./gradlew :app:assembleDebug -Psakhi.versionCode=${{ github.run_number }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -50,6 +53,32 @@ jobs:
         with:
           name: adam-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
+      # PRE-PRODUCTION ONLY (remove before launch, with server/builds.js): the latest test build on the team's
+      # download page, adamspeaks.in/internal/<token>. Set up by deploy/builds-setup.sh (GitHub variables below).
+      - name: Sign in to Google Cloud (test build page)
+        id: gcp
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/tutor-conversation' || github.ref == 'refs/heads/main') && vars.GCP_WIF_PROVIDER != ''
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_BUILDS_SA }}
+      - name: Set up gcloud (test build page)
+        if: steps.gcp.outcome == 'success'
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Upload the test build
+        if: steps.gcp.outcome == 'success'
+        env:
+          BUCKET: ${{ vars.BUILDS_BUCKET }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          jq -n --arg commit "$GITHUB_SHA" --arg branch "$GITHUB_REF_NAME" --arg message "$MESSAGE" \
+            --argjson versionCode "$GITHUB_RUN_NUMBER" --arg versionName "$(grep -o 'versionName = "[^"]*"' app/build.gradle.kts | cut -d'"' -f2)" \
+            --arg builtAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson sizeBytes "$(stat -c%s "$APK")" \
+            '{versionCode:$versionCode, versionName:$versionName, commit:$commit, branch:$branch, message:$message, builtAt:$builtAt, sizeBytes:$sizeBytes}' > build.json
+          gcloud storage cp "$APK" "gs://${BUCKET}/latest/adam-test.apk"
+          gcloud storage cp build.json "gs://${BUCKET}/latest/build.json"
+          echo "Published build ${GITHUB_RUN_NUMBER} to the test build page."
       - name: Release bundle (signed)
         if: env.HAS_KEYSTORE == 'true'
         env:

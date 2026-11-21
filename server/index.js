@@ -22,6 +22,7 @@ import { handleLearn } from './learning/api.js';
 import { handleAdmin } from './admin/api.js';
 import { handleLogin } from './login.js';
 import * as payments from './payments.js';
+import { handleBuilds } from './builds.js'; // pre-production only: remove before launch
 import * as lessons from './learning/lessons.js';
 import * as evalRuns from './learning/evalRuns.js';
 import { requestId, logRequest } from './http.js';
@@ -223,6 +224,7 @@ export const server = createServer(async (req, res) => {
   if (url.pathname.startsWith('/api/auth/')) return handleApi(req, res, url, () => handleLogin(req, res, url));
   if (url.pathname.startsWith('/api/pay/') || url.pathname === '/api/razorpay/webhook') return handleApi(req, res, url, () => payments.handlePayments(req, res, url));
   try {
+    if (url.pathname.startsWith('/internal') && await handleBuilds(req, res, url)) return; // pre-production only
     if (isTeamPath(url.pathname)) return send(res, 404, { error: 'not found' });
     // /api/health for Cloud Run (it reserves paths ending in "z", like /healthz, for itself); /healthz for local use.
     if (req.method === 'GET' && (url.pathname === '/api/health' || url.pathname === '/healthz')) return send(res, 200, { ok: true, ready: ready() });
