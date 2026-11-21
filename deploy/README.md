@@ -72,7 +72,7 @@ The latest debug APK for testers at `https://adamspeaks.in/internal/<random toke
 PROJECT=cool-arch-515210-b0 ./deploy/builds-setup.sh
 ```
 
-then add the three GitHub variables it prints. Removing it: `deploy/builds-teardown.sh` and `docs/HANDOFF.md` ›
+(the build already knows where to upload). Removing it: `deploy/builds-teardown.sh` and `docs/HANDOFF.md` ›
 Before production.
 
 ## Admin console

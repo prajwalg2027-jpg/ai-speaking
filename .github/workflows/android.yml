@@ -54,21 +54,22 @@ jobs:
           name: adam-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
       # PRE-PRODUCTION ONLY (remove before launch, with server/builds.js): the latest test build on the team's
-      # download page, adamspeaks.in/internal/<token>. Set up by deploy/builds-setup.sh (GitHub variables below).
+      # download page, adamspeaks.in/internal/<token>. Set up by deploy/builds-setup.sh. The values below aren't secret
+      # (keyless sign-in, limited to this repository's tutor-conversation and main); GitHub variables can override them.
       - name: Sign in to Google Cloud (test build page)
         id: gcp
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/tutor-conversation' || github.ref == 'refs/heads/main') && vars.GCP_WIF_PROVIDER != ''
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/tutor-conversation' || github.ref == 'refs/heads/main')
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
-          service_account: ${{ vars.GCP_BUILDS_SA }}
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER || 'projects/209464958247/locations/global/workloadIdentityPools/github/providers/ai-speaking' }}
+          service_account: ${{ vars.GCP_BUILDS_SA || 'adam-ci-builds@cool-arch-515210-b0.iam.gserviceaccount.com' }}
       - name: Set up gcloud (test build page)
         if: steps.gcp.outcome == 'success'
         uses: google-github-actions/setup-gcloud@v2
       - name: Upload the test build
         if: steps.gcp.outcome == 'success'
         env:
-          BUCKET: ${{ vars.BUILDS_BUCKET }}
+          BUCKET: ${{ vars.BUILDS_BUCKET || 'cool-arch-515210-b0-adam-builds' }}
           MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
