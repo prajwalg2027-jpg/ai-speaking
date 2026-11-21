@@ -8,6 +8,34 @@
     "trailingSlash": false,
     "rewrites": [
       {
+        "source": "/admin",
+        "run": {
+          "serviceId": "adam",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/admin/**",
+        "run": {
+          "serviceId": "adam",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/api/admin/**",
+        "run": {
+          "serviceId": "adam",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/api/auth/**",
+        "run": {
+          "serviceId": "adam",
+          "region": "asia-south1"
+        }
+      },
+      {
         "source": "/internal/**",
         "run": {
           "serviceId": "adam",
@@ -60,6 +88,19 @@
           {
             "key": "Cache-Control",
             "value": "public, max-age=300"
+          }
+        ]
+      },
+      {
+        "source": "/admin",
+        "headers": [
+          {
+            "key": "X-Robots-Tag",
+            "value": "noindex, nofollow"
+          },
+          {
+            "key": "Cache-Control",
+            "value": "no-store"
           }
         ]
       }

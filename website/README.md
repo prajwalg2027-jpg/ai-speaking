@@ -54,3 +54,10 @@ Deploy the website after editing it. Apps pick the change up within about 5 minu
 `firebase.json` sends `/internal/**` to the Adam server on Cloud Run, which serves the team's test build download
 page (`server/builds.js` on the app branch; set up with `deploy/builds-setup.sh`). Remove the rewrite before the
 public launch (docs/HANDOFF.md › Before production, on the app branch).
+
+## /admin (the admin console)
+
+`firebase.json` sends `/admin`, `/api/admin/**` and `/api/auth/**` to the Adam server on Cloud Run, so the admin
+console is at `https://adamspeaks.in/admin` (sign-in by SMS code; only `ADMIN_PHONES`). Deploy this site after
+changing them.
+
