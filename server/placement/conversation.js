@@ -205,7 +205,7 @@ async function finish(s, reply, heard, note, opts) {
   const L = LEVELS[level];
   const said = s.answers.filter((a) => !a.skipped).map((a) => ({ transcript: a.transcript, level: a.rated, evidence: a.evidence, tip: a.tip }));
   const sum = await summarize({ answers: said, level }, { config: opts.summaryConfig || settings.get('placement').summary, structured: opts.structured });
-  note('summary', { model: sum.meta ? `${sum.meta.provider}/${sum.meta.model}` : null, ms: sum.meta?.latencyMs ?? null, ...(sum.fallback ? { fallback: sum.fallback } : {}) });
+  note('summary', { model: sum.meta ? `${sum.meta.provider}/${sum.meta.model}` : null, ms: sum.meta?.latencyMs ?? null, costInr: sum.meta?.costInr ?? null, closing: sum.closing, ...(sum.fallback ? { fallback: sum.fallback } : {}) });
   s.done = true;
   s.result = {
     level, name: L.name, blurb: L.blurb, hindi: L.hindi, overall: null, dims: {}, reasons, mode: 'conversation',

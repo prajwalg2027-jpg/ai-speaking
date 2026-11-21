@@ -82,7 +82,7 @@ async function signOut() {
 let me = { permissions: [] };
 const can = (p) => me.permissions.includes(p);
 // The permission each page needs.
-const NEEDS = { overview: 'dashboard.view', settings: 'settings.view', playground: 'playground.use', evals: 'evals.view', conversations: 'conversations.view', lessons: 'lessons.view', team: 'team.manage' };
+const NEEDS = { overview: 'dashboard.view', settings: 'settings.view', playground: 'playground.use', models: 'playground.use', evals: 'evals.view', conversations: 'conversations.view', lessons: 'lessons.view', team: 'team.manage' };
 
 async function boot() {
   const cfg = await fetch('/api/admin/config').then((r) => r.json());
@@ -157,7 +157,7 @@ function firebaseLoginPage() {
   });
 }
 
-const PAGES = { overview, settings, playground, evals, conversations, lessons, team };
+const PAGES = { overview, settings, playground, models, evals, conversations, lessons, team };
 async function route() {
   const first = Object.keys(PAGES).find((k) => can(NEEDS[k]));
   if (!first) return show(html`<div class="card"><h2>Nothing to show yet</h2><p class="muted">Your role (${me.roleName}) doesn't include any pages. Ask an owner.</p></div>`);
@@ -249,7 +249,7 @@ async function overview() {
 }
 
 // ---- Settings -------------------------------------------------------------------------------------
-const ORDER = ['payments', 'corrections', 'llm', 'conversation', 'limits', 'features', 'scoring'];
+const ORDER = ['placement', 'payments', 'corrections', 'llm', 'conversation', 'limits', 'features', 'scoring'];
 const JOBS = { tutor: 'Tutor replies', verify: 'Correction check (strategy B)', lessonEval: 'Lesson marking' };
 const META = {
   'corrections.strategy': { type: 'choice', label: 'How corrections are made', options: [
@@ -258,6 +258,12 @@ const META = {
   'corrections.defaultIntensity': { type: 'select', label: 'Default correction intensity', help: 'For new learners; each learner can change theirs in the app.', options: [['gentle', 'Gentle: only mistakes that change the meaning (1 per reply)'], ['balanced', 'Balanced: clear grammar and word mistakes'], ['strict', 'Strict: most mistakes, including small ones']] },
   'corrections.voiceSafe': { type: 'bool', label: "For spoken messages, don't correct slips that speech-to-text could have caused (a/an/the, -s, -ed endings, spelling)" },
   'corrections.maxPerReply': { label: 'Most corrections shown per reply' },
+  'placement.mode': { type: 'choice', label: 'Kind of placement test', options: [
+    ['classic', 'Classic test', 'Five parts: about you, words, listening, reading, speaking. About five minutes.'],
+    ['conversation', 'Conversation', 'A short talk of 2 to 4 questions with a gentle tip after each answer. About two minutes.']] },
+  'placement.brain': { label: 'AI for each turn (conversation)' },
+  'placement.summary': { label: 'AI for the closing feedback (conversation)' },
+  'placement.maxQuestions': { label: 'Most questions in a conversation', help: '2 to 6. The talk ends sooner when the level is clear.' },
   'conversation.historyMessages': { label: 'Recent messages the tutor reads', help: 'More = better memory of the conversation, slightly slower and costlier.' },
   'limits.dailyBudgetInr': { label: 'Daily budget (₹)', help: 'When today’s AI spend reaches this, new conversations and messages pause until tomorrow.' },
   'limits.sessionsPerIpPerHour': { label: 'Placement tests per learner per hour' },
@@ -271,16 +277,19 @@ const META = {
   'scoring.firstGuess': { label: 'First guess after the opening answer' },
   'scoring.judgeWeight': { label: 'How much the AI judge counts, per skill (0 = not at all, 1 = only the judge)' },
 };
-for (const j of Object.keys(JOBS)) {
-  META[`llm.${j}`] = { label: JOBS[j] };
-  META[`llm.${j}.temperature`] = { label: 'Temperature', help: 'Lower = more consistent; higher = more varied.', step: 0.1 };
+for (const j of [...Object.keys(JOBS).map((k) => `llm.${k}`), 'placement.brain', 'placement.summary']) {
+  if (j.startsWith('llm.')) META[j] = { label: JOBS[j.slice(4)] };
+  META[`${j}.temperature`] = { label: 'Temperature', help: 'Lower = more consistent; higher = more varied.', step: 0.1 };
 }
+// AI providers, in the order they're offered, with the names people know them by.
+const PROVIDERS = { sarvam: 'Sarvam', anthropic: 'Claude (Anthropic)', openai: 'OpenAI', gemini: 'Gemini' };
+const providerName = (p) => PROVIDERS[p] || p;
 
 function field(path, value, providers) {
   const m = META[path] || {}, key = path.split('.').pop();
   const label = m.label || humanize(key);
   if (path.endsWith('.provider')) {
-    return html`<label class="f">Provider<select data-path="${path}" data-type="string">${Object.entries(providers).map(([p, v]) => html`<option value="${p}" ${p === value ? raw('selected') : ''} ${!v.configured && p !== value ? raw('disabled') : ''}>${p === 'sarvam' ? 'Sarvam (default)' : p === 'openai' ? 'OpenAI' : p}${v.configured ? '' : ' — no API key on the server'}</option>`)}</select></label>`;
+    return html`<label class="f">Provider<select data-path="${path}" data-type="string">${Object.entries(providers).map(([p, v]) => html`<option value="${p}" ${p === value ? raw('selected') : ''} ${!v.configured && p !== value ? raw('disabled') : ''}>${p === 'sarvam' ? 'Sarvam (default)' : providerName(p)}${v.configured ? '' : ' (no API key on the server)'}</option>`)}</select></label>`;
   }
   if (path.endsWith('.model')) return html`<label class="f">Model<input data-path="${path}" data-type="string" value="${value}" list="models"></label>`;
   if (m.type === 'choice') return html`<div class="choices" role="radiogroup" aria-label="${label}">${m.options.map(([v, t, d]) => html`<label class="choice"><input type="radio" name="${path}" data-path="${path}" data-type="radio" value="${v}" ${v === value ? raw('checked') : ''}><div><strong>${t}</strong><span>${d}</span></div></label>`)}</div>`;
@@ -321,6 +330,7 @@ async function settings() {
     return html`<form class="card section" data-key="${k}">
       <div class="section-head"><h2>${sec.label}</h2><span>${sec.changed ? html`<span class="badge on">changed from default</span>` : html`<span class="badge">default</span>`}</span></div>
       ${k === 'llm' ? html`<p class="muted small">Sarvam is the default for everything. Another provider can be chosen only when its API key is set on the server (in Secret Manager); keys never appear here.</p>` : ''}
+      ${k === 'placement' ? html`<p class="muted small">New tests use the chosen kind; a test in progress keeps its kind. Try models first on the <a href="#models">Compare models</a> page.</p>` : ''}
       ${k === 'scoring' ? html`<p class="muted small">The placement test's scoring. Changes apply to tests started from now on; each test stores the cut-offs it used.</p>` : ''}
       ${fields(k, sec.value, s.providers)}
       <p class="err" data-err></p>
@@ -329,7 +339,7 @@ async function settings() {
   });
   show(html`
     <div class="page-head"><div><h1>Settings</h1><p class="muted">Changes apply within seconds on every server, with no deploy. Every change is recorded below.${can('settings.edit') ? '' : html` <strong>Read only:</strong> your role (${me.roleName}) can't change settings.`}</p></div></div>
-    <datalist id="models"><option value="sarvam-105b"><option value="sarvam-105b-conversations"></datalist>
+    <datalist id="models"><option value="sarvam-105b"><option value="sarvam-105b-conversations"><option value="claude-haiku-5-5"><option value="claude-sonnet-5-5"><option value="claude-opus-5-5"></datalist>
     ${sections}
     <div class="card"><h2>Change history</h2>${h.changes.length ? html`<div class="table-wrap"><table><tr><th>When</th><th>Section</th><th>By</th><th>What changed</th></tr>${h.changes.map((c) => html`<tr><td>${when(c.changed_at)}</td><td>${s.sections[c.key]?.label || c.key}</td><td>${c.changed_by || '–'}</td><td class="small">${diff(c.old_value, c.new_value).slice(0, 6).map((d) => html`<div>${d}</div>`)}</td></tr>`)}</table></div>` : html`<p class="muted">No changes yet.</p>`}</div>`);
   if (!can('settings.edit')) for (const form of $$('form[data-key]')) { for (const el of $$('input, select, textarea', form)) el.disabled = true; for (const b of $$('button', form)) b.hidden = true; }
@@ -386,6 +396,184 @@ async function playground() {
         <div class="compare">${side('A · One call', r.compare.single, 'Shown after the correction rules.')}${side('B · One call + a check', r.compare.verify, 'Shown after the rules and the check.')}</div>`);
     } catch (x) { out.innerHTML = fmt(html`<p class="err">${x.message}</p>`); }
   });
+}
+
+// ---- Compare models (the conversation placement test) ---------------------------------------------
+// Type what a learner says; the first model runs a real conversation placement and the others get exactly the
+// same turns, shown side by side (server/admin/placementLab.js). Nothing is saved.
+const LEVEL_WORDS = { 1: 'Beginner', 2: 'Basic', 3: 'Good', 4: 'Very good' };
+const LEARNER_EVENTS = { no_speech: '(said nothing)', skip: '(skipped)', in_hindi: '(asked for Hindi)' };
+let labPicks = null; // { primary: {provider, model}, others: [...] }: kept for "Start again" and later visits
+
+const levelBadge = (x) => (x.answered === false ? html`<span class="badge">Not an answer</span>`
+  : x.level == null ? html`<span class="muted small">–</span>` : html`<span class="badge on">Level ${x.level} · ${LEVEL_WORDS[x.level] || ''}</span>`);
+const lines = (list) => list.filter(Boolean).map((l) => html`<p>${l}</p>`);
+const speedCost = (x) => html`<p class="small muted lab-meta">Speed ${ms(x.ms)} · cost ${inr(x.costInr, 3)}</p>`;
+
+function progressLine(ratings, q) {
+  const parts = [];
+  if (ratings.length) parts.push(`Answers so far: ${ratings.map((r) => `level ${r.level} (asked ${r.asked}${r.missed ? ", couldn't answer" : ''})`).join(', ')}`);
+  if (q) parts.push(`Now asking question ${q.n}, a level ${q.level} question`);
+  return parts.join(' · ');
+}
+
+/** One model's answer to a turn. say: what Sakhi actually said (used for the first model when it made no AI call). */
+function labTurnCol(x, first, say) {
+  if (x.error) return html`<div class="card lab-col ${first ? 'first' : ''}">${labHead(x, first)}<p class="err">${x.error}</p></div>`;
+  const fromAi = x.reply || x.question;
+  const counted = first && x.counted ? (x.counted.missed ? `counted as level ${x.counted.level} (couldn't answer)`
+    : x.level != null && x.counted.level !== x.level ? `counted as level ${x.counted.level} (measured words)` : '') : '';
+  const rated = 'level' in x || 'answered' in x;
+  return html`<div class="card lab-col ${first ? 'first' : ''}">${labHead(x, first)}
+    <h3>Sakhi says</h3>
+    <div class="lab-say">${fromAi ? lines([x.reply, x.question]) : html`${lines(say)}<p class="small muted">Fixed lines, no AI call this turn.</p>`}</div>
+    ${rated || counted ? html`<h3>Level given</h3><p>${levelBadge(x)}${counted ? html` <span class="small muted">${counted}</span>` : ''}</p>` : ''}
+    ${x.evidence ? html`<p class="small">${x.evidence}</p>` : ''}
+    ${x.tip ? html`<h3>Fix</h3><div class="corr"><span class="was">${x.tip.said}</span> → <strong>${x.tip.better}</strong></div>` : ''}
+    ${'ms' in x ? speedCost(x) : ''}</div>`;
+}
+const labHead = (x, first) => html`<div class="lab-model"><strong>${x.model}</strong>${first ? html` <span class="badge on">runs the conversation</span>` : ''}</div>`;
+
+/** One model's closing feedback. say: Sakhi's last lines (the first model's). */
+function labEndCol(x, first, say) {
+  const list = (title, items) => (items?.length ? html`<h3>${title}</h3><ul class="lab-list">${items.map((i) => html`<li>${i}</li>`)}</ul>` : '');
+  if (x.error) return html`<div class="card lab-col ${first ? 'first' : ''}">${labHead(x, first)}<p class="err">${x.error}</p></div>`;
+  const closing = first ? say : x.closing ? [x.closing].flat() : [];
+  return html`<div class="card lab-col ${first ? 'first' : ''}">${labHead(x, first)}
+    ${list('What you did well', x.doingWell)}${list('What we’ll practise next', x.practise)}
+    ${closing.length ? html`<h3>Says at the end</h3><div class="lab-say">${lines(closing)}</div>` : ''}
+    ${x.fallback ? html`<p class="small muted">Plain lines were used: ${x.fallback}</p>` : ''}
+    ${speedCost(x)}</div>`;
+}
+
+async function models() {
+  const info = await api('/placement-lab');
+  const provs = [...Object.keys(PROVIDERS).filter((p) => p in info.providers), ...Object.keys(info.providers).filter((p) => !(p in PROVIDERS))];
+  const ok = (p) => !!info.providers[p]?.configured;
+  const sugg = (p) => info.suggestions?.[p] || [];
+  if (!labPicks) { const b = info.current?.brain || {}; labPicks = { primary: { provider: b.provider, model: b.model || '' }, others: [] }; }
+  if (!ok(labPicks.primary.provider)) { const p = provs.find(ok); if (p) labPicks.primary = { provider: p, model: sugg(p)[0] || '' }; }
+
+  show(html`
+    <div class="page-head"><div><h1>Compare models</h1><p class="muted">Try AI models for the conversation placement test side by side: type what a learner would say and see how each model replies, which level it gives and what tip it offers. The final level is not the AI's opinion: a fixed rule takes the highest level the learner reached in two answers. Nothing is saved.</p></div></div>
+    ${provs.map((p) => html`<datalist id="sugg-${p}">${sugg(p).map((m) => html`<option value="${m}">`)}</datalist>`)}
+    <div id="lab"></div>`);
+  const box = $('#lab');
+
+  const pickRow = (m, i) => html`<div class="row end pick" data-i="${i}">
+    <label class="f">Provider<select data-prov>${provs.map((p) => html`<option value="${p}" ${p === m.provider ? raw('selected') : ''} ${i < 0 && !ok(p) ? raw('disabled') : ''}>${providerName(p)}${ok(p) ? '' : ' (no API key on the server)'}</option>`)}</select></label>
+    <label class="f grow">Model<input data-model value="${m.model}" list="sugg-${m.provider}" maxlength="100" autocomplete="off" required></label>
+    ${i >= 0 ? html`<button type="button" class="link danger" data-remove>Remove</button>` : ''}</div>`;
+  const readPick = (row) => ({ provider: $('[data-prov]', row).value, model: $('[data-model]', row).value.trim() });
+  const readPicks = () => ({ primary: readPick($('.pick[data-i="-1"]', box)), others: $$('#others .pick', box).map(readPick) });
+
+  function setup() {
+    box.innerHTML = fmt(html`<form class="card section" id="setup" novalidate>
+      <h2>Model that runs the conversation</h2>
+      ${pickRow(labPicks.primary, -1)}
+      <h3>Also compare</h3>
+      <p class="muted small">Up to three more models. They get exactly the same turns and their answers are shown beside the first one, but only the first model's words are used in the talk.</p>
+      <div id="others">${labPicks.others.map(pickRow)}</div>
+      ${labPicks.others.length < 3 ? html`<p><button type="button" id="addm">Add a model to compare</button></p>` : ''}
+      <p class="muted small">API keys are added on the server with <code>deploy/llm-keys-setup.sh</code>. This page spends real AI credit.</p>
+      <p class="err" id="serr" role="alert"></p>
+      <div class="row"><button class="primary" type="submit">Start a conversation</button></div></form>`);
+    for (const sel of $$('[data-prov]', box)) sel.addEventListener('change', () => {
+      const input = $('[data-model]', sel.closest('.pick'));
+      input.setAttribute('list', `sugg-${sel.value}`);
+      if (!sugg(sel.value).includes(input.value)) input.value = sugg(sel.value)[0] || '';
+    });
+    for (const b of $$('[data-remove]', box)) b.addEventListener('click', () => {
+      const i = Number(b.closest('.pick').dataset.i);
+      labPicks = readPicks(); labPicks.others.splice(i, 1); setup();
+    });
+    $('#addm', box)?.addEventListener('click', () => {
+      labPicks = readPicks();
+      const p = labPicks.primary.provider, used = [labPicks.primary, ...labPicks.others].map((m) => m.model);
+      labPicks.others.push({ provider: p, model: sugg(p).find((m) => !used.includes(m)) || '' });
+      setup();
+      $$('#others [data-model]', box).at(-1)?.focus();
+    });
+    $('#setup', box).addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const err = $('#serr', box); err.textContent = '';
+      labPicks = readPicks();
+      if ([labPicks.primary, ...labPicks.others].some((m) => !m.model)) { err.textContent = 'Type a model name in every row.'; return; }
+      const btn = $('button[type=submit]', e.target); btn.disabled = true;
+      try { const r = await api('/placement-lab/start', { method: 'POST', body: labPicks }); if (box.isConnected) talk(r, structuredClone(labPicks)); }
+      catch (x) { err.textContent = x.message; btn.disabled = false; }
+    });
+  }
+
+  function talk(start, picks) {
+    box.innerHTML = fmt(html`<div class="card section">
+      <div class="section-head"><h2>Conversation</h2><span class="small muted lab-model">${start.models.map((m) => m.model).join(' · ')}</span></div>
+      <div id="log"><div class="bubble tutor"><div class="meta">Sakhi</div>${lines(start.say)}</div></div>
+      <div id="foot">
+        <p class="small muted lab-progress" id="progress">${progressLine([], start.question)}</p>
+        <form id="turn" class="lab-input">
+          <div class="row end"><label class="f grow">What the learner says<input id="said" maxlength="2000" autocomplete="off" placeholder="In the morning I go to the market…"></label>
+            <button class="primary" type="submit">Send</button></div>
+          <div class="row lab-events"><button type="button" data-event="no_speech">Says nothing</button><button type="button" data-event="skip">Skips</button><button type="button" data-event="in_hindi">Asks for Hindi</button>
+            <span class="small muted" id="wait" hidden><span class="spin"></span> Waiting for the models. This can take several seconds.</span></div>
+          <p class="err" id="terr" role="alert"></p>
+        </form>
+      </div></div>`);
+    const form = $('#turn', box), input = $('#said', box), log = $('#log', box);
+    input.focus();
+    const busy = (on) => { for (const el of $$('input, button', form)) el.disabled = on; $('#wait', box).hidden = !on; };
+
+    async function send(event, message) {
+      const err = $('#terr', box); err.textContent = '';
+      if (event === 'answer' && !message) { err.textContent = 'Type what the learner says.'; return; }
+      busy(true);
+      let r;
+      try { r = await api('/placement-lab/turn', { method: 'POST', body: { labId: start.labId, event, ...(event === 'answer' ? { message } : {}) } }); }
+      catch (x) { if (box.isConnected) { err.textContent = x.message; busy(false); input.focus(); } return; }
+      if (!box.isConnected) return;
+      const turn = document.createElement('div');
+      turn.className = 'lab-turn';
+      turn.innerHTML = fmt(html`<div class="bubble learner">${event === 'answer' ? message : html`<span class="muted">${LEARNER_EVENTS[event]}</span>`}<div class="meta">Learner</div></div>
+        <div class="lab-cols">${labTurnCol(r.primary, true, r.done ? [] : r.say)}${r.others.map((x) => labTurnCol(x, false))}</div>`);
+      log.append(turn);
+      $('#progress', box).textContent = progressLine(r.ratings || [], r.done ? null : r.question);
+      if (r.done) { form.hidden = true; result(r, picks); return; }
+      input.value = ''; busy(false); input.focus();
+      turn.scrollIntoView({ block: 'start' });
+    }
+    form.addEventListener('submit', (e) => { e.preventDefault(); send('answer', input.value.trim()); });
+    for (const b of $$('[data-event]', form)) b.addEventListener('click', () => send(b.dataset.event));
+  }
+
+  function result(r, picks) {
+    const d = r.done, first = `${picks.primary.provider}/${picks.primary.model}`;
+    const card = document.createElement('div');
+    card.className = 'card section lab-result';
+    card.innerHTML = fmt(html`<h2>Level ${d.level} of 4 · ${d.name}</h2>
+      ${d.reasons?.length ? html`<h3>Why</h3><ul class="lab-list">${d.reasons.map((x) => html`<li>${x}</li>`)}</ul>` : ''}
+      <div class="lab-cols">${labEndCol(d.primary, true, r.say)}${d.others.map((x) => labEndCol(x, false))}</div>
+      <div class="row" style="margin-top:14px"><button type="button" data-again>Start again</button>
+        ${can('settings.edit') ? html`<button type="button" class="primary" data-use>Use ${first} for the placement test</button>` : ''}</div>
+      <p class="err" data-err role="alert"></p>`);
+    $('#foot', box).append(card);
+    card.scrollIntoView({ block: 'start' });
+    $('[data-again]', card).addEventListener('click', () => { labPicks = picks; setup(); box.scrollIntoView({ block: 'start' }); });
+    $('[data-use]', card)?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget; btn.disabled = true; $('[data-err]', card).textContent = '';
+      try {
+        const s = await api('/settings');
+        const value = structuredClone(s.sections.placement.value);
+        const { provider, model } = picks.primary;
+        value.brain = { provider, model, temperature: value.brain.temperature };
+        value.summary = { provider, model, temperature: value.summary.temperature };
+        await api('/settings/placement', { method: 'PUT', body: { value } });
+        toast(`Saved. New tests in conversation mode use ${model}.`);
+      } catch (x) { $('[data-err]', card).textContent = x.message; }
+      btn.disabled = false;
+    });
+  }
+
+  setup();
 }
 
 // ---- Evaluations ----------------------------------------------------------------------------------

@@ -110,7 +110,7 @@ export async function handlePlacementLab(req, res, url, deps = {}) {
       const sum = trace.list.find((x) => x.step === 'summary');
       out.done = {
         level: turn.done.level, name: turn.done.name, reasons: turn.done.reasons,
-        primary: { model: label(primary), ms: sum?.ms ?? null, doingWell: turn.done.doingWell, practise: turn.done.practise, ...(sum?.fallback ? { fallback: sum.fallback } : {}) },
+        primary: { model: label(primary), ms: sum?.ms ?? null, costInr: sum?.costInr ?? null, doingWell: turn.done.doingWell, practise: turn.done.practise, closing: sum?.closing ?? '', ...(sum?.fallback ? { fallback: sum.fallback } : {}) },
         others: await Promise.all(others.map(async (x) => {
           if (!ready(x)) return { model: label(x), error: NOT_SET_UP };
           const r = await summarize({ answers: said, level: turn.done.level }, { config: x, structured: deps.structured, timeoutMs: 20_000 });

@@ -49,7 +49,7 @@ code { font-size: 13px; background: var(--surface-2); padding: 1px 5px; border-r
 .brand { font-weight: 700; font-size: 17px; }
 .brand span { font-weight: 400; color: var(--muted); }
 nav { display: flex; gap: 4px; flex-wrap: wrap; flex: 1; }
-nav a { text-decoration: none; color: var(--ink-2); padding: 6px 10px; border-radius: 8px; font-size: 14px; }
+nav a { white-space: nowrap; text-decoration: none; color: var(--ink-2); padding: 6px 10px; border-radius: 8px; font-size: 14px; }
 nav a:hover { background: var(--surface-2); }
 nav a.on { background: var(--surface-2); color: var(--ink); font-weight: 600; }
 .who { font-size: 13px; color: var(--muted); display: flex; gap: 10px; align-items: center; }
@@ -165,3 +165,30 @@ button.link.danger { color: var(--critical); }
 td.row { gap: 12px; }
 #nav a[hidden] { display: none; }
 
+
+/* Compare models */
+.grow { flex: 1 1 220px; }
+.pick { margin-bottom: 10px; }
+.pick label.f { min-width: 0; flex: 1 1 200px; }
+.pick label.f:first-child { flex: 0 1 340px; }
+.pick select { max-width: 100%; }
+.pick button.link { padding: 8px 0; }
+.lab-model { overflow-wrap: anywhere; }
+.lab-progress { margin: 14px 0 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+.lab-progress:empty { display: none; }
+.lab-input .row + .row { margin-top: 8px; }
+.lab-input label.f { min-width: 0; }
+.lab-events { align-items: center; }
+.lab-events button { font-size: 13px; padding: 5px 10px; }
+.lab-turn { margin-top: 14px; scroll-margin-top: 70px; }
+.lab-result { margin-top: 14px; scroll-margin-top: 70px; }
+.lab-cols { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.lab-col { padding: 12px 14px; }
+.lab-col.first { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.lab-col h3 { margin: 10px 0 4px; }
+.lab-say p { margin: 0 0 4px; }
+.lab-list { margin: 0 0 6px; padding-left: 20px; }
+.lab-list li { margin: 2px 0; }
+.lab-meta { margin: 10px 0 0; }
+.bubble p { margin: 0 0 4px; }
+.bubble p:last-of-type { margin-bottom: 0; }

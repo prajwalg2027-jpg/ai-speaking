@@ -63,6 +63,7 @@ test('comparing models: the same turn for each, with the level, speed and cost; 
   t = (await post('/api/admin/placement-lab/turn', { labId: lab.labId, message: 'Because my office is far from my home so the bus is cheap and easy for me' })).json;
   assert.equal(t.done.level, 3);
   assert.equal(t.done.primary.doingWell.length, 2);
+  assert.ok(t.done.primary.costInr > 0 && t.done.primary.closing.includes('practise'), 'the first model\'s closing feedback has its cost and words too');
   assert.equal(t.done.others[0].closing.includes('practise'), true);
   assert.match(t.done.others[1].error, /API key is missing/);
   assert.deepEqual(t.ratings.map((r) => r.level), [3, 3]);
