@@ -30,7 +30,7 @@ voice, Sarvam-105B). The server holds the Sarvam key and all conversation logic;
 | Sakhi's fixed voice lines | bucket `cool-arch-515210-b0-adam-voice` (saves ~₹15 per server start) |
 | Secrets | Secret Manager: `sarvam-api-key`, `adam-database-url` |
 | Server's account | `adam-runtime@cool-arch-515210-b0.iam.gserviceaccount.com` (only these resources) |
-| Phone login | Firebase Authentication in the same project; phone only; SMS to India only; test number +91 99999 00000 / 123456 |
+| Phone login | SMS OTP through MSG91, sent and checked by the server, then the server’s own sessions (`server/login.js`, `docs/LOGIN.md`; setup `deploy/msg91-setup.sh`). Firebase logins from older builds are still accepted |
 | Android apps | `in.adamspeaks.app` (release), `in.adamspeaks.app.dev` (test build; shared signing key `android/app/debug.keystore`) |
 | Website | `adamspeaks.in` on Firebase Hosting, built from branch `claude/dazzling-cray-ni75q7` folder `website/` (DNS at GoDaddy) |
 | App settings file | `https://adamspeaks.in/app-config.json` (server address, minimum app version; the app reads it at start) |
@@ -40,7 +40,7 @@ voice, Sarvam-105B). The server holds the Sarvam key and all conversation logic;
 - **Release the server from GitHub** (no upload needed; works from a connector or Cloud Shell):
   `gcloud builds submit https://github.com/prajwalg2027-jpg/ai-speaking --git-source-revision=tutor-conversation --config=deploy/cloudbuild.yaml --region=asia-south1 --project=cool-arch-515210-b0`
 - **Full setup / infrastructure changes:** `deploy/cloudrun.sh` (idempotent; see `deploy/README.md`).
-- **Firebase setup:** `deploy/firebase-setup.sh`.
+- **Login setup:** `deploy/msg91-setup.sh` (MSG91 widget id, authkey into Secret Manager, admin numbers). Older: `deploy/firebase-setup.sh`.
 - **Start-up log:** `gcloud run services logs read adam --region=asia-south1 --project=cool-arch-515210-b0 --limit=50`
   (look for `Pre-generated … (124 from the voice store, 0 new)`).
 - **Health:** `GET /api/health` (Cloud Run reserves `/healthz`).

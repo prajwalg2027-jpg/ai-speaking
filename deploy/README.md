@@ -21,35 +21,39 @@ The first run also creates the PostgreSQL database (Cloud SQL, Mumbai; daily bac
 recovery, deletion protection), a private bucket for voice recordings (Mumbai), and gives the server's own
 account only the access it needs. Database tables are created and updated automatically when the server starts.
 
-## Phone login (Firebase, one time, about 10 minutes)
+## Phone login with MSG91 (one time, about 10 minutes)
 
-Adam's phone OTP login uses Firebase Authentication in the **same Google Cloud project**:
+Learners and admins sign in with an SMS code sent by **MSG91**. The server sends and checks the code (MSG91's key
+never leaves it), then gives the app its own login session (`server/login.js`, `docs/LOGIN.md`).
 
-1. [console.firebase.google.com](https://console.firebase.google.com) → **Add project** → choose your existing
-   Google Cloud project (don't create a new one).
-2. **Build › Authentication › Get started › Sign-in method › Phone** → Enable. (Only phone; leave the others off.)
-3. **Project settings › Your apps › Add app › Android**: package name `in.adamspeaks.app` (and `in.adamspeaks.app.dev`
-   for the test build), plus the app's SHA-256 signing fingerprints (`./gradlew signingReport` prints them; for
-   the Play release, copy the "App signing key" fingerprint from Play Console). Download `google-services.json`
-   and send it to the developer, or add it as the GitHub secret `GOOGLE_SERVICES_JSON`.
-4. **Authentication › Settings › Phone numbers for testing**: add a test number and code (e.g. +91 99999 00000 /
-   123456) so the team can sign in without real SMS.
-
-Phone sign-in sends a real SMS per login; Firebase charges per SMS after a free allowance (check the current
-India rate in the Firebase pricing page). The server only accepts phone sign-in tokens for this project.
-
-## Admin console (one time, about 2 minutes)
-
-The admin console is at `<server address>/admin/`: dashboard, live settings, playground, evaluations,
-conversations and lessons (see `docs/LEARNING.md`). Sign-in is by phone, and only the numbers you list get in.
-After the steps above, in Cloud Shell (put your own number; several numbers are separated by commas):
+1. In [MSG91](https://msg91.com): **OTP › Widget › Create**. Channel SMS, **OTP length 6**, and turn **off** captcha
+   and invisible OTP (they don't work when the server calls MSG91). Copy the **Widget ID**.
+2. Indian SMS needs DLT: MSG91's widget uses its own approved OTP template; if it asks you for a DLT template or
+   sender ID, follow its steps there.
+3. Find your **authkey** (MSG91 › Authkey). Don't paste it anywhere except the prompt in step 4.
+4. In Cloud Shell, from the `ai-speaking` folder (your own widget id and number; several admins: commas):
 
 ```bash
-PROJECT=cool-arch-515210-b0 ADMIN_PHONES=+919812345678 ./deploy/admin-setup.sh
+PROJECT=cool-arch-515210-b0 MSG91_WIDGET_ID=your-widget-id ADMIN_PHONES=+919812345678 ./deploy/msg91-setup.sh
 ```
 
-It registers the console with Firebase, allows the server's address for sign-in, and gives the server the admin
-numbers. Run it again to change who is an admin. The team's test number (+91 99999 00000) can never be an admin.
+It asks for the authkey (hidden as you type) and stores it in Secret Manager, makes a random session secret,
+and gives both to the server with the widget id and the admin numbers. Add
+`TEST_PHONE=+919999900000 TEST_CODE=<6 digits>` for a test number that signs in with a fixed code and sends no
+SMS (for the team and the Play Store review); a test number can never be an admin.
+
+Limits (to protect the SMS budget): Indian mobile numbers only; 5 codes per number and 20 per address an hour;
+3,000 codes a day in all (`OTP_PER_PHONE_PER_HOUR`, `OTP_PER_IP_PER_HOUR`, `OTP_PER_DAY` change them); 5 tries
+per code; a code lasts 10 minutes and works once.
+
+## Admin console
+
+At `<server address>/admin/`: dashboard, live settings, playground, evaluations, conversations and lessons
+(`docs/LEARNING.md`). Sign-in is the same SMS code; only the numbers in `ADMIN_PHONES` get in (set by
+`msg91-setup.sh`; run it again to change them).
+
+*Before MSG91:* phone login used Firebase (`deploy/firebase-setup.sh`, `deploy/admin-setup.sh`). The server
+still accepts Firebase logins from older app builds while people update; new builds use MSG91 only.
 
 ## Deploying a new version
 
