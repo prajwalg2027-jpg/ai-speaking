@@ -30,7 +30,7 @@ the live speech connection. The account button (top right) has *Sign out* and *D
 
 | Part | File | Notes |
 |---|---|---|
-| Conversation loop | `conversation/ConversationViewModel.kt` | Port of `public/app.js` `run()`: speak each line (words revealed with the voice), listen for one answer, send the turn, quick "Okay." while waiting. |
+| Conversation loop | `conversation/ConversationViewModel.kt` | Port of `public/app.js` `run()`: speak each line (words revealed with the voice), listen for one answer, send the turn, now and then a soft "Mm-hmm." while waiting. |
 | Answer rules | `conversation/AnswerCollector.kt` | Port of `public/live.js` `listen()`: grace period, multi-utterance answers, nudge at 6 s, give up at 12 s, 45 s cap. Pure, unit-tested. |
 | Microphone | `audio/MicCapture.kt` | 16 kHz PCM16 via the voice-communication source: the phone's echo canceller removes Sakhi's voice. |
 | Interruptions | `audio/BargeInDetector.kt`, `audio/VoicePlayer.kt` | Sakhi dips the moment the learner speaks and stops after 300 ms of speech. |

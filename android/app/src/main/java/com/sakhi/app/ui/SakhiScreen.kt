@@ -113,7 +113,7 @@ fun SakhiScreen(
                 }
                 Orb(
                     state.phase, level, reducedMotion,
-                    Modifier.size(if (state.card != null) 150.dp else 210.dp).animateContentSize()
+                    Modifier.size(if (state.card != null) 96.dp else 132.dp).animateContentSize()
                         .clip(CircleShape)
                         .clickable(remember { MutableInteractionSource() }, indication = null, role = Role.Button, onClick = onOrb)
                         .semantics { contentDescription = label },

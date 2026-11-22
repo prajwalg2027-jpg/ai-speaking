@@ -60,7 +60,7 @@ The fixes:
   as two separate questions, each with its own card, and scores both replies together ("I don't know" to the first
   still gets the second; naming both at once skips it). Every tutor line is cut after its first question mark;
   read-aloud lines have none.
-- **Reactions**: only about the learner's last line; after a word task, a brief neutral "Okay!". The summary has no
+- **Reactions**: only about the learner's last line; after a word task, a brief neutral "Got it." (not "Okay!"). The summary has no
   reaction and no questions.
 
 ## Interruptions (barge-in)
@@ -104,8 +104,9 @@ an apology and the weekend question again, and the popcorn answer is scored as t
   the learner by the name in the sentence).
 
 ## No dead air
-- **Quick reaction:** the moment the learner finishes (3+ words), a cached "Mm-hmm." / "Okay!" / "Achha." / "I see."
-  plays while the server works.
+- **Quick reaction:** a beat after the learner finishes (3+ words), if the reply isn't ready, about every other time
+  a soft cached listening sound plays while the server works: "Mm-hmm.", "Mhm.", "Hmm.", "Aha.", "Uh-huh." or
+  "Achha." Not words like "Okay." or "Right.", which can sound like a verdict on the answer.
 - **Scoring and tutor in parallel:** the next step is chosen from instant measurements, so the tutor writes the
   reply while the LLM scores the answer.
 - **Streamed voice:** `/api/tts/stream` relays Bulbul's `/text-to-speech/stream` (raw PCM); the browser plays
@@ -188,7 +189,7 @@ Sakhi says that's fine and asks the same question in Hindi. Said again on the sa
 
 - Reviewed questions (word puzzles, pictures, listening, reading, the opinion question) are always said in their
   reviewed words (`fixedAsk` in `server/tutor.js`). The AI only writes a short reaction before them. After a word
-  task, listening answer or reading, the reaction is a plain acknowledgement ("Okay.", "Got it.") with no AI call.
+  task, listening answer or reading, the reaction is a plain acknowledgement ("Got it.", "Thank you.") with no AI call.
 - The AI writes follow-up questions about the learner's life: one short, simple question, no "or" choices.
 - What the learner said about themselves earlier is only given to the AI when it writes such a question, so it
   doesn't drag old details into reactions. Only the last 8 lines of the conversation are sent.

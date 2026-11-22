@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.ByteArrayInputStream
 import java.io.IOException
+import kotlin.random.Random
 
 enum class Phase { IDLE, THINKING, SPEAKING, LISTENING }
 enum class SessionState { IDLE, LIVE, RESULT }
@@ -68,7 +69,7 @@ data class UiState(
 
 /**
  * The placement conversation (a port of public/app.js run()): Sakhi speaks each line with her words revealed
- * in step with the voice, then the app listens for one answer, sends it, and plays a quick "Okay." while the
+ * in step with the voice, then the app listens for one answer, sends it, and plays a quick "Mm-hmm." while the
  * server writes the reply. The server decides everything about the assessment; this only talks and listens.
  */
 class ConversationViewModel(app: Application, private val c: AppContainer) : AndroidViewModel(app) {
@@ -333,15 +334,15 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
         }.getOrNull()
     }
 
-    /** A beat after they stop, if the reply isn't here yet: a soft "Okay." Returns whether one was said. */
+    /** A beat after they stop, if the reply isn't here yet: now and then a soft "Mm-hmm." Returns whether one was said. */
     private suspend fun backchannel(replied: () -> Boolean): Boolean {
         delay(350)
-        if (replied()) return false
+        if (replied() || Random.nextFloat() >= BACKCHANNEL_CHANCE) return false
         val clips = backchannels?.takeIf { it.isCompleted }?.await().orEmpty()
         val pool = clips.filter { it.first != lastBackchannel }.ifEmpty { clips }
         val (text, pcm) = pool.randomOrNull() ?: return false
         lastBackchannel = text
-        player.play(ByteArrayInputStream(pcm), 24_000, volume = 0.8f)
+        player.play(ByteArrayInputStream(pcm), 24_000, volume = 0.6f)
         return true
     }
 

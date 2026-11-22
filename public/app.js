@@ -107,28 +107,29 @@ function trimSilence(pcm) {
 }
 
 /**
- * A short "Okay." while the reply is prepared, so there's no dead air. Said like a person would: a beat after
- * they stop (not the instant), softer than a full line, never the same one twice in a row, and only if the
- * reply isn't already here.
+ * A soft "Mm-hmm." while the reply is prepared, so there's no dead air. Said like a person would: a beat after
+ * they stop (not the instant), quieter than a full line, about every other time (not after every answer), never
+ * the same one twice in a row, and only if the reply isn't already here.
  */
 let lastBackchannel = null;
+const BACKCHANNEL_CHANCE = 0.5;
 function backchannel(replyReady) {
   if (!backchannels.length) return { played: Promise.resolve(null), text: () => null };
   let said = null;
   const played = sleep(350).then(() => {
-    if (replyReady()) return null;
+    if (replyReady() || Math.random() >= BACKCHANNEL_CHANCE) return null;
     const pool = backchannels.length > 1 ? backchannels.filter((b) => b.text !== lastBackchannel) : backchannels;
     const b = pool[Math.floor(Math.random() * pool.length)];
     said = lastBackchannel = b.text;
     log('tts', `Quick reaction while the reply is prepared: "${b.text}"`);
-    return voice.playPcm([b.pcm], b.rate, { volume: 0.8 });
+    return voice.playPcm([b.pcm], b.rate, { volume: 0.6 });
   });
   return { played, text: () => said };
 }
 
 // Sakhi's own replies often open with the same kind of word ("Okay! ..."). After a quick reaction, that opening
-// is dropped so she doesn't say "Okay." and then "Okay!" again.
-const ACK = /^\s*(?:okay|ok|alright|all right|right|got it|i see|hmm+|mm-?hmm|achha|great|nice|good|thanks|thank you)(?:[,\s]+(?:okay|thanks|thank you|got it))?\s*[.!]+\s+/i;
+// is dropped so she doesn't say "Mm-hmm." and then "Okay!" straight after.
+const ACK = /^\s*(?:okay|ok|alright|all right|right|got it|i see|hmm+|mm-?hmm|mhm|aha|uh-?huh|achha|great|nice|good|thanks|thank you)(?:[,\s]+(?:okay|thanks|thank you|got it))?\s*[.!]+\s+/i;
 function dropRepeatedAck(turn) {
   const first = turn.say?.[0];
   const m = first && first.lang === 'en-IN' && first.text.match(ACK);

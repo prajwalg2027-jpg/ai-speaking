@@ -95,8 +95,11 @@ export const PHRASES = {
   // The bonus reading sentence (after a first sentence read very well).
   probeRead: "Let's try one more. Please read the new sentence out loud.",
   probeReadHindi: 'एक और कोशिश करते हैं। स्क्रीन पर लिखा नया वाक्य ज़ोर से पढ़िए।',
-  // Played the moment the learner finishes, while Sakhi's real reply is being prepared.
-  backchannels: ['Okay.', 'Right.', 'I see.', 'Hmm, okay.', 'Got it.'],
+  // Played the moment the learner finishes, while Sakhi's real reply is being prepared. Listening sounds, not
+  // words: "Okay." or "Right." can sound like a verdict on the answer, and "mm-hmm" only says "I heard you".
+  backchannels: ['Mm-hmm.', 'Mhm.', 'Hmm.', 'Aha.', 'Uh-huh.', 'Achha.'],
+  // What app versions from before 22 Nov 2026 still ask the server to voice (kept speakable until they update).
+  backchannelsOld: ['Okay.', 'Right.', 'I see.', 'Hmm, okay.', 'Got it.'],
 };
 
 /** Pick a question for a level: one at random from that level's pool (`random` is replaceable in tests). */

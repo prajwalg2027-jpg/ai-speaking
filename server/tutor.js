@@ -36,8 +36,8 @@ const languageRule = (code) => {
 
 const SITUATIONS = {
   answered: "The learner just answered. React to what they said in their last line, not to earlier topics.",
-  answered_task: 'The learner just answered a word task. The reaction is only a brief, neutral acknowledgement (like "Okay!" or "Got it."): don\'t say whether it was right, and nothing about earlier topics.',
-  next_part: 'The learner just answered the first word question. The reaction is only a brief, neutral acknowledgement (like "Okay!"): don\'t say whether it was right. In ask, ask only the next question (TASK), nothing else.',
+  answered_task: 'The learner just answered a word task. The reaction is only a brief, neutral acknowledgement (like "Got it." or "Thank you."; not "Okay!"): don\'t say whether it was right, and nothing about earlier topics.',
+  next_part: 'The learner just answered the first word question. The reaction is only a brief, neutral acknowledgement (like "Got it." or "Thank you."; not "Okay!"): don\'t say whether it was right. In ask, ask only the next question (TASK), nothing else.',
   moved_on: "The learner couldn't answer the last task, or asked to skip it. Be kind and reassuring; don't dwell on it.",
   switch_language: 'The learner just asked to talk in the language given under LANGUAGE. In the reaction, say yes warmly in that language, and tell them they can also use English whenever they like. Then in ask, ask the same task again, in that language.',
   meta: "Instead of answering, the learner said something to you about the conversation (their last line). In the reaction, respond to that line directly in a few words: if it corrects you, apologise simply and accept it; if it asks you something, answer it briefly. Then in ask, come back to the same task in fresh words (don't repeat your last line word for word).",
@@ -224,7 +224,7 @@ const talksIn = (profile) => profile.language || (profile.support === 'hi' ? 'hi
 // Word puzzles, pictures, listening and reading are asked in their reviewed words: the model's rewrites of them
 // were garbled too often ("tell me s the difference between but, however and simple"). The model only writes the
 // reaction before them. Open questions about the learner's life are still the model's own.
-const NEUTRAL = { en: ['Okay.', 'Alright.', 'Thank you.', 'Got it.'], hi: ['ठीक है।', 'अच्छा।', 'धन्यवाद।'] };
+const NEUTRAL = { en: ['Alright.', 'Thank you.', 'Got it.'], hi: ['ठीक है।', 'अच्छा।', 'धन्यवाद।'] };
 const ackFor = (profile) => { const l = NEUTRAL[talksIn(profile) === 'hi-IN' ? 'hi' : 'en']; return l[Math.floor(Math.random() * l.length)]; };
 /** The exact words for a fixed task in the language Sakhi is using, or null when the model has to write it. */
 export function fixedAsk(task, profile = {}) {

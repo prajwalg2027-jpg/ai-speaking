@@ -111,7 +111,7 @@ export function scriptedLines() {
     if (v.second) out.push(line(v.second.say));
   }
   out.push(line(PHRASES.didntHear, { pace: 0.95 }), line(PHRASES.cutOff), line(PHRASES.moveOn), line(PHRASES.followUp), line(PHRASES.hindiOk), line(PHRASES.englishOk),
-    line(PHRASES.tryEnglish), line(PHRASES.tryEnglishHindi), line(PHRASES.listenLeadHindi), line(PHRASES.probeRead), line(PHRASES.probeReadHindi), line(PHRASES.welcome), line(PHRASES.noEnglishOk), ...BANK_OPEN_HINDI.map((t) => line(t)), line(PHRASES.listenAgain), line(PHRASES.listenLead), ...PHRASES.backchannels.map((b) => line(b)));
+    line(PHRASES.tryEnglish), line(PHRASES.tryEnglishHindi), line(PHRASES.listenLeadHindi), line(PHRASES.probeRead), line(PHRASES.probeReadHindi), line(PHRASES.welcome), line(PHRASES.noEnglishOk), ...BANK_OPEN_HINDI.map((t) => line(t)), line(PHRASES.listenAgain), line(PHRASES.listenLead), ...PHRASES.backchannels.map((b) => line(b)), ...PHRASES.backchannelsOld.map((b) => line(b)));
   return [...new Map(out.map((l) => [`${l.text}|${l.pace}`, l])).values()];
 }
 
