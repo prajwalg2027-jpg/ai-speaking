@@ -420,6 +420,13 @@ const lines = (list) => list.filter(Boolean).map((l) => html`<p>${l}</p>`);
 const tokens = (u) => (u && (u.input || u.output) ? `${n0(u.input)} in${u.cached ? ` (${n0(u.cached)} reused)` : ''} · ${n0(u.output)} out${u.reasoning ? ` (${n0(u.reasoning)} thinking)` : ''}` : '–');
 const reusedPct = (u) => (u?.input ? Math.round((100 * (u.cached || 0)) / u.input) : null);
 const speedCost = (x) => html`<p class="small muted lab-meta">Speed ${ms(x.ms)}${x.replyMs != null ? ` (her reply was ready at ${ms(x.replyMs)})` : ''} · cost ${inr(x.costInr, 3)}${x.effort && x.effort !== 'default' ? ` · thinking: ${x.effort}` : ''}<br>Tokens: ${tokens(x.usage)}</p>`;
+/** What a turn costs besides the AI: speech-to-text for the learner's words (h) and Sakhi's voice (v). */
+const speechCost = (h, v) => html`<p class="small muted lab-meta">${h ? html`Speech-to-text: ${h.seconds} s${h.estimated ? ' (estimated from the words)' : ''} · ${inr(h.inr, 3)}<br>` : ''}Voice: ${n0(v.chars)} characters${v.fixedChars ? ` (and ${n0(v.fixedChars)} in fixed lines, free)` : ''} · ${inr(v.inr, 3)}</p>`;
+/** Adds a turn's speech-to-text and voice to a model's running total. */
+function addSpeech(t, h, v) {
+  if (h) { t.sttSec += h.seconds; t.sttInr += h.inr; if (h.estimated) t.sttEstimated = true; }
+  if (v) { t.voiceChars += v.chars; t.voiceInr += v.inr; }
+}
 /** Adds one AI call to a model's running total for the talk. */
 function addUse(t, x) {
   if (!x || x.ms == null) return;
@@ -428,8 +435,13 @@ function addUse(t, x) {
   if (x.costInr == null) t.priced = false; else t.cost += x.costInr;
   for (const k of ['input', 'cached', 'output', 'reasoning']) t[k] += x.usage?.[k] || 0;
 }
-const newTotals = () => ({ replies: 0, replyMs: 0, calls: 0, ms: 0, cost: 0, priced: true, input: 0, cached: 0, output: 0, reasoning: 0 });
-const totalLine = (t) => (t.calls ? html`<h3>The whole talk</h3><p class="small">${t.calls} AI call${t.calls === 1 ? '' : 's'} · ${ms(t.ms)} in all · cost ${t.priced ? inr(t.cost, 3) : '– (add this model\'s price to see it)'}<br>Tokens: ${tokens(t)}</p>` : '');
+const newTotals = () => ({ sttSec: 0, sttInr: 0, sttEstimated: false, voiceChars: 0, voiceInr: 0, replies: 0, replyMs: 0, calls: 0, ms: 0, cost: 0, priced: true, input: 0, cached: 0, output: 0, reasoning: 0 });
+const totalLine = (t) => (t.calls ? html`<h3>The whole talk</h3><p class="small">${t.calls} AI call${t.calls === 1 ? '' : 's'} · ${ms(t.ms)} in all<br>Tokens: ${tokens(t)}</p>
+  <table class="lab-costs"><tr><td>AI</td><td class="num">${t.priced ? inr(t.cost, 3) : '–'}</td></tr>
+  <tr><td>Speech-to-text (${t.sttSec.toFixed(1)} s${t.sttEstimated ? ', partly estimated' : ''})</td><td class="num">${inr(t.sttInr, 3)}</td></tr>
+  <tr><td>Voice (${n0(t.voiceChars)} characters)</td><td class="num">${inr(t.voiceInr, 3)}</td></tr>
+  <tr><th>In all</th><th class="num">${t.priced ? inr(t.cost + t.sttInr + t.voiceInr, 3) : '–'}</th></tr></table>
+  ${t.priced ? '' : html`<p class="small muted">Add this model's price to see the AI cost and the total.</p>`}` : '');
 
 const STEP_NAMES = { hello: 'Hello', picture: 'Picture', read: 'Reading', open: 'Open question' };
 const stepName = (q) => (q ? `${STEP_NAMES[q.step] || q.step}${q.step === 'open' ? ` ${q.n}` : ''}` : 'Goodbye');
@@ -521,8 +533,9 @@ function logCall(c) {
   const u = c.ai?.usage, log = c.log;
   const head = html`<h3>Call ${c.n} · ${c.at}${c.ai ? html` <span class="muted small">${ms(c.ai.ms)} · ${inr(c.ai.costInr, 4)}${c.ai.effort && c.ai.effort !== 'default' ? ` · thinking: ${c.ai.effort}` : ''}${c.ai.firstTextMs != null ? ` · first words of the answer at ${ms(c.ai.firstTextMs)}` : ''}${c.ai.replyMs != null ? ` · her reply ready at ${ms(c.ai.replyMs)}` : ''}</span>` : ''}</h3>
     <p class="small"><strong>Learner:</strong> ${c.learner}${c.heard ? html` <span class="muted">(spoken, ${c.heard.audioSec} s; Sarvam took ${ms(c.heard.ms)} to hear it)</span>` : ''}</p>`;
+  const speech = c.voice ? speechCost(c.stt, c.voice) : '';
   if (!log) return html`<div class="log-call">${head}<p class="small muted">${c.aiFailed ? `The AI did not answer: ${c.aiFailed}. The app's own checks and fixed lines were used.` : 'No AI call on this turn.'}</p>
-    <h4>What Sakhi said</h4><div class="log-box">${lines(c.say)}</div></div>`;
+    <h4>What Sakhi said</h4><div class="log-box">${lines(c.say)}</div>${speech}</div>`;
   const marks = reuseMarks(log.messages, u), pct = reusedPct(u);
   return html`<div class="log-call">${head}
     ${u ? html`<div class="log-bar" title="Input tokens: reused from cache and new"><i class="reused" style="flex:${u.cached || 0}"></i><i class="fresh" style="flex:${Math.max(0, (u.input || 0) - (u.cached || 0))}"></i></div>
@@ -534,7 +547,7 @@ function logCall(c) {
     ${log.thinking ? html`<div class="log-box"><pre>${log.thinking}</pre></div><p class="small muted">A summary from the provider; the full thinking is never shared.</p>`
       : html`<p class="small muted">${u?.reasoning ? `The model used ${n0(u.reasoning)} thinking tokens, but this provider did not share a summary of them.` : 'None reported for this call.'}</p>`}
     <h4>Response: exactly what came back</h4><div class="log-box"><pre>${pretty(log.raw)}</pre></div>
-    <h4>What Sakhi said</h4><div class="log-box">${lines(c.say)}</div>
+    <h4>What Sakhi said</h4><div class="log-box">${lines(c.say)}</div>${speech}
     ${c.dropped?.length ? html`<p class="small muted">Not said (${c.dropped.join('; ')}). A fixed line was used.</p>` : ''}</div>`;
 }
 /** The same log as plain text, to copy. */
@@ -545,6 +558,7 @@ function logText(model, calls) {
     ...(c.log ? [...c.log.messages.map((m, i, all) => `\n--- ${ROLE(m, i, all)} [${m.role}] ---\n${m.content}`), ...(c.log.thinking ? [`\n--- Thinking (summary) ---\n${c.log.thinking}`] : []), `\n--- Response ---\n${pretty(c.log.raw)}`]
       : [c.aiFailed ? `The AI did not answer: ${c.aiFailed}` : 'No AI call on this turn.']),
     `\n--- What Sakhi said ---\n${c.say.join('\n')}`,
+    ...(c.voice ? [`\n--- Speech ---\n${c.stt ? `Speech-to-text: ${c.stt.seconds} s${c.stt.estimated ? ' (estimated)' : ''}, ${inr(c.stt.inr, 4)}. ` : ''}Voice: ${c.voice.chars} characters, ${inr(c.voice.inr, 4)}.`] : []),
   ].join('\n'))].join('\n');
 }
 
@@ -655,19 +669,21 @@ async function models() {
     const form = $('#turn', box), input = $('#said', box);
     const col = (i) => $(`.lab-col[data-i="${i}"]`, box);
     // Per talk: finished?, its running totals, the step it is on, every call (for the log), and its result.
-    const state = start.talks.map((t) => ({ model: t.model, over: !!t.error, error: t.error, totals: newTotals(), step: t.step, calls: [], done: null }));
+    const state = start.talks.map((t) => { const totals = newTotals(); addSpeech(totals, null, t.voice); return { model: t.model, over: !!t.error, error: t.error, totals, step: t.step, calls: [], done: null }; });
     input.focus();
     const busy = (on, what) => { for (const el of $$('input, button', box)) if (el.id !== 'again' && !('log' in el.dataset)) el.disabled = on; $('#wait', box).hidden = !on; if (what) $('#waitwhat', box).textContent = what; };
     $('#again', box).addEventListener('click', () => { labPicks = picks; setup(); });
 
+    const sp = info.speechPrices;
+    const speechNote = sp ? html`<p class="small muted">Speech-to-text and voice are what the same talk would cost in the app, at Sarvam's prices (${sp.asOf}): ₹${sp.sttPerHour} for an hour of the learner's speech, ₹${sp.ttsPer10kChars} for 10,000 characters of Sakhi's voice. Spoken turns use the recording's real length; typed turns are estimated at ${sp.wordsASecond} words a second. Her fixed lines (the hello, the reading request, the level) are made once ahead of time and cost a talk nothing. This page plays no sound, so the voice cost is not spent here; speech-to-text is, when you use Speak. In the app the microphone also sends the pauses around their words, so the real speech-to-text cost is somewhat higher.</p>` : '';
     function summary() {
       const rows = state.filter((s) => !s.error && s.totals.calls);
       $('#labsum', box).innerHTML = rows.length ? fmt(html`<h2>Side by side</h2><div class="table-wrap"><table>
-        <tr><th>Model</th><th>Level</th><th>Decided by</th><th class="num">AI calls</th><th class="num">Time in all</th><th class="num">Average a turn</th><th class="num">Reply ready, average</th><th class="num">Input tokens</th><th class="num">Reused</th><th class="num">Output</th><th class="num">Thinking</th><th class="num">Cost</th></tr>
+        <tr><th>Model</th><th>Level</th><th>Decided by</th><th class="num">AI calls</th><th class="num">Time in all</th><th class="num">Average a turn</th><th class="num">Reply ready, average</th><th class="num">Input tokens</th><th class="num">Reused</th><th class="num">Output</th><th class="num">Thinking</th><th class="num">AI cost</th><th class="num">Speech-to-text</th><th class="num">Voice</th><th class="num">Cost in all</th></tr>
         ${rows.map((s) => { const t = s.totals; return html`<tr><td class="lab-model">${s.model}</td><td>${s.done ? `${s.done.level} · ${s.done.name}` : html`<span class="muted">still talking</span>`}</td><td>${s.done?.decidedBy || '–'}</td>
           <td class="num">${t.calls}</td><td class="num">${ms(t.ms)}</td><td class="num">${ms(t.ms / t.calls)}</td><td class="num">${t.replies ? ms(t.replyMs / t.replies) : '–'}</td><td class="num">${n0(t.input)}</td><td class="num">${reusedPct(t) == null ? '–' : `${reusedPct(t)}%`}</td>
-          <td class="num">${n0(t.output)}</td><td class="num">${t.reasoning ? n0(t.reasoning) : '–'}</td><td class="num">${t.priced ? inr(t.cost, 3) : '–'}</td></tr>`; })}
-      </table></div><p class="small muted">"Reused" is the share of input tokens the provider took from its cache, at a lower price. "Thinking" tokens are part of the output. "Reply ready" is for models whose answer is streamed (OpenAI): how soon Sakhi's reply was written, which is when her voice starts being made, before the rest of the answer arrives.</p>`) : '';
+          <td class="num">${n0(t.output)}</td><td class="num">${t.reasoning ? n0(t.reasoning) : '–'}</td><td class="num">${t.priced ? inr(t.cost, 3) : '–'}</td><td class="num">${inr(t.sttInr, 3)}</td><td class="num">${inr(t.voiceInr, 3)}</td><td class="num"><strong>${t.priced ? inr(t.cost + t.sttInr + t.voiceInr, 3) : '–'}</strong></td></tr>`; })}
+      </table></div>${speechNote}<p class="small muted">"Reused" is the share of input tokens the provider took from its cache, at a lower price. "Thinking" tokens are part of the output. "Reply ready" is for models whose answer is streamed (OpenAI): how soon Sakhi's reply was written, which is when her voice starts being made, before the rest of the answer arrives.</p>`) : '';
     }
 
     function showLog(i) {
@@ -719,12 +735,13 @@ async function models() {
         if (x.error) { turn.innerHTML = fmt(html`<p class="err">${x.error}</p>`); log.append(turn); s.over = true; $('.lab-own', c).hidden = true; return; }
         const said = event === 'answer' ? message : LEARNER_EVENTS[event];
         turn.innerHTML = fmt(html`<div class="bubble learner">${event === 'answer' ? message : html`<span class="muted">${said}</span>`}<div class="meta">Learner${heard ? ` · spoken, ${heard.audioSec} s` : ''}</div></div>
-          ${labAi(x)}<div class="bubble tutor"><div class="meta">Sakhi</div>${lines(x.say)}</div>`);
+          ${labAi(x)}<div class="bubble tutor"><div class="meta">Sakhi</div>${lines(x.say)}</div>${x.voice ? speechCost(r.heard, x.voice) : ''}`);
         log.append(turn);
-        s.calls.push({ n: s.calls.length + 1, at: stepName(s.step), learner: said, heard, ai: x.ai, log: x.log, say: x.say, dropped: x.dropped, aiFailed: x.aiFailed });
+        s.calls.push({ n: s.calls.length + 1, at: stepName(s.step), learner: said, heard, ai: x.ai, log: x.log, say: x.say, dropped: x.dropped, aiFailed: x.aiFailed, stt: r.heard, voice: x.voice });
         if (x.final) s.calls.push({ n: s.calls.length + 1, at: `${stepName(s.step)} · final evaluation, asked again with more thinking`, learner: said, ai: x.final.ai, log: x.final.log, say: x.say });
         s.step = x.step;
         if (x.ai) addUse(s.totals, x.ai);
+        addSpeech(s.totals, r.heard, x.voice);
         if (x.final) addUse(s.totals, x.final.ai);
         if (x.done?.ai) addUse(s.totals, x.done.ai);
         $('[data-progress]', c).textContent = progressLine(x.step);

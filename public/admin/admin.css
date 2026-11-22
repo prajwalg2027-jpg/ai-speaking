@@ -222,4 +222,6 @@ button.recording { background: var(--critical); border-color: var(--critical); c
 .log-reuse { font-weight: 400; }
 .log-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--surface-2); margin: 6px 0; }
 .log-bar .reused { background: var(--good-fill); } .log-bar .fresh { background: var(--series-2); }
+.lab-costs { width: auto; margin: 6px 0; font-size: 13px; } .lab-costs td, .lab-costs th { padding: 2px 14px 2px 0; border: 0; text-align: left; } .lab-costs .num { text-align: right; }
+.lab-costs tr:last-child th { border-top: 1px solid var(--border); padding-top: 4px; }
 

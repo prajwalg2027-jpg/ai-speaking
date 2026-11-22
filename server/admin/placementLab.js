@@ -8,12 +8,17 @@
 //
 //   GET  /api/admin/placement-lab           → { providers: { name: { configured } }, current, suggestions, prices, defaults }
 //   POST /api/admin/placement-lab/start     { models: [{provider, model, temperature?, price?}, ..up to 4] }
-//                                           → { labId, talks: [{ model, say, step } | { model, error }] }
+//                                           → { labId, talks: [{ model, say, step, voice } | { model, error }] }
 //   POST /api/admin/placement-lab/transcribe  (a WAV recording; ?language=en-IN for the reading step)
 //                                           → { transcript, audioSec, ms }: Sarvam's speech-to-text, as in the app
 //   POST /api/admin/placement-lab/turn      { labId, message?, event?, speechSec?, only?: index of one talk }
-//                                           → { talks: [ null (not asked) | { model, say, step, ai?, aiFailed?, log?, final?, done? } ] }
+//                                           → { heard?, talks: [ null (not asked) | { model, say, step, voice, ai?, aiFailed?, log?, final?, done? } ] }
 // final: { ai, log } when the final evaluation was asked for again with more thought (see conversation.js).
+// heard, voice: what the turn would cost in the app besides the AI, at Sarvam's prices (server/costs.js):
+//   heard { seconds, estimated, inr }: speech-to-text for the learner's words. seconds is the recording's length
+//     when it was spoken into the page; for typed words it is estimated from their number.
+//   voice { chars, fixedChars, inr }: Sakhi's voice for what she said. Her fixed lines are generated once, ahead
+//     of time, and cost a talk nothing (fixedChars); the page itself plays no sound.
 // log: the exact request (every message) and the model's answer as it came, with its thinking where the provider
 // shares a summary of it.
 import { randomUUID } from 'node:crypto';
@@ -22,6 +27,7 @@ import * as settings from '../settings.js';
 import { providers } from '../llm/index.js';
 import { listModels } from '../llm/models.js';
 import { knownPrices } from '../llm/prices.js';
+import { PRICES } from '../costs.js';
 import * as sarvam from '../sarvam.js';
 import * as conversation from '../placement/conversation.js';
 import { readJson, readBody, send, fail } from '../http.js';
@@ -56,6 +62,23 @@ const stepOf = (s) => (s.done ? null : { step: s.q.step, ...(s.q.step === 'open'
 const labs = new Map();
 setInterval(() => { const now = Date.now(); for (const [id, l] of labs) if (now - l.at > 2 * 60 * 60 * 1000) labs.delete(id); }, 10 * 60 * 1000).unref();
 
+// Sakhi's fixed lines: generated ahead and kept, so saying one costs a talk nothing.
+let fixedLines = null;
+const isFixed = (text) => (fixedLines ||= new Set(conversation.scriptedLines().map((l) => l.text))).has(text);
+/** What Sakhi's voice for these lines would cost in the app. */
+function voiceOf(lines) {
+  const chars = lines.filter((l) => !isFixed(l.text)).reduce((n, l) => n + l.text.length, 0);
+  return { chars, fixedChars: lines.reduce((n, l) => n + l.text.length, 0) - chars, inr: (chars / 10_000) * PRICES.ttsPer10kChars };
+}
+// A learner says about two words a second (used when the words were typed, so there is no recording to time).
+const WORDS_A_SECOND = 2;
+/** What speech-to-text for the learner's words would cost in the app. */
+function heardOf(message, speechSec) {
+  const estimated = !speechSec;
+  const seconds = estimated ? Math.max(1, +(message.split(/\s+/).filter(Boolean).length / WORDS_A_SECOND).toFixed(1)) : speechSec;
+  return { seconds, estimated, inr: (seconds / 3600) * PRICES.sttPerHour };
+}
+
 /** One model's conversation takes one learner turn. Never throws. */
 async function takeTurn(talk, input, deps) {
   const s = conversation.getSession(talk.sessionId);
@@ -69,7 +92,7 @@ async function takeTurn(talk, input, deps) {
   const again = find('final-evaluation'), againLog = find('final-exchange'), againFailed = find('final-evaluation-failed');
   const logOf = (x) => ({ messages: x.messages, raw: x.raw, thinking: x.thinking, attempts: x.attempts });
   return {
-    model: label(talk.model), say: turn.say.map((l) => l.text), step: stepOf(s),
+    model: label(talk.model), say: turn.say.map((l) => l.text), step: stepOf(s), voice: voiceOf(turn.say),
     // What the AI judged on this turn, with its speed, tokens and cost.
     ...(brain ? { ai: { ms: brain.ms, firstTextMs: brain.firstTextMs, replyMs: brain.replyMs, costInr: brain.costInr, usage: brain.usage, effort: brain.effort, happened: brain.happened, picture: brain.picture, reading: brain.reading, level: brain.level, evidence: brain.evidence, tip: brain.tip, finish: brain.finish } } : {}),
     ...(failed ? { aiFailed: failed.why } : {}),
@@ -97,6 +120,7 @@ export async function handlePlacementLab(req, res, url, deps = {}) {
       providers: Object.fromEntries(Object.entries(providers).map(([k, v]) => [k, { configured: v.configured() }])),
       current: settings.get('placement'), effortFor: (({ turnEffort, finalEffort }) => ({ turn: turnEffort, final: finalEffort }))(settings.get('placement')), suggestions: await listModels(), // every model each provider offers now
       prices: knownPrices(), // US dollars per million tokens, for the models whose price is known
+      speechPrices: { sttPerHour: PRICES.sttPerHour, ttsPer10kChars: PRICES.ttsPer10kChars, asOf: PRICES.asOf, wordsASecond: WORDS_A_SECOND }, // rupees, Sarvam
       // What the page compares unless told otherwise: the model in use, and OpenAI's small fast model beside it.
       defaults: [settings.get('placement').brain, { provider: 'openai', model: 'gpt-6-luna' }].filter((m, i, a) => a.findIndex((x) => x.provider === m.provider && x.model === m.model) === i).map(({ provider, model }) => ({ provider, model })),
     }), true;
@@ -113,7 +137,7 @@ export async function handlePlacementLab(req, res, url, deps = {}) {
       const t = conversation.startSession({ lab: true, seed });
       const s = conversation.getSession(t.sessionId);
       lab.talks.push({ model, sessionId: s.id });
-      out.push({ model: label(model), say: t.say.map((l) => l.text), step: stepOf(s) });
+      out.push({ model: label(model), say: t.say.map((l) => l.text), step: stepOf(s), voice: voiceOf(t.say) });
     }
     const labId = randomUUID();
     labs.set(labId, lab);
@@ -146,7 +170,7 @@ export async function handlePlacementLab(req, res, url, deps = {}) {
       return s && !s.done ? takeTurn(talk, input, deps) : null;
     }));
     if (!talks.some(Boolean)) throw fail(409, b.only != null ? 'That conversation has finished.' : 'Every conversation has finished. Start again.');
-    return send(res, 200, { talks }), true;
+    return send(res, 200, { talks, ...(b.event === 'answer' ? { heard: heardOf(input.transcript, b.speechSec) } : {}) }), true;
   }
   throw fail(404, 'not found');
 }

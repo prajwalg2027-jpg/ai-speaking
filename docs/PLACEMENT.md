@@ -193,6 +193,13 @@ Any provider whose key is on the server can be chosen.
      marks are worked out from each message's length and are an estimate. "Copy log" copies it all as text.
    - **Side by side**, under the conversations: level, who decided it, AI calls, total and average time, input
      tokens, the share reused, output and thinking tokens, and cost, for each model.
+   - **Speech-to-text and voice cost.** Under each turn, and in the totals, the page shows what the same talk
+     would cost in the app besides the AI, at Sarvam's prices (`server/costs.js`: ₹30 for an hour of speech,
+     ₹20 for 10,000 characters of voice, both settable): speech-to-text for the learner's words (the recording's
+     real length when spoken into the page; estimated at two words a second when typed) and Sakhi's voice for
+     what she said (her fixed lines are made once ahead of time and cost a talk nothing). The side-by-side table
+     adds them to the AI cost for a cost in all. These are estimates: the page plays no sound, and in the app
+     the microphone also sends the pauses around the learner's words, so real speech-to-text runs somewhat higher.
    - **Prices.** Each model's price is shown as you pick it. OpenAI's are its standard list prices for every
      model, read once from its pricing page (the date is shown; `server/llm/prices.js`); they do not update on
      their own. Costs are shown in rupees at `USD_INR` (88 unless set). A different price can be typed.

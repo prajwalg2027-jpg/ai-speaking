@@ -78,6 +78,7 @@ test('comparing models: each runs its own conversation end to end; a model witho
   // What the page starts with: the model in use beside OpenAI's small one, and every known price.
   assert.deepEqual(info.defaults, [{ provider: 'sarvam', model: settings.get('placement').brain.model }, { provider: 'openai', model: 'gpt-6-luna' }]);
   assert.deepEqual(info.effortFor, { turn: 'low', final: 'medium' });
+  assert.deepEqual(info.speechPrices, { sttPerHour: 30, ttsPer10kChars: 20, asOf: info.speechPrices.asOf, wordsASecond: 2 });
   assert.deepEqual(info.prices.openai['gpt-6-luna'], { input: 0.1, cached: 0.01, output: 0.5 });
   assert.ok(Object.keys(info.prices.openai).length >= 25 && info.prices.openaiAsOf && info.prices.usdInr > 0 && info.prices.sarvamInr.input > 0);
   assert.equal((await post('/api/admin/placement-lab/start', { models: [{ provider: 'anthropic', model: 'claude-haiku-5-5' }] })).status, 400, 'at least one model needs its key');
@@ -88,12 +89,19 @@ test('comparing models: each runs its own conversation end to end; a model witho
   ] })).json;
   assert.deepEqual(lab.talks.map((t) => [t.model, t.step?.step, !!t.error]), [['sarvam/sarvam-105b-conversations', 'hello', false], ['sarvam/sarvam-105b', 'hello', false], ['anthropic/claude-haiku-5-5', undefined, true]]);
   assert.match(lab.talks[2].error, /API key is missing/);
-  const type = async (message, extra = {}) => (await post('/api/admin/placement-lab/turn', { labId: lab.labId, message, ...extra })).json.talks;
+  // Her hello is a fixed line, made once ahead of time: no voice cost for the talk.
+  assert.deepEqual(lab.talks[0].voice, { chars: 0, fixedChars: lab.talks[0].say.join('').length, inr: 0 });
+  let heard;
+  const type = async (message, extra = {}) => { const j = (await post('/api/admin/placement-lab/turn', { labId: lab.labId, message, ...extra })).json; heard = j.heard; return j.talks; };
 
   let t = await type('My name is Ravi');
   assert.deepEqual([t[0].step.step, t[1].step.step, t[2]], ['picture', 'picture', null], 'the model without a key has no talk');
   assert.deepEqual([t[0].ai.happened, t[0].ai.ms >= 0, t[0].ai.usage.input > 0], ['answered', true, true], 'the hello is the AI too');
   assert.equal(t[0].step.screen, t[1].step.screen, 'the same picture in every talk');
+  // What the turn would cost in the app besides the AI. Typed: four words, at two a second. Her words: by the character.
+  assert.deepEqual(heard, { seconds: 2, estimated: true, inr: (2 / 3600) * 30 });
+  const spoken = t[0].say.join('').length;
+  assert.deepEqual(t[0].voice, { chars: spoken, fixedChars: 0, inr: (spoken / 10_000) * 20 });
   // The log: the request exactly as it was sent, and the answer as it came.
   const sent = t[0].log.messages;
   assert.deepEqual(sent.map((m) => m.role), ['system', 'user', 'assistant', 'user', 'user'], 'for Sarvam the note goes last, as a user message');
@@ -121,6 +129,7 @@ test('comparing models: each runs its own conversation end to end; a model witho
   assert.equal(t[1].done.reasons[0], 'Mock: level 3.');
 
   t = await type('', { event: 'no_speech' });
+  assert.equal(heard, undefined, 'nothing was said: nothing to hear');
   assert.deepEqual([t[0].ai.happened, t[0].step.n, t[1]], ['asked_for_help', 2, null], 'the finished talk is left alone');
   t = await type('I think it is good because I can read my book on the bus every day');
   assert.equal(t[0].done.level, 3);
@@ -138,8 +147,9 @@ test('comparing models: a spoken turn is heard by Sarvam, as in the app', async 
   assert.equal((await hear(Buffer.alloc(100))).status, 400, 'an empty recording');
   // The spoken length travels with the turn.
   const lab = (await post('/api/admin/placement-lab/start', { models: [{ provider: 'sarvam', model: 'sarvam-105b' }] })).json;
-  const t = (await post('/api/admin/placement-lab/turn', { labId: lab.labId, message: r.json.transcript, speechSec: r.json.audioSec })).json.talks;
-  assert.equal(t[0].step.step, 'picture');
+  const turn = (await post('/api/admin/placement-lab/turn', { labId: lab.labId, message: r.json.transcript, speechSec: r.json.audioSec })).json;
+  assert.equal(turn.talks[0].step.step, 'picture');
+  assert.deepEqual(turn.heard, { seconds: 2, estimated: false, inr: (2 / 3600) * 30 }, "the recording's real length");
 });
 
 test("a model that streams: Sakhi's voice for her reply is being made before the turn's answer is finished", async () => {
