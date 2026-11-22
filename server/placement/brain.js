@@ -22,6 +22,7 @@ HOW YOU TALK
 - If they ask you to repeat, slow down, or talk in Hindi or another Indian language, just do it, kindly.
 - Use their name only if they told you their name. Never guess one.
 - The talk so far is given as real turns: yours are what you said aloud, the learner's are what they said (from speech recognition, so ignore odd spellings and missing punctuation). A line in brackets, like (said nothing), is what they did instead of speaking.
+- If the learner starts talking while you are still speaking, your whole line stays in the talk as you said it, and right after it comes a line from the app that starts with "[The app: Sakhi was cut off here]". It says how much of your line they heard. Words they did not hear were never said, as far as they know: never refer back to them ("as I said", "like I asked"). If those words held a question or a fix that still matters, say it again in fresh words.
 - After the talk comes a NOTE from the app. It says which step you are on, what the app measured, and what to do next. Follow it. Never mention the note.
 
 THE TALK HAS FOUR STEPS, in this order
@@ -110,13 +111,14 @@ export function repairTurn(j) {
   };
 }
 
-// How a turn is sent to the model. The messages only ever GROW, so each request repeats the one before it and
-// adds the new turn. Providers reuse ("cache") the repeated part at a lower price, and models talk more
+// How a turn is sent to the model. The messages only ever GROW: nothing already in the talk is ever changed or
+// taken out, not even when the learner talks over Sakhi (her whole line stays, and a line from the app is added
+// after it saying how much they heard). So each request repeats the one before it and adds the new turn. Providers reuse ("cache") the repeated part at a lower price, and models talk more
 // naturally when they are given real turns than a pasted transcript:
 //   system     Sakhi's fixed instructions (BRAIN_SYSTEM), the same in every request of every talk
 //   user       "(The call begins.)"
 //   assistant  what Sakhi said        ┐ the talk so far, turn by turn, exactly as it happened
-//   user       what the learner said  ┘
+//   user       what the learner said  ┘ (and, after a line of hers they talked over, the app's cut-off line)
 //   …
 //   user       what the learner just said
 //   system     a short note for THIS turn only (the step, what was measured, what to do next).
@@ -126,12 +128,26 @@ const EVENT_TEXT = { no_speech: '(said nothing)', in_hindi: '(asked for the ques
 /** The learner's turn as it is kept in the talk: their words, or what they did instead. */
 export const learnerLine = (event, transcript = '') => (event === 'answer' && transcript.trim() ? transcript.trim() : EVENT_TEXT[event] || EVENT_TEXT.live_failed);
 
-/** The talk as chat turns: Sakhi's lines of one turn are one message; the roles alternate. */
+export const CUT_OFF = '[The app: Sakhi was cut off here]';
+/**
+ * The line the app adds to the talk after a line of Sakhi's that the learner talked over. Her line itself is
+ * kept whole. heard: the words of that turn they heard; rest: the words they did not.
+ */
+export function cutOffLine({ heard, rest }) {
+  return `${CUT_OFF} The learner started talking while she was still speaking. ${heard ? `They heard only: "${heard}"` : 'They heard none of it'}. They did not hear: "${rest}"`;
+}
+
+/**
+ * The talk as chat turns. history: [{ who: 'sakhi'|'learner'|'app', text }], only ever added to.
+ * Sakhi's lines of one turn are one message; a line from the app (a cut-off) is a message of its own.
+ */
 export function talkTurns(history) {
   const out = [{ role: 'user', content: START }];
+  let lastWho = null;
   for (const h of history) {
-    const role = h.who === 'sakhi' ? 'assistant' : 'user', last = out[out.length - 1];
-    if (last.role === role && last.content !== START) last.content += `\n${h.text}`; else out.push({ role, content: h.text });
+    if (h.who === lastWho && h.who !== 'app') out[out.length - 1].content += `\n${h.text}`;
+    else out.push({ role: h.who === 'sakhi' ? 'assistant' : 'user', content: h.text });
+    lastWho = h.who;
   }
   return out;
 }
@@ -141,6 +157,8 @@ export function talkTurns(history) {
  *   step 'hello'|'picture'|'read'|'open', facts: [sentences about what the app measured], sofar: [earlier results],
  *   name, stayFor: { asked_for_help, something_else } (may she stay on the step for these?),
  *   onward: what "moving on" means from here (a sentence), mustFinish: the talk has to end this turn
+ *   said: the learner's new words (transcript is the whole answer, when it came in two parts)
+ *   cut: they talked over her last turn: { heard, askHeard, join?: the earlier question they were still answering }
  */
 export function turnNote(ctx) {
   const stay = 'stay on this step: respond, then ask the same thing again in simpler words.';
@@ -149,6 +167,9 @@ export function turnNote(ctx) {
   return [
     'NOTE FOR THIS TURN (from the app, not from the learner). The learner\'s last message is their reply.',
     `STEP: ${title}`,
+    // They talked over her before her next question: this is the rest of the answer they were giving.
+    ...(ctx.cut?.join ? [`THEY WERE STILL ANSWERING. The learner talked over you before you reached your next question, so they never heard it. Everything they have said since you asked "${ctx.cut.join}" is ONE answer to that question, in parts. Judge the parts together as one answer (what happened, the level, the evidence, the fix): this replaces what you judged from the first part alone. Then go on as below; ask your next question afresh.`]
+      : ctx.cut ? [`THEY TALKED OVER YOU. ${ctx.cut.heard ? `They heard only: "${ctx.cut.heard}"` : 'They heard none of your last turn'}${ctx.cut.askHeard ? ' (your question included)' : ''}. Take their reply as a reply to what they heard.`] : []),
     ...(ctx.facts.length ? [`WHAT THE APP MEASURED:\n${ctx.facts.map((f) => `- ${f}`).join('\n')}`] : []),
     ...(ctx.sofar.length ? [`EARLIER IN THE TALK: ${ctx.sofar.join(' ')}`] : []),
     `LEARNER'S NAME: ${ctx.name || 'not known yet (use no name)'}`,
@@ -166,7 +187,7 @@ export function turnNote(ctx) {
 /** Everything sent for one turn (see above). */
 export const turnMessages = (ctx) => [
   { role: 'system', content: BRAIN_SYSTEM }, ...talkTurns(ctx.history),
-  { role: 'user', content: learnerLine(ctx.event, ctx.transcript) },
+  { role: 'user', content: learnerLine(ctx.event, ctx.said ?? ctx.transcript) },
   { role: 'system', content: turnNote(ctx) },
 ];
 

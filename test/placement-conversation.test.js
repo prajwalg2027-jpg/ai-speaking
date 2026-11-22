@@ -258,21 +258,82 @@ test("a fix must be the learner's own words; questions in the reaction are dropp
   assert.equal(brain.repairTurn({ reaction: 'hi', ask: 'x' }).reply, undefined, 'not a turn at all: left to fail');
 });
 
-test('talking over her reaction: the two parts are one answer; repeat says her question again without the AI', async () => {
+// What a request sent, without the note for the turn (its last message): this part must only ever grow.
+const talkOf = (asked) => asked.messages.slice(0, -1).map((m) => `${m.role}: ${m.content}`);
+const grows = (earlier, later) => assert.deepEqual(talkOf(later).slice(0, talkOf(earlier).length), talkOf(earlier), 'the earlier request is repeated exactly, and only added to');
+
+test('talking over her before her question: nothing in the talk is changed; the parts are judged as one answer', async () => {
   const { s, ai, go, tap } = await toOpen([
     T({ level: 2, reply: 'You made tea in the morning!', question: 'Who do you live with?' }),
     T({ level: 3, reply: 'A busy morning!', question: 'Why do you like mornings?' }),
+    T({ level: 3, reply: 'That is a lot before lunch!', question: 'What do you like about mornings?' }),
   ]);
   await go('I made tea for my husband and my two children today');
   assert.equal(s.ratings.length, 1);
+  const kept = s.history.map((h) => ({ ...h }));
   // They spoke again half a second into her first line: before her question.
   let t = await go('and then I walked to the market and bought vegetables for lunch', { interrupted: { index: 0, heardSec: 0.5 } });
-  assert.equal(s.ratings.length, 1, 'still one answer');
+  assert.deepEqual(s.history.slice(0, kept.length), kept, 'nothing already in the talk was changed or removed');
+  grows(ai.asked[0], ai.asked[1]);
+  // Her whole line, then the app's line saying where she was cut off, then only their new words.
+  assert.deepEqual(ai.asked[1].messages.slice(-5, -1).map((m) => [m.role, m.content]), [
+    ['user', 'I made tea for my husband and my two children today'],
+    ['assistant', 'You made tea in the morning!\nWho do you live with?'],
+    ['user', '[The app: Sakhi was cut off here] The learner started talking while she was still speaking. They heard only: "You". They did not hear: "made tea in the morning! Who do you live with?"'],
+    ['user', 'and then I walked to the market and bought vegetables for lunch'],
+  ]);
+  const note = ai.asked[1].user;
+  assert.match(note, /STEP: OPEN QUESTION 1/, 'judged against the question they were answering');
+  assert.match(note, /THEY WERE STILL ANSWERING\.[^\n]*since you asked "So, what did you do this morning\?" is ONE answer/);
+  assert.match(note, /They spoke 23 English words in the whole answer/);
+  assert.deepEqual([s.ratings.length, s.ratings[0].level], [1, 3], 'still one answer, judged again as a whole');
   assert.equal(s.answers.at(-1).transcript, 'I made tea for my husband and my two children today and then I walked to the market and bought vegetables for lunch');
-  assert.match(ai.asked[1].user, /STEP: OPEN QUESTION 1/, 'judged against the question they were answering');
   assert.equal(t.task.id, 'c2');
+  // And once more: a third part joins the same answer.
+  t = await go('and I cooked dal and rice', { interrupted: { index: 0, heardSec: 0.2 } });
+  grows(ai.asked[1], ai.asked[2]);
+  assert.match(ai.asked[2].user, /They spoke 29 English words in the whole answer/);
+  assert.deepEqual([s.ratings.length, t.task.id], [1, 'c2']);
+  assert.equal(s.answers.at(-1).transcript.split(' ').length, 29);
   t = await tap('repeat');
-  assert.deepEqual([say(t), t.say[0].pace, ai.asked.length], ['Why do you like mornings?', 0.85, 2]);
+  assert.deepEqual([say(t), t.say[0].pace, ai.asked.length], ['What do you like about mornings?', 0.85, 3]);
+});
+
+test('talking over her after hearing her question: her whole line stays, with a line saying what they heard', async () => {
+  const { s, ai, go } = await toOpen([
+    T({ level: 2, reply: 'You made tea in the morning!', question: 'Who do you live with at home?' }),
+    T({ level: 2, reply: 'A full house!', question: 'What do you all do in the evening?' }),
+    T({ level: 2, reply: 'That sounds lovely.', finish: true, final: FINAL(2) }),
+  ]);
+  await go('I made tea for my husband and my two children today');
+  // Most of the way through her question (the second line).
+  await go('I live with my husband and my children', { interrupted: { index: 1, heardSec: 60 } });
+  assert.equal(s.history.filter((h) => h.who === 'app').length, 0, 'they heard all of it: nothing to add');
+  await go('We watch television together', { interrupted: { index: 1, heardSec: 1.8 } });
+  grows(ai.asked[0], ai.asked[1]); grows(ai.asked[1], ai.asked[2]);
+  const sent = ai.asked[2].messages.map((m) => m.content);
+  assert.ok(sent.includes('A full house!\nWhat do you all do in the evening?'), 'her line as she said it');
+  const mark = sent.find((m) => m.startsWith(brain.CUT_OFF));
+  assert.match(mark, /They heard only: "A full house! What do you all do[^"]*"\. They did not hear: "[^"]*evening\?"$/);
+  assert.match(ai.asked[2].user, /STEP: OPEN QUESTION 3\n\nTHEY TALKED OVER YOU\. They heard only: "A full house! What do you all do[^"]*" \(your question included\)/);
+  assert.equal(s.ratings.length, 3, 'three answers to three questions: nothing was joined');
+  // The app's line is a message of its own, never run into the learner's words.
+  assert.deepEqual(brain.talkTurns([{ who: 'sakhi', text: 'a' }, { who: 'sakhi', text: 'b' }, { who: 'app', text: 'x' }, { who: 'learner', text: 'c' }]).map((m) => [m.role, m.content]),
+    [['user', '(The call begins.)'], ['assistant', 'a\nb'], ['user', 'x'], ['user', 'c']]);
+});
+
+test('only the answer just before can be carried on: help in between is not joined to an older answer', async () => {
+  const { s, ai, go } = await toOpen([
+    T({ level: 2, reply: 'You made tea!', question: 'Who do you live with?' }),
+    T({ happened: 'asked_for_help', reply: 'No problem.', question: 'Who is in your family at home?' }),
+    T({ level: 2, reply: 'A big family!', question: 'What do you do in the evening?' }),
+  ]);
+  await go('I made tea for my husband and my two children today');
+  await go('sorry repeat please');
+  await go('my husband and two children', { interrupted: { index: 0, heardSec: 0.3 } });
+  assert.doesNotMatch(ai.asked[2].user, /STILL ANSWERING/);
+  assert.match(ai.asked[2].user, /STEP: OPEN QUESTION 2\n\nTHEY TALKED OVER YOU\./);
+  assert.equal(s.ratings.length, 2);
 });
 
 test('the switch: classic stays the default; conversation when chosen; each test keeps its kind', async () => {

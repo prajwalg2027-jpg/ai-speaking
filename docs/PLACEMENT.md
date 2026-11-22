@@ -63,9 +63,43 @@ level 4."), and says who decided it.
 - **The AI leaves the level out**, or failed at the end: the level comes from the app's own rule
   (`server/placement/level.js`: missed the picture and the reading is level 1; otherwise level 2 at least, and
   the highest level reached in two open answers). The result then says "decided by the app's rule".
-- **The learner talks over Sakhi before her question** (open questions): they were still finishing; the two parts
-  are joined and taken as one answer.
+- **The learner talks over Sakhi**: nothing already in the talk is changed. Her whole line stays as she said it,
+  and the app adds a line after it saying how much of it they heard (see "When the learner talks over Sakhi").
+  If they cut in before her question (open questions), they were still finishing their answer: their new words
+  are a new turn, and the AI is told to judge the parts together as one answer to the earlier question.
 - **"Repeat"** (a button in the team view) says her last question again more slowly, without the AI.
+
+## When the learner talks over Sakhi
+
+The app tells the server how far into her turn she was when they started talking. The talk is never rewritten:
+
+```
+assistant  You made tea in the morning!                       ← her whole turn, as she said it
+           Who do you live with?
+user       [The app: Sakhi was cut off here] The learner started talking while she was still speaking.
+           They heard only: "You". They did not hear: "made tea in the morning! Who do you live with?"
+user       and then I walked to the market                    ← only their new words
+system     NOTE FOR THIS TURN … THEY WERE STILL ANSWERING. … Everything they have said since you asked
+           "So, what did you do this morning?" is ONE answer … Judge the parts together …
+```
+
+- **They heard her question** (or most of it): their words are a reply to it. The note says what they heard.
+- **They cut in before her question**, right after an open answer: they were still answering. The note names the
+  earlier question and tells the AI to judge all the parts as one answer; the app's word count covers all the
+  parts. The app's own record of that answer (its level) is replaced by the new judgement, so it still counts as
+  one answer to one question. The talk itself is not touched. A third part joins the same way.
+- The fixed instructions tell the AI how to read the cut-off line: words they did not hear were never said, as
+  far as the learner knows.
+
+**The trade-off.** Before, the talk held only the words the learner heard, so the AI could not lean on anything
+else. Now the unheard words are in front of it, marked as unheard, and it has to follow that mark. A model may
+still behave as if they were heard: refer back to them ("as I asked"), skip a fix it thinks it already gave, or
+ask a different question from the one it had planned without noticing. The cut-off line, the rule in the fixed
+instructions and the note for the turn all point the same way to keep this rare, and stronger models follow it
+more reliably than small ones; it is worth watching in real calls. What is gained: the talk is a true record of
+what she said, each request is the last one plus new messages (the reusable part is never disturbed), and the
+code no longer edits the past. The saving in reused tokens is small in itself, because the old edits only
+touched the two newest turns. A request with a cut-off is a little longer (her full line and the app's line).
 
 ## Choosing the AI model
 
@@ -132,6 +166,10 @@ assistant  Nice to meet you, Ravi! Look at the picture. …     ┘ ((said nothi
 user       I live in Pune with my family                      ← what the learner just said
 system     NOTE FOR THIS TURN: the step, what the app measured, what to do next
 ```
+
+Stable things come first (the fixed instructions, then the talk in order) and new messages are only ever added
+at the end: nothing already sent is edited or removed, so everything before the newest turn is identical from one
+request to the next and can be reused.
 
 The note is never kept in the talk, so it never disturbs the repeated part. OpenAI gets exactly this through its
 **Responses API** (`POST /responses`, `input` + `text.format`, `store: false`). Claude, Gemini and Sarvam take

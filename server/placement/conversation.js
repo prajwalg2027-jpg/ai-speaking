@@ -26,7 +26,7 @@ import { speechSeconds } from '../sarvam.js';
 import { stripInventedNames, fixContractions } from '../tutor.js';
 import * as settings from '../settings.js';
 import { normalizeForCompare } from '../normalize.js';
-import { think, summarize, plainSummary, usableFinal, tipIsTheirs, learnerLine } from './brain.js';
+import { think, summarize, plainSummary, usableFinal, tipIsTheirs, learnerLine, cutOffLine } from './brain.js';
 import { nextStep, placementLevel, missedLevel, qualifies, READ_OK, OPEN_START } from './level.js';
 
 const HELLO = { en: 'Hi, my name is Sakhi. What is your name?', hi: 'नमस्ते, मेरा नाम सखी है। आपका नाम क्या है?' };
@@ -94,7 +94,7 @@ export function startSession({ lab = false, seed = null } = {}) {
 /** Say `before` (a reaction) and then `ask` (the question): the reply the app plays. */
 function respond(s, before, ask = [], extra = {}) {
   const lines = [...before, ...ask], q = s.q;
-  if (lines.length) s.lastSay = { lines, askAt: before.length, historyAt: s.history.length };
+  if (lines.length) s.lastSay = { lines, askAt: before.length };
   for (const l of lines) s.history.push({ who: 'sakhi', text: l.text });
   return {
     sessionId: s.id, say: lines, card: s.done ? null : q.card || null,
@@ -128,9 +128,10 @@ const READ_RESULT = (acc) => (acc >= READ_OK ? 'well' : acc >= 0.4 ? 'partly' : 
  * Changes nothing.
  */
 export function buildCtx(s, input) {
-  const q = s.q, t = (input.transcript || '').trim(), max = settings.get('placement').maxQuestions;
-  const spoke = input.event === 'answer' && !isUnintelligible(t);
-  const f = spoke ? features(t, { speechSec: input.speechSec, kind: 'open', timing: input.timing }) : null;
+  // said: their new words. t: the whole answer, which is longer when this is the rest of one they were still giving.
+  const q = s.q, said = (input.transcript || '').trim(), t = `${input.joinTo?.transcript || ''} ${said}`.trim(), max = settings.get('placement').maxQuestions;
+  const spoke = input.event === 'answer' && !isUnintelligible(said);
+  const f = spoke ? features(t, { speechSec: (input.joinTo?.speechSec || 0) + (input.speechSec || 0), kind: 'open', timing: input.joinTo ? null : input.timing }) : null;
   const facts = [], sofar = [];
   if (!spoke) facts.push({ no_speech: 'They said nothing.', in_hindi: 'They tapped "in Hindi": they want it in Hindi.', skip: 'They tapped "skip".' }[input.event] || 'Their reply could not be heard.');
   let hit = null, acc = null, onward, mustFinish = false;
@@ -149,7 +150,7 @@ export function buildCtx(s, input) {
     if (spoke) facts.push(`The app matched about ${Math.round(acc * total)} of its ${total} words in their reply.`);
     onward = `decide whether they can go on. If yes: ask your first open question, about their everyday life (you may ask up to ${max}). If no: finish.`;
   } else {
-    if (f) facts.push(`They spoke ${f.englishWordCount} English words in this reply.`);
+    if (f) facts.push(input.joinTo ? `They spoke ${f.englishWordCount} English words in the whole answer (all its parts together).` : `They spoke ${f.englishWordCount} English words in this reply.`);
     const left = max - q.n;
     mustFinish = left <= 0;
     onward = mustFinish ? 'this was the last question. Finish now.' : `either ask one more open question (you may ask ${left} more) or finish, if you are sure of their level.`;
@@ -158,7 +159,7 @@ export function buildCtx(s, input) {
   if (s.picture) sofar.unshift(`Picture: ${s.picture.result.replace('_', ' ')}.`);
   if (s.read) sofar.splice(s.picture ? 1 : 0, 0, `Reading: ${s.read.result === 'skipped' ? 'skipped' : `read ${s.read.result === 'not' ? 'little or none of it' : s.read.result}`}.`);
   return {
-    history: [...s.history], step: q.step, n: q.n, event: input.event, transcript: t, facts, sofar, name: s.profile.name, onward, mustFinish,
+    history: [...s.history], step: q.step, n: q.n, event: input.event, transcript: t, said, cut: input.cut || null, facts, sofar, name: s.profile.name, onward, mustFinish,
     // How often she may stay on one step: twice for help, once for something off the point.
     stayFor: { asked_for_help: q.helps < 2 && input.event !== 'skip', something_else: q.steers < 1 },
     spoke, features: f, hit, accuracy: acc,
@@ -207,21 +208,22 @@ export async function handleTurn(s, input, trace, opts = {}) {
     return respond(s, [], s.lastSay?.askAt < s.lastSay?.lines.length ? s.lastSay.lines.slice(s.lastSay.askAt).map((l) => ({ ...l, pace: Math.min(l.pace, 0.85) })) : fixedAsk(s.q, true));
   }
 
-  // They talked over Sakhi before she reached her question (open questions): they were still finishing their
-  // last answer. Go back to before that answer and take the two together as one.
+  // They talked over Sakhi. Nothing already in the talk is changed: her whole line stays as she said it, and a
+  // line from the app is added after it saying how much of it they heard.
   if (input.event === 'answer' && input.interrupted && s.lastSay) {
     const heard = heardOf(s, input.interrupted);
+    if (heard.rest) s.history.push({ who: 'app', text: cutOffLine(heard) });
+    input = { ...input, cut: { heard: heard.text, askHeard: heard.askHeard } };
     if (!heard.askHeard && s.prev) {
+      // Before she reached her question (open questions): they were still finishing their last answer. Their new
+      // words are added as a new turn, and the AI is told to judge the parts together as one answer to the
+      // earlier question. Only the app's own record of that answer (its level) is taken back, to be judged again.
       const p = s.prev;
-      note('interrupted', { heard: heard.text, next: 'join it to their previous answer' });
-      s.ratings.length = p.ratings; s.answers.length = p.answers; s.history.length = p.history; s.q = { ...p.q }; s.prev = null;
-      input = { ...input, interrupted: null, transcript: `${p.transcript} ${input.transcript}`.trim(), speechSec: (p.speechSec || 0) + (input.speechSec || 0), timing: null };
-    } else {
-      // Keep only what they heard in the memory of the talk.
-      const at = s.lastSay.historyAt + heard.index;
-      if (s.history[at]?.who === 'sakhi') s.history.splice(at, s.lastSay.lines.length - heard.index, { who: 'sakhi', text: `${heard.cut || '…'} [the learner talked over Sakhi here]` });
-      note('interrupted', { heard: heard.text, askHeard: heard.askHeard });
+      s.ratings.length = p.ratings; s.answers.length = p.answers; s.q = { ...p.q };
+      input.cut.join = p.q.text;
+      input.joinTo = { transcript: p.transcript, speechSec: p.speechSec };
     }
+    note('interrupted', { heard: heard.text, askHeard: heard.askHeard, ...(input.joinTo ? { next: 'judge it with their previous answer, as one' } : {}) });
   }
 
   const ctx = buildCtx(s, input);
@@ -243,8 +245,10 @@ export async function handleTurn(s, input, trace, opts = {}) {
 /** Apply the AI's turn: remember what it judged, then stay on the step, move to the next, or finish. */
 async function advance(s, ctx, out, input, note, opts, ai) {
   const q = s.q, transcript = ctx.transcript;
-  const before = { ratings: s.ratings.length, answers: s.answers.length, history: s.history.length, q: { ...q }, transcript, speechSec: input.speechSec || 0 };
-  s.history.push({ who: 'learner', text: learnerLine(ctx.spoke ? 'answer' : input.event === 'answer' ? 'live_failed' : input.event, transcript) });
+  // What the app recorded before this answer, in case they turn out to be still finishing it (see handleTurn).
+  const before = { ratings: s.ratings.length, answers: s.answers.length, q: { ...q }, transcript, speechSec: (input.joinTo?.speechSec || 0) + (input.speechSec || 0) };
+  s.prev = null; // only the turn just before can be carried on
+  s.history.push({ who: 'learner', text: learnerLine(ctx.spoke ? 'answer' : input.event === 'answer' ? 'live_failed' : input.event, ctx.said) });
   // A name is only kept if they said it (in English letters it must be in their words).
   if (out.name && ctx.spoke && (INDIC.test(transcript) || transcript.toLowerCase().includes(out.name.toLowerCase()))) s.profile.name = out.name;
   let reply = clean(out.reply, s.profile.name), question = clean(out.question, s.profile.name);
@@ -359,7 +363,7 @@ async function finish(s, reply, final, heard, note, opts, ai) {
   return respond(s, [...linesOf(withoutQuestions(reply)), ...closing], [], { heard, done: s.result });
 }
 
-/** What the learner heard of Sakhi's last turn before talking over it, and whether that included her question. */
+/** What the learner heard of Sakhi's last turn before talking over it (text), what they did not (rest), and whether they heard her question. */
 function heardOf(s, { index = 0, heardSec = 0 }) {
   const { lines, askAt } = s.lastSay;
   const i = Math.max(0, Math.min(lines.length - 1, Number(index) || 0));
@@ -368,6 +372,7 @@ function heardOf(s, { index = 0, heardSec = 0 }) {
   let cut = l.text.slice(0, Math.round(l.text.length * frac));
   if (frac < 1) cut = cut.replace(/\s+\S*$/, '');
   const text = [...lines.slice(0, i).map((x) => x.text), cut].filter(Boolean).join(' ');
+  const rest = [l.text.slice(cut.length).trim(), ...lines.slice(i + 1).map((x) => x.text)].filter(Boolean).join(' ');
   const askHeard = askAt >= lines.length ? true : i > askAt || (i === askAt && frac >= 0.6);
-  return { index: i, cut, text, askHeard };
+  return { index: i, cut, heard: text, text, rest, askHeard };
 }
