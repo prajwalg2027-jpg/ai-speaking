@@ -162,6 +162,10 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
         live.bind(turn.sessionId)
         thinking()
         delay(500)
+        // Lines of this turn that were said before the whole turn arrived (Sakhi's reaction, sent ahead by the
+        // server), and where the learner talked over one of them.
+        var said = 0
+        var cutAhead: Interrupted? = null
         while (true) {
             tapInterrupt = false
             _state.update { it.copy(learnerLanguage = turn.learnerLanguage) }
@@ -175,9 +179,10 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
             val revealCard = { if (!cardShown && next != null) { cardShown = true; showCard(next) } }
             val cue = turn.cue
 
-            var interrupted: Interrupted? = null
-            for ((i, line) in turn.say.withIndex()) {
-                if (turn.done != null && i == 0) exitCard()
+            var interrupted: Interrupted? = cutAhead
+            if (interrupted == null) for ((i, line) in turn.say.withIndex()) {
+                if (i < said) continue // said already, ahead of the turn
+                if (turn.done != null && i == said) exitCard()
                 val r = speak(line) { n -> if (cue != null && i == cue.line && n > cue.word) revealCard() }
                 if (cue == null || i >= cue.line) revealCard()
                 if (r?.stoppedBy == VoicePlayer.Stop.BARGE_IN) { interrupted = Interrupted(i, r.heardSec); break }
@@ -199,9 +204,26 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
             val reacting = if (req.event == "answer" && words >= 3) viewModelScope.async { backchannel { replied } } else null
             setPhase(Phase.THINKING)
             sent()
-            turn = c.api.turn(req)
+            // The server may send Sakhi's reaction before the rest of her turn is written: it is said at once,
+            // and the rest follows when the whole turn is here.
+            val ahead = CompletableDeferred<List<Line>>()
+            val whole = viewModelScope.async { try { c.api.turn(req) { ahead.complete(it) } } finally { ahead.complete(emptyList()) } }
+            var head = ahead.await() // her reaction, or nothing: then the whole turn has arrived (or failed)
             replied = true
-            if (reacting?.await() == true) turn = dropRepeatedAck(turn)
+            val acked = reacting?.await() == true
+            said = 0
+            cutAhead = null
+            if (head.isNotEmpty()) {
+                if (acked) head = dropRepeatedAck(head)
+                for ((i, line) in head.withIndex()) {
+                    val r = speak(line) {}
+                    said = i + 1
+                    if (r?.stoppedBy == VoicePlayer.Stop.BARGE_IN) { cutAhead = Interrupted(i, r.heardSec); break }
+                }
+                if (cutAhead == null && !whole.isCompleted) thinking() // the rest of her turn is still being written
+            }
+            turn = whole.await()
+            if (head.isEmpty() && acked) turn = dropRepeatedAck(turn)
         }
     }
 

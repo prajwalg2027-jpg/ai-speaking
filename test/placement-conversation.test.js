@@ -465,6 +465,43 @@ test('a model that streams: her reply is known, and its voice can start, before 
   assert.equal(plain.ai.asked[0].streamed, false);
 });
 
+test('a reply that has gone to the app is what she says, whatever the rest of the answer turns out to be', async () => {
+  const LUNA = { provider: 'openai', model: 'gpt-6-luna', temperature: 0.6 };
+  const sent = [];
+  // A stand-in that streams one answer and then hands back another (as when the first had to be asked for again).
+  const twoMinds = (streamed, final) => async ({ schema, repair, onText }) => {
+    onText?.(JSON.stringify(streamed));
+    if (final instanceof Error) throw final;
+    return { data: schema.parse(repair(final)), provider: 'openai', model: 'gpt-6-luna', latencyMs: 5, usage: {}, costInr: 0.01, attempts: 2 };
+  };
+  const turn = (s, transcript, structured, commit) => convo.handleTurn(s, { event: 'answer', transcript, speechSec: 3 }, null, { config: LUNA, structured, commit });
+  const first = T({ name: 'Asha', reply: 'Lovely to meet you, Asha!', question: 'What is this picture called in English?' });
+  const second = T({ name: 'Asha', reply: 'Hello there, Asha.', question: 'There is a picture on your screen. What is it called in English?' });
+
+  // Sent to the app: her reaction is the one that was sent; her question is the final answer's.
+  let s = convo.getSession(convo.startSession({ seed: 0 }).sessionId);
+  let t = await turn(s, 'My name is Asha', twoMinds(first, second), (lines) => { sent.push(lines.map((l) => l.text)); return true; });
+  assert.deepEqual(sent, [['Lovely to meet you, Asha!']]);
+  assert.equal(say(t), 'Lovely to meet you, Asha! | There is a picture on your screen. What is it called in English?');
+  assert.ok(s.history.some((h) => h.who === 'sakhi' && h.text === 'Lovely to meet you, Asha!') && !s.history.some((h) => /Hello there/.test(h.text)), 'and that is what the talk keeps');
+  // The app asks for her reaction's voice before the turn is finished: it must count as a line of hers by then.
+  const guard = await import('../server/guard.js'), fixed = new Set(['Okay.']);
+  const mid = convo.getSession(convo.startSession({ seed: 0 }).sessionId);
+  let allowedMidTurn = null;
+  await turn(mid, 'My name is Asha', twoMinds(first, second), (lines) => { allowedMidTurn = [guard.isHerLine(lines[0].text, mid, fixed), mid.history.some((h) => h.text === lines[0].text)]; return true; });
+  assert.deepEqual(allowedMidTurn, [true, false], 'allowed while the turn is still being worked out, though not yet in the talk');
+  assert.deepEqual([guard.isHerLine('Lovely to meet you, Asha!', mid, fixed), guard.isHerLine('to meet you, Asha!', mid, fixed), guard.isHerLine('Something she never said.', mid, fixed), guard.isHerLine('Okay.', null, fixed)], [true, true, false, true]);
+  // Not sent (an app that takes the whole turn at once): the final answer's reaction, as before.
+  s = convo.getSession(convo.startSession({ seed: 0 }).sessionId);
+  t = await turn(s, 'My name is Asha', twoMinds(first, second), null);
+  assert.equal(say(t), 'Hello there, Asha. | There is a picture on your screen. What is it called in English?');
+  // The AI fails after her reaction went out: she has said it, and goes on with the fixed line for the next step.
+  s = convo.getSession(convo.startSession({ seed: 0 }).sessionId);
+  t = await turn(s, 'My name is Asha', twoMinds(first, new Error('cut off')), () => true);
+  assert.equal(t.say[0].text, 'Lovely to meet you, Asha!');
+  assert.deepEqual([t.task.id, t.say.length > 1, t.cue.line], ['picture', true, 1], 'then the picture, in the fixed words');
+});
+
 test('reading an answer while it is still being written: the fields up to the reply', () => {
   const whole = JSON.stringify(T({ level: 3, evidence: 'They said "r": yes, and {more}', tip: { said: 'I go', better: 'I went' }, name: 'Asha', reply: 'Oh, you went to the "big" market!', question: 'Why?' }));
   const upTo = (n) => brain.fieldsUpTo(whole.slice(0, n), 'r');

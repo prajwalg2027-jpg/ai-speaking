@@ -201,3 +201,37 @@ test('comparing models: each OpenAI or Claude model can be given its own thinkin
   assert.deepEqual(two.map((x) => x.ai.askedFast), [true, false]);
 });
 
+test("the turn in parts: an app that asks for it gets Sakhi's reaction before the rest of her turn is written", async () => {
+  await settings.set('placement', { ...settings.get('placement'), mode: 'conversation', brain: { provider: 'openai', model: 'gpt-6-luna', temperature: 0.6 } }, 'test');
+  try {
+    const start = (await post('/api/session')).json;
+    // Reads the answer a line at a time, noting whether the model had finished writing when each line arrived.
+    let modelDone = false;
+    stream.pauseMs = 80; stream.atReply = () => { modelDone = true; };
+    const res = await fetch(`${base}/api/session/turn`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/x-ndjson, application/json' },
+      body: JSON.stringify({ sessionId: start.sessionId, event: 'answer', transcript: 'My name is Farah', speechSec: 2 }) });
+    assert.deepEqual([res.status, res.headers.get('content-type')], [200, 'application/x-ndjson; charset=utf-8']);
+    const parts = []; let buffer = '';
+    for await (const chunk of res.body) {
+      buffer += Buffer.from(chunk).toString();
+      let at; while ((at = buffer.indexOf('\n')) >= 0) { parts.push({ ...JSON.parse(buffer.slice(0, at)), early: !modelDone }); buffer = buffer.slice(at + 1); }
+    }
+    stream.pauseMs = 0; stream.atReply = null;
+    assert.deepEqual(parts.map((p) => [p.part, p.early]), [['reply', true], ['turn', false]], 'her reaction arrived while the model was still writing');
+    assert.deepEqual(parts[0].say.map((l) => l.text), ['Nice to meet you, Farah!']);
+    assert.deepEqual(parts[1].say.slice(0, 1), parts[0].say, 'the whole turn begins with the lines already sent');
+    assert.deepEqual([parts[1].say.length, parts[1].task.id, parts[1].cue.line, parts[1].sessionId], [2, 'picture', 1, start.sessionId]);
+
+    // An app that does not ask (an older build) gets the whole turn as one JSON answer, as before.
+    const old = await post('/api/session/turn', { sessionId: start.sessionId, event: 'answer', transcript: WORDS[parts[1].card.text], speechSec: 2 });
+    assert.deepEqual([old.status, old.json.part, old.json.task.id], [200, undefined, 'read']);
+    // A turn with nothing to send early (silence: her own fixed words) is one part.
+    const quiet = await fetch(`${base}/api/session/turn`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/x-ndjson' }, body: JSON.stringify({ sessionId: start.sessionId, event: 'repeat' }) });
+    const lines = (await quiet.text()).trim().split('\n').map((l) => JSON.parse(l));
+    assert.deepEqual(lines.map((p) => p.part), ['turn']);
+    // A refusal before anything was sent is still an ordinary error answer.
+    const gone = await fetch(`${base}/api/session/turn`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/x-ndjson' }, body: JSON.stringify({ sessionId: 'no-such-session', event: 'answer', transcript: 'hi' }) });
+    assert.deepEqual([gone.status, (await gone.json()).error.slice(0, 17)], [404, 'session not found']);
+  } finally { await settings.reset('placement', 'test'); }
+});
+

@@ -28,6 +28,13 @@ class WordRevealAndAcksTest {
         assertEquals(Cue(0, 4), out.cue)
     }
 
+    @Test fun `the same for a reaction that came ahead of its turn`() {
+        val out = dropRepeatedAck(listOf(Line("Okay! You went to the market."), Line("बहुत अच्छा।", lang = "hi-IN")))
+        assertEquals(listOf("You went to the market.", "बहुत अच्छा।"), out.map { it.text })
+        val plain = listOf(Line("You went to the market."))
+        assertEquals(plain, dropRepeatedAck(plain))
+    }
+
     @Test fun `ordinary openings are kept`() {
         val t = Turn("s", say = listOf(Line("Right now, tell me more.")))
         assertSame(t, dropRepeatedAck(t))

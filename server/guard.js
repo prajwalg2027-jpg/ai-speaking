@@ -51,10 +51,15 @@ export class RateLimit {
 export const sessionStarts = new RateLimit(() => LIMITS.sessionsPerIpPerHour, 60 * 60 * 1000);
 
 /** May Sakhi's voice say this text? (Only checked in production.) */
-export function maySpeak(text, session, fixedLines) {
-  if (!production) return true;
+export const maySpeak = (text, session, fixedLines) => !production || isHerLine(text, session, fixedLines);
+
+/** Is this a line of Sakhi's: a fixed one, one she has said in this conversation, or one she is saying right now? */
+export function isHerLine(text, session, fixedLines) {
   if (fixedLines.has(text)) return true;
+  if (!session) return false;
   // The app may trim a repeated "Okay!" from the start of a line, so a line can be the end of one she said.
-  return !!session && session.history.some((h) => h.who === 'sakhi' && (h.text === text || h.text.endsWith(text)));
+  const hers = (line) => line === text || line.endsWith(text);
+  // saying: her reaction, sent to the app before the rest of her turn was written (it is not in the talk yet).
+  return session.history.some((h) => h.who === 'sakhi' && hers(h.text)) || (session.saying || []).some(hers);
 }
 

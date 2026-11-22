@@ -55,3 +55,11 @@ Leaving the app ends the conversation (a voice conversation can't go on unseen, 
 
 `SAKHI_KEYSTORE_B64` (base64 of the upload keystore), `SAKHI_KEYSTORE_PASSWORD`, `SAKHI_KEY_ALIAS`,
 `SAKHI_KEY_PASSWORD`, and the repository variable `SAKHI_SERVER_URL`. Keep the keystore out of the repository.
+
+## Sakhi's turn, in parts
+
+The app asks the server for each turn in parts (`SakhiApi.turn`, `Accept: application/x-ndjson`). When the server
+can, it sends Sakhi's reaction before the rest of her turn is written; the app says it at once
+(`ConversationViewModel.run`) and carries on with the rest when the whole turn arrives. A server that answers in
+one piece works too. See `docs/PLACEMENT.md` › Streaming.
+

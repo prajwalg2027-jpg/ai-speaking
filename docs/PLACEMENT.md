@@ -171,8 +171,8 @@ first sound of Sakhi's voice. For the AI's answer, in order of how much each mat
 
 To see where the time goes for a model, use **Compare models**: each call shows its whole time, when the first
 words of the answer arrived (thinking and waiting in line come before that) and when her reply was ready. Add
-the same model twice, with different thinking or speed, to compare. What is not yet done: playing her reply in
-the app while the rest of the answer is still being written (the app waits for the whole turn).
+the same model twice, with different thinking or speed, to compare. The app also says her
+reaction while the rest of her turn is still being written (see "Streaming").
 
 ## How hard the model thinks
 
@@ -216,7 +216,30 @@ So, as soon as the reply is complete:
 2. starts making their voice, while the model is still writing the rest.
 
 By the time the app has the turn and asks for her first line, the sound is ready or well on its way; the app
-joins it from its first byte (a line being made is shared, never made twice). Nothing changes in the app.
+joins it from its first byte (a line being made is shared, never made twice).
+
+**The app says her reaction while the rest is still being written.** The Android app asks for the turn in parts
+(`Accept: application/x-ndjson` on `POST /api/session/turn`). The server then answers one JSON object a line:
+
+```
+{"part":"reply","say":[ her reaction's lines ]}        the moment they are known (not on every turn)
+{"part":"turn", ... the whole turn, as always ... }     its lines begin with the ones already sent
+```
+
+The app starts saying the reaction at once, shows the "…" bubble if the rest is still coming, and carries on
+with the remaining lines when the whole turn arrives. Once her reaction has been sent it **is** her reaction
+for that turn: if the rest of the model's answer changes its mind, has to be asked for again, or fails, the
+server keeps to what she is already saying and takes only her question (or the fixed line) from what follows.
+If the learner talks over the reaction, the app waits for the whole turn (it needs to know what comes next) and
+then listens; their words are kept from the moment they started.
+
+What it saves: on an ordinary turn, the time the model spends writing her question; on the last turn, the time
+it spends on the level and feedback, and the whole of the second, more careful evaluation when there is one
+(she says "That sounds lovely." straight away, and the level follows).
+
+An app build from before this, and any app that does not ask, gets the whole turn as one JSON answer, exactly
+as before; and the new app works with a server from before this. So the server and the app can be released in
+either order.
 
 What this buys, per turn: roughly the time the model spends on everything after the reply (short on an ordinary
 turn; a second or more on the last turn, where the level and feedback are written), up to the time her voice
@@ -234,9 +257,8 @@ of a second, so there is little to gain; a voice needs a whole clause to sound n
 she may say (no question in her reply, never the picture's word, no invented name) need the whole sentence.
 
 Limits, so nobody is surprised:
-- The app still waits for the whole turn before it plays anything. Playing her reply while the rest is still
-  being written needs the turn itself to reach the app in pieces: a change to the app and to
-  `/api/session/turn`, not made yet.
+- The web client (the team's test page) still takes the whole turn at once; only the Android app plays her
+  reaction ahead.
 - Only OpenAI models are streamed. Sarvam, Claude and Gemini answer in one piece, as before.
 - If her reply is dropped afterwards (a guard, or an answer that had to be asked for again), the voice started
   early is not used: a few characters of voice spent for nothing. Rare.

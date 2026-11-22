@@ -40,6 +40,11 @@ const send = (res, status, data) => { res.writeHead(status, { 'content-type': 'a
 // ---- Conversation --------------------------------------------------------------
 // POST /api/session            → Sakhi's opening turn (and a sessionId)
 // POST /api/session/turn       → body {sessionId, event, transcript?, languageCode?, speechSec?, interrupted?: {index, heardSec}} → Sakhi's next turn
+//   With "Accept: application/x-ndjson" the turn comes in parts, one JSON object a line, so the app can start
+//   saying her reaction while the rest of her turn is still being written (the conversation, a model that streams):
+//     {"part":"reply","say":[lines]}   her reaction, the moment it is known (not always sent)
+//     {"part":"turn", ...the turn}     the whole turn, as without streaming; its say begins with those lines
+//     {"part":"error","error","status"} instead of the turn, if it failed after the reaction had been sent
 // Each turn: { say: [{text, lang, pace}], card, listen: {silenceMs, language} | null, done?, heard?, trace, serverMs, cost }
 // GET  /api/session/cost?id=…  → what the conversation has cost so far in Sarvam charges (server/costs.js)
 // Sarvam calls made while handling a conversation are charged to its ledger.
@@ -83,26 +88,44 @@ async function handleSessionTurn(req, res) {
   if (production && (s.turnCount = (s.turnCount || 0) + 1) > LIMITS.turnsPerSession) return send(res, 429, { error: 'conversation too long' });
   const trace = makeTrace();
   trace.add('input', { event: body.event, via: 'transcript from Realtime STT', languageCode: body.languageCode ?? null });
-  const turn = await withLedger(s.ledger, () => handleTurn(s, {
-    event: body.event, transcript: String(body.transcript || ''), languageCode: body.languageCode || null, speechSec: Number(body.speechSec) || 0,
-    // Set when the learner talked over Sakhi: which of her lines, and how many seconds of it they heard.
-    interrupted: body.interrupted ? { index: Number(body.interrupted.index) || 0, heardSec: Number(body.interrupted.heardSec) || 0 } : null,
-    // Measured from the mic while they spoke (fluency): see features() in scoring.js.
-    timing: body.timing && Number.isFinite(Number(body.timing.spanSec)) ? {
-      spanSec: Number(body.timing.spanSec), voicedSec: Number(body.timing.voicedSec) || 0,
-      pauses: (Array.isArray(body.timing.pauses) ? body.timing.pauses : []).slice(0, 200).map(Number).filter(Number.isFinite),
-    } : null,
-  }, trace, {
-    // A model that streams: her reaction is known before the turn is finished, so its voice is generated now.
-    // By the time the app asks for the line it is ready, or well on its way (the app joins it).
-    onReply: (lines) => { for (const l of lines) sarvam.streamSpeech(l.text, { lang: l.lang, pace: l.pace }).catch(() => {}); },
-  }));
+  // An app that asks for the turn in parts gets her reaction as soon as it is known (see the route's note above).
+  const inParts = /application\/x-ndjson/.test(String(req.headers.accept || ''));
+  const part = (o) => {
+    if (!res.headersSent) res.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' });
+    res.write(`${JSON.stringify(o)}\n`);
+  };
+  const speakAhead = (lines) => { for (const l of lines) sarvam.streamSpeech(l.text, { lang: l.lang, pace: l.pace }).catch(() => {}); };
+  let turn;
+  try {
+    turn = await withLedger(s.ledger, () => handleTurn(s, {
+      event: body.event, transcript: String(body.transcript || ''), languageCode: body.languageCode || null, speechSec: Number(body.speechSec) || 0,
+      // Set when the learner talked over Sakhi: which of her lines, and how many seconds of it they heard.
+      interrupted: body.interrupted ? { index: Number(body.interrupted.index) || 0, heardSec: Number(body.interrupted.heardSec) || 0 } : null,
+      // Measured from the mic while they spoke (fluency): see features() in scoring.js.
+      timing: body.timing && Number.isFinite(Number(body.timing.spanSec)) ? {
+        spanSec: Number(body.timing.spanSec), voicedSec: Number(body.timing.voicedSec) || 0,
+        pauses: (Array.isArray(body.timing.pauses) ? body.timing.pauses : []).slice(0, 200).map(Number).filter(Number.isFinite),
+      } : null,
+    }, trace, {
+      // A model that streams: her reaction is known before the turn is finished, so its voice is generated now.
+      // By the time the app asks for the line it is ready, or well on its way (the app joins it).
+      onReply: speakAhead,
+      // ... and it is sent to an app that takes the turn in parts, which starts saying it at once. From then on
+      // it is her reaction for this turn (conversation.js keeps to it).
+      commit: inParts ? (lines) => { part({ part: 'reply', say: lines }); return true; } : null,
+    }));
+  } catch (e) {
+    if (!res.headersSent) throw e; // nothing sent yet: the usual error answer
+    console.error(`[turn] failed after her reaction was sent: ${e.message}`);
+    return res.end(`${JSON.stringify({ part: 'error', error: e.message || 'the turn failed', status: e.status || 500 })}\n`);
+  }
   // The conversation: the voice for every line of her turn is started now, not when the app comes to each line.
   // The app asks for one line at a time, as it reaches it; without this her question would only start being
   // made after her reply had been played, and she would pause between the two. (A line already made, or being
   // made, is not made again.)
-  if (s.mode === 'conversation') withLedger(s.ledger, () => { for (const l of turn.say || []) sarvam.streamSpeech(l.text, { lang: l.lang, pace: l.pace }).catch(() => {}); });
-  send(res, 200, withTeamData(turn, trace, s));
+  if (s.mode === 'conversation') withLedger(s.ledger, () => speakAhead(turn.say || []));
+  if (inParts) { part({ part: 'turn', ...withTeamData(turn, trace, s) }); res.end(); }
+  else send(res, 200, withTeamData(turn, trace, s));
   accounts.afterTurn(s, { event: body.event }); // saved after the reply, so it adds no delay
 }
 
