@@ -82,10 +82,12 @@ feedback** (once per test). Any provider whose key is on the server can do eithe
    PROJECT=cool-arch-515210-b0 PROVIDERS=anthropic,gemini ./deploy/llm-keys-setup.sh
    ```
 
-2. **Admin console › Compare models**: pick the model that runs the conversation and up to three others. Type
-   what a learner would say. Each model is given exactly the same turn; you see what Sakhi would say, the level
-   it gives, the fix, the speed and the cost, side by side, and each model's closing feedback at the end.
-   "Use this model for the placement test" saves it.
+2. **Admin console › Compare models**: pick up to four models. Each runs its own conversation, side by side, from
+   the hello to the level and feedback; they all start with the same picture, line to read and first open
+   question. What you type goes to every conversation; once the models ask different questions, each column has
+   its own box too. For each model you see what Sakhi says, the level it gives, the fix, the speed, the tokens
+   (input, cached, output, thinking) and the cost, and a total for the whole talk. A price can be typed for
+   models the server has no price for. "Use this model for the placement test" saves it.
 3. Settings › Placement test › **Conversation** switches new tests over. Classic switches back.
 
 Notes on providers (`server/llm/`):

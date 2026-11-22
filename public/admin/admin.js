@@ -405,11 +405,11 @@ async function playground() {
 }
 
 // ---- Compare models (the conversation placement test) ---------------------------------------------
-// Type what a learner says; the first model runs a real conversation placement and the others get exactly the
-// same turns, shown side by side (server/admin/placementLab.js). Nothing is saved.
+// Type what a learner says; each model runs its own conversation placement, side by side, end to end
+// (server/admin/placementLab.js). Nothing is saved.
 const LEVEL_WORDS = { 1: 'Beginner', 2: 'Basic', 3: 'Good', 4: 'Very good' };
 const LEARNER_EVENTS = { no_speech: '(said nothing)', skip: '(skipped)', in_hindi: '(asked for Hindi)' };
-let labPicks = null; // { primary: {provider, model}, others: [...] }: kept for "Start again" and later visits
+let labPicks = null; // { models: [{provider, model, price?}] }: kept for "Start again" and later visits
 
 const levelBadge = (x) => (x.answered === false ? html`<span class="badge">Not an answer</span>`
   : x.level == null ? html`<span class="muted small">–</span>` : html`<span class="badge on">Level ${x.level} · ${LEVEL_WORDS[x.level] || ''}</span>`);
@@ -428,7 +428,7 @@ const totalLine = (t) => (t ? html`<h3>The whole talk</h3><p class="small">${t.c
 
 function progressLine(ratings, q) {
   const parts = [];
-  if (ratings.length) parts.push(`Answers so far: ${ratings.map((r) => `level ${r.level} (asked ${r.asked}${r.missed ? ", couldn't answer" : ''})`).join(', ')}`);
+  if (ratings.length) parts.push(`Open answers so far: ${ratings.map((r) => `level ${r.level} (asked ${r.asked}${r.missed ? ", couldn't answer" : ''})`).join(', ')}`);
   if (q) parts.push(q.step === 'hello' ? 'Now: asking their name (not counted)'
     : q.step === 'picture' ? `Now: a picture on their screen (${q.screen}). Type what they call it`
     : q.step === 'read' ? `Now: a line on their screen to read out loud: "${q.screen}". Type what they read`
@@ -436,33 +436,16 @@ function progressLine(ratings, q) {
   return parts.join(' · ');
 }
 
-/** One model's answer to a turn. say: what Sakhi actually said (used for the first model when it made no AI call). */
-function labTurnCol(x, first, say) {
-  if (x.error) return html`<div class="card lab-col ${first ? 'first' : ''}">${labHead(x, first)}<p class="err">${x.error}</p></div>`;
-  const fromAi = x.reply || x.question;
-  const counted = first && x.counted ? (x.counted.missed ? `counted as level ${x.counted.level} (couldn't answer)`
-    : x.level != null && x.counted.level !== x.level ? `counted as level ${x.counted.level} (measured words)` : '') : '';
-  const rated = 'level' in x || 'answered' in x;
-  return html`<div class="card lab-col ${first ? 'first' : ''}">${labHead(x, first)}
-    <h3>Sakhi says</h3>
-    <div class="lab-say">${fromAi ? lines([x.reply, x.question]) : html`${lines(say)}<p class="small muted">Fixed lines, no AI call this turn.</p>`}</div>
-    ${rated || counted ? html`<h3>Level given</h3><p>${levelBadge(x)}${counted ? html` <span class="small muted">${counted}</span>` : ''}</p>` : ''}
-    ${x.evidence ? html`<p class="small">${x.evidence}</p>` : ''}
-    ${x.tip ? html`<h3>Fix</h3><div class="corr"><span class="was">${x.tip.said}</span> → <strong>${x.tip.better}</strong></div>` : ''}
-    ${'ms' in x ? speedCost(x) : ''}</div>`;
-}
-const labHead = (x, first) => html`<div class="lab-model"><strong>${x.model}</strong>${first ? html` <span class="badge on">runs the conversation</span>` : ''}</div>`;
-
-/** One model's closing feedback. say: Sakhi's last lines (the first model's). */
-function labEndCol(x, first, say, totals = {}) {
-  const list = (title, items) => (items?.length ? html`<h3>${title}</h3><ul class="lab-list">${items.map((i) => html`<li>${i}</li>`)}</ul>` : '');
-  if (x.error) return html`<div class="card lab-col ${first ? 'first' : ''}">${labHead(x, first)}<p class="err">${x.error}</p></div>`;
-  const closing = first ? say : x.closing ? [x.closing].flat() : [];
-  return html`<div class="card lab-col ${first ? 'first' : ''}">${labHead(x, first)}
-    ${list('What you did well', x.doingWell)}${list('What we’ll practise next', x.practise)}
-    ${closing.length ? html`<h3>Says at the end</h3><div class="lab-say">${lines(closing)}</div>` : ''}
-    ${x.fallback ? html`<p class="small muted">Plain lines were used: ${x.fallback}</p>` : ''}
-    ${speedCost(x)}${totalLine(totals[x.model])}</div>`;
+/** What one model's AI did on a turn: the level it gave, why, the fix, speed, cost and tokens. */
+function labAi(x) {
+  if (x.aiFailed) return html`<div class="lab-ai"><p class="err small">The AI did not answer (${x.aiFailed}). Plain lines were used.</p></div>`;
+  if (!x.ai) return html`<p class="small muted lab-fixed">Fixed lines, no AI on this step.</p>`;
+  const a = x.ai, c = x.counted;
+  const counted = c ? (c.missed ? `counted as level ${c.level} (couldn't answer)` : a.level != null && c.level !== a.level ? `counted as level ${c.level} (measured words)` : '') : '';
+  return html`<div class="lab-ai"><p>${levelBadge(a)}${counted ? html` <span class="small muted">${counted}</span>` : ''}</p>
+    ${a.evidence ? html`<p class="small">${a.evidence}</p>` : ''}
+    ${a.tip ? html`<div class="corr"><span class="was">${a.tip.said}</span> → <strong>${a.tip.better}</strong></div>` : ''}
+    ${speedCost(a)}</div>`;
 }
 
 async function models() {
@@ -470,19 +453,18 @@ async function models() {
   const provs = [...Object.keys(PROVIDERS).filter((p) => p in info.providers), ...Object.keys(info.providers).filter((p) => !(p in PROVIDERS))];
   const ok = (p) => !!info.providers[p]?.configured;
   const sugg = (p) => info.suggestions?.[p] || [];
-  if (!labPicks) { const b = info.current?.brain || {}; labPicks = { primary: { provider: b.provider, model: b.model || '' }, others: [] }; }
-  if (!ok(labPicks.primary.provider)) { const p = provs.find(ok); if (p) labPicks.primary = { provider: p, model: sugg(p)[0] || '' }; }
+  if (!labPicks?.models) { const b = info.current?.brain || {}; labPicks = { models: [{ provider: ok(b.provider) ? b.provider : provs.find(ok) || 'sarvam', model: b.model || '' }] }; }
 
   show(html`
-    <div class="page-head"><div><h1>Compare models</h1><p class="muted">Try AI models for the conversation placement test side by side: type what a learner would say and see how each model replies, which level it gives and what tip it offers. The final level is not the AI's opinion: a fixed rule takes the highest level the learner reached in two answers. Nothing is saved.</p></div></div>
+    <div class="page-head"><div><h1>Compare models</h1><p class="muted">Each AI model runs its own conversation placement test, side by side, from the first hello to the level and feedback. Type what a learner would say: it goes to every model. They all start with the same picture, line to read and first open question. The final level is not the AI's opinion: a fixed rule decides it from the picture, the reading and the levels of the open answers. Nothing is saved.</p></div></div>
     ${provs.map((p) => html`<datalist id="sugg-${p}">${sugg(p).map((m) => html`<option value="${m}">`)}</datalist>`)}
     <div id="lab"></div>`);
   const box = $('#lab');
 
   const pickRow = (m, i) => html`<div class="row end pick" data-i="${i}">
-    <label class="f">Provider<select data-prov>${provs.map((p) => html`<option value="${p}" ${p === m.provider ? raw('selected') : ''} ${i < 0 && !ok(p) ? raw('disabled') : ''}>${providerName(p)}${ok(p) ? '' : ' (no API key on the server)'}</option>`)}</select></label>
+    <label class="f">Provider<select data-prov>${provs.map((p) => html`<option value="${p}" ${p === m.provider ? raw('selected') : ''}>${providerName(p)}${ok(p) ? '' : ' (no API key on the server)'}</option>`)}</select></label>
     <label class="f grow">Model<input data-model value="${m.model}" list="sugg-${m.provider}" maxlength="100" autocomplete="off" required></label>
-    ${i >= 0 ? html`<button type="button" class="link danger" data-remove>Remove</button>` : ''}
+    ${i > 0 ? html`<button type="button" class="link danger" data-remove>Remove</button>` : ''}
     <details class="lab-price"><summary class="small muted">Price (optional, to show cost for models the server has no price for)</summary>
       <div class="row"><label class="f">Input, $ per 1M tokens<input type="number" min="0" step="any" data-price="input" value="${m.price?.input ?? ''}"></label>
       <label class="f">Cached input, $ per 1M<input type="number" min="0" step="any" data-price="cached" value="${m.price?.cached ?? ''}"></label>
@@ -493,19 +475,17 @@ async function models() {
     const price = num('input') != null && num('output') != null ? { input: num('input'), output: num('output'), ...(num('cached') != null ? { cached: num('cached') } : {}) } : undefined;
     return { provider: $('[data-prov]', row).value, model: $('[data-model]', row).value.trim(), ...(price ? { price } : {}) };
   };
-  const readPicks = () => ({ primary: readPick($('.pick[data-i="-1"]', box)), others: $$('#others .pick', box).map(readPick) });
+  const readPicks = () => ({ models: $$('.pick', box).map(readPick) });
 
   function setup() {
     box.innerHTML = fmt(html`<form class="card section" id="setup" novalidate>
-      <h2>Model that runs the conversation</h2>
-      ${pickRow(labPicks.primary, -1)}
-      <h3>Also compare</h3>
-      <p class="muted small">Up to three more models. They get exactly the same turns and their answers are shown beside the first one, but only the first model's words are used in the talk.</p>
-      <div id="others">${labPicks.others.map(pickRow)}</div>
-      ${labPicks.others.length < 3 ? html`<p><button type="button" id="addm">Add a model to compare</button></p>` : ''}
+      <h2>Models to compare</h2>
+      <p class="muted small">Up to four. Each one runs its own conversation.</p>
+      <div id="picks">${labPicks.models.map(pickRow)}</div>
+      ${labPicks.models.length < 4 ? html`<p><button type="button" id="addm">Add a model</button></p>` : ''}
       <p class="muted small">API keys are added on the server with <code>deploy/llm-keys-setup.sh</code>. This page spends real AI credit.</p>
       <p class="err" id="serr" role="alert"></p>
-      <div class="row"><button class="primary" type="submit">Start a conversation</button></div></form>`);
+      <div class="row"><button class="primary" type="submit">Start the conversations</button></div></form>`);
     for (const sel of $$('[data-prov]', box)) sel.addEventListener('change', () => {
       const input = $('[data-model]', sel.closest('.pick'));
       input.setAttribute('list', `sugg-${sel.value}`);
@@ -513,20 +493,20 @@ async function models() {
     });
     for (const b of $$('[data-remove]', box)) b.addEventListener('click', () => {
       const i = Number(b.closest('.pick').dataset.i);
-      labPicks = readPicks(); labPicks.others.splice(i, 1); setup();
+      labPicks = readPicks(); labPicks.models.splice(i, 1); setup();
     });
     $('#addm', box)?.addEventListener('click', () => {
       labPicks = readPicks();
-      const p = labPicks.primary.provider, used = [labPicks.primary, ...labPicks.others].map((m) => m.model);
-      labPicks.others.push({ provider: p, model: sugg(p).find((m) => !used.includes(m)) || '' });
+      const p = labPicks.models[0].provider, used = labPicks.models.map((m) => m.model);
+      labPicks.models.push({ provider: p, model: sugg(p).find((m) => !used.includes(m)) || '' });
       setup();
-      $$('#others [data-model]', box).at(-1)?.focus();
+      $$('[data-model]', box).at(-1)?.focus();
     });
     $('#setup', box).addEventListener('submit', async (e) => {
       e.preventDefault();
       const err = $('#serr', box); err.textContent = '';
       labPicks = readPicks();
-      if ([labPicks.primary, ...labPicks.others].some((m) => !m.model)) { err.textContent = 'Type a model name in every row.'; return; }
+      if (labPicks.models.some((m) => !m.model)) { err.textContent = 'Type a model name in every row.'; return; }
       const btn = $('button[type=submit]', e.target); btn.disabled = true;
       try { const r = await api('/placement-lab/start', { method: 'POST', body: labPicks }); if (box.isConnected) talk(r, structuredClone(labPicks)); }
       catch (x) { err.textContent = x.message; btn.disabled = false; }
@@ -534,74 +514,84 @@ async function models() {
   }
 
   function talk(start, picks) {
+    const n = start.talks.length;
     box.innerHTML = fmt(html`<div class="card section">
-      <div class="section-head"><h2>Conversation</h2><span class="small muted lab-model">${start.models.map((m) => m.model).join(' · ')}</span></div>
-      <div id="log"><div class="bubble tutor"><div class="meta">Sakhi</div>${lines(start.say)}</div></div>
-      <div id="foot">
-        <p class="small muted lab-progress" id="progress">${progressLine([], start.question)}</p>
-        <form id="turn" class="lab-input">
-          <div class="row end"><label class="f grow">What the learner says<input id="said" maxlength="2000" autocomplete="off" placeholder="In the morning I go to the market…"></label>
-            <button class="primary" type="submit">Send</button></div>
-          <div class="row lab-events"><button type="button" data-event="no_speech">Says nothing</button><button type="button" data-event="skip">Skips</button><button type="button" data-event="in_hindi">Asks for Hindi</button>
-            <span class="small muted" id="wait" hidden><span class="spin"></span> Waiting for the models. This can take several seconds.</span></div>
-          <p class="err" id="terr" role="alert"></p>
-        </form>
-      </div></div>`);
-    const form = $('#turn', box), input = $('#said', box), log = $('#log', box);
+      <div class="section-head"><h2>Conversations</h2><button type="button" class="link" id="again">Start again</button></div>
+      <div class="lab-cols">${start.talks.map((t, i) => html`<div class="card lab-col" data-i="${i}">
+        <div class="lab-model"><strong>${t.model}</strong></div>
+        ${t.error ? html`<p class="err">${t.error}</p>` : html`<div class="lab-log"><div class="bubble tutor"><div class="meta">Sakhi</div>${lines(t.say)}</div></div>
+          <p class="small muted lab-progress" data-progress>${progressLine([], t.step)}</p>
+          <form class="lab-own" hidden><div class="row end"><label class="f grow">Answer this model's question<input maxlength="2000" autocomplete="off"></label><button type="submit">Send to this one</button></div></form>
+          <div data-result></div>`}</div>`)}</div>
+      <form id="turn" class="lab-input">
+        <div class="row end"><label class="f grow">What the learner says (goes to every conversation still going)<input id="said" maxlength="2000" autocomplete="off" placeholder="My name is Ravi"></label>
+          <button class="primary" type="submit">Send to all</button></div>
+        <div class="row lab-events"><button type="button" data-event="no_speech">Says nothing</button><button type="button" data-event="skip">Skips</button><button type="button" data-event="in_hindi">Asks for Hindi</button>
+          <span class="small muted" id="wait" hidden><span class="spin"></span> Waiting for the models. This can take several seconds.</span></div>
+        <p class="err" id="terr" role="alert"></p>
+      </form></div>`);
+    const form = $('#turn', box), input = $('#said', box);
+    const col = (i) => $(`.lab-col[data-i="${i}"]`, box);
+    const state = start.talks.map((t) => ({ over: !!t.error, totals: {} })); // per talk: finished?, and its running totals
     input.focus();
-    const busy = (on) => { for (const el of $$('input, button', form)) el.disabled = on; $('#wait', box).hidden = !on; };
-    const totals = {}; // per model: AI calls, time, tokens and cost over the whole talk
+    const busy = (on) => { for (const el of $$('input, button', box)) if (el.id !== 'again') el.disabled = on; $('#wait', box).hidden = !on; };
+    $('#again', box).addEventListener('click', () => { labPicks = picks; setup(); });
 
-    async function send(event, message) {
+    function finished(i, x) {
+      const d = x.done, t = state[i].totals[x.model], m = picks.models[i];
+      const list = (title, items) => (items?.length ? html`<h3>${title}</h3><ul class="lab-list">${items.map((y) => html`<li>${y}</li>`)}</ul>` : '');
+      const el = $('[data-result]', col(i));
+      el.innerHTML = fmt(html`<div class="lab-result"><h2>Level ${d.level} of 4 · ${d.name}</h2>
+        ${list('Why', d.reasons)}${list('What you did well', d.doingWell)}${list('What we’ll practise next', d.practise)}
+        ${d.fallback ? html`<p class="small muted">Plain feedback lines were used: ${d.fallback}</p>` : ''}
+        ${t ? totalLine(t) : html`<p class="small muted">No AI was used in this talk: it ended before the open questions.</p>`}
+        ${can('settings.edit') ? html`<p><button type="button" data-use>Use this model for the placement test</button></p><p class="err" data-err role="alert"></p>` : ''}</div>`);
+      $('[data-use]', el)?.addEventListener('click', async (e) => {
+        const btn = e.currentTarget; btn.disabled = true; $('[data-err]', el).textContent = '';
+        try {
+          const s = await api('/settings');
+          const value = structuredClone(s.sections.placement.value);
+          value.brain = { provider: m.provider, model: m.model, temperature: value.brain.temperature };
+          value.summary = { provider: m.provider, model: m.model, temperature: value.summary.temperature };
+          await api('/settings/placement', { method: 'PUT', body: { value } });
+          toast(`Saved. New tests in conversation mode use ${m.model}.`);
+        } catch (x2) { $('[data-err]', el).textContent = x2.message; }
+        btn.disabled = false;
+      });
+    }
+
+    async function send(event, message, only) {
       const err = $('#terr', box); err.textContent = '';
       if (event === 'answer' && !message) { err.textContent = 'Type what the learner says.'; return; }
       busy(true);
       let r;
-      try { r = await api('/placement-lab/turn', { method: 'POST', body: { labId: start.labId, event, ...(event === 'answer' ? { message } : {}) } }); }
+      try { r = await api('/placement-lab/turn', { method: 'POST', body: { labId: start.labId, event, ...(event === 'answer' ? { message } : {}), ...(only != null ? { only } : {}) } }); }
       catch (x) { if (box.isConnected) { err.textContent = x.message; busy(false); input.focus(); } return; }
       if (!box.isConnected) return;
-      const turn = document.createElement('div');
-      turn.className = 'lab-turn';
-      turn.innerHTML = fmt(html`<div class="bubble learner">${event === 'answer' ? message : html`<span class="muted">${LEARNER_EVENTS[event]}</span>`}<div class="meta">Learner</div></div>
-        <div class="lab-cols">${labTurnCol(r.primary, true, r.done ? [] : r.say)}${r.others.map((x) => labTurnCol(x, false))}</div>
-        ${!r.others.length && picks.others.length ? html`<p class="small muted">The name, the picture and the reading use fixed lines, so no model is asked here. ${picks.others.map((m) => m.model).join(' and ')} will answer beside the first model from the open question onwards.</p>` : ''}`);
-      log.append(turn);
-      for (const x of [r.primary, ...r.others, ...(r.done ? [r.done.primary, ...r.done.others] : [])]) addUse(totals, x);
-      $('#progress', box).textContent = progressLine(r.ratings || [], r.done ? null : r.question);
-      if (r.done) { form.hidden = true; result(r, picks, totals); return; }
-      input.value = ''; busy(false); input.focus();
-      turn.scrollIntoView({ block: 'start' });
+      r.talks.forEach((x, i) => {
+        if (!x) return;
+        const c = col(i), log = $('.lab-log', c);
+        const turn = document.createElement('div');
+        if (x.error) { turn.innerHTML = fmt(html`<p class="err">${x.error}</p>`); log.append(turn); state[i].over = true; $('.lab-own', c).hidden = true; return; }
+        turn.innerHTML = fmt(html`<div class="bubble learner">${event === 'answer' ? message : html`<span class="muted">${LEARNER_EVENTS[event]}</span>`}<div class="meta">Learner</div></div>
+          ${labAi(x)}<div class="bubble tutor"><div class="meta">Sakhi</div>${lines(x.say)}</div>`);
+        log.append(turn);
+        if (x.ai) addUse(state[i].totals, { model: x.model, ...x.ai });
+        if (x.done?.ai) addUse(state[i].totals, { model: x.model, ...x.done.ai });
+        $('[data-progress]', c).textContent = progressLine(x.ratings || [], x.step);
+        // Once the models ask their own questions, each can be answered on its own.
+        $('.lab-own', c).hidden = !!x.done || x.step?.step !== 'open';
+        if (x.done) { state[i].over = true; finished(i, x); }
+      });
+      busy(false);
+      for (const f of $$('.lab-own input', box)) f.value = '';
+      input.value = '';
+      if (state.every((s) => s.over)) { form.hidden = true; return; }
+      (only != null && !state[only].over ? $('.lab-own input', col(only)) : input).focus();
     }
     form.addEventListener('submit', (e) => { e.preventDefault(); send('answer', input.value.trim()); });
     for (const b of $$('[data-event]', form)) b.addEventListener('click', () => send(b.dataset.event));
-  }
-
-  function result(r, picks, totals) {
-    const d = r.done, first = `${picks.primary.provider}/${picks.primary.model}`;
-    const card = document.createElement('div');
-    card.className = 'card section lab-result';
-    card.innerHTML = fmt(html`<h2>Level ${d.level} of 4 · ${d.name}</h2>
-      ${d.reasons?.length ? html`<h3>Why</h3><ul class="lab-list">${d.reasons.map((x) => html`<li>${x}</li>`)}</ul>` : ''}
-      <div class="lab-cols">${labEndCol(d.primary, true, r.say, totals)}${d.others.map((x) => labEndCol(x, false, null, totals))}</div>
-      <div class="row" style="margin-top:14px"><button type="button" data-again>Start again</button>
-        ${can('settings.edit') ? html`<button type="button" class="primary" data-use>Use ${first} for the placement test</button>` : ''}</div>
-      <p class="err" data-err role="alert"></p>`);
-    $('#foot', box).append(card);
-    card.scrollIntoView({ block: 'start' });
-    $('[data-again]', card).addEventListener('click', () => { labPicks = picks; setup(); box.scrollIntoView({ block: 'start' }); });
-    $('[data-use]', card)?.addEventListener('click', async (e) => {
-      const btn = e.currentTarget; btn.disabled = true; $('[data-err]', card).textContent = '';
-      try {
-        const s = await api('/settings');
-        const value = structuredClone(s.sections.placement.value);
-        const { provider, model } = picks.primary;
-        value.brain = { provider, model, temperature: value.brain.temperature };
-        value.summary = { provider, model, temperature: value.summary.temperature };
-        await api('/settings/placement', { method: 'PUT', body: { value } });
-        toast(`Saved. New tests in conversation mode use ${model}.`);
-      } catch (x) { $('[data-err]', card).textContent = x.message; }
-      btn.disabled = false;
-    });
+    for (let i = 0; i < n; i++) $('.lab-own', col(i))?.addEventListener('submit', (e) => { e.preventDefault(); send('answer', $('input', e.target).value.trim(), i); });
   }
 
   setup();

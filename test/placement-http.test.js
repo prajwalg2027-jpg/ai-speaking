@@ -46,41 +46,46 @@ test('the app runs a whole conversation placement through the same API as the cl
   assert.equal((await post('/api/session')).json.task.id, 'q1_intro', 'back to the classic test');
 });
 
-test('comparing models: the same turn for each, with the level, speed and cost; a model without a key says so', async () => {
+test('comparing models: each runs its own conversation end to end, from the same start; a model without a key says so', async () => {
   const info = await get('/api/admin/placement-lab');
   assert.deepEqual([info.providers.sarvam.configured, info.providers.anthropic.configured], [true, false]);
   assert.equal(info.current.mode, 'classic');
   assert.ok(info.suggestions.anthropic.includes('claude-haiku-5-5'));
-  assert.equal((await post('/api/admin/placement-lab/start', { primary: { provider: 'anthropic', model: 'claude-haiku-5-5' } })).status, 400, 'the driving model needs its key');
-  const lab = (await post('/api/admin/placement-lab/start', {
-    primary: { provider: 'sarvam', model: 'sarvam-105b-conversations' },
-    others: [{ provider: 'sarvam', model: 'sarvam-105b', temperature: 0 }, { provider: 'anthropic', model: 'claude-haiku-5-5' }],
-  })).json;
-  assert.equal(lab.say.length, 2);
-  assert.deepEqual(lab.models.map((m) => m.configured), [true, true, false]);
-  assert.deepEqual(lab.question, { step: 'hello' });
-  const type = async (message) => (await post('/api/admin/placement-lab/turn', { labId: lab.labId, message })).json;
+  assert.equal((await post('/api/admin/placement-lab/start', { models: [{ provider: 'anthropic', model: 'claude-haiku-5-5' }] })).status, 400, 'at least one model needs its key');
+  const lab = (await post('/api/admin/placement-lab/start', { models: [
+    { provider: 'sarvam', model: 'sarvam-105b-conversations' },
+    { provider: 'sarvam', model: 'sarvam-105b', temperature: 0, price: { input: 1, output: 4 } },
+    { provider: 'anthropic', model: 'claude-haiku-5-5' },
+  ] })).json;
+  assert.deepEqual(lab.talks.map((t) => [t.model, t.step?.step, !!t.error]), [['sarvam/sarvam-105b-conversations', 'hello', false], ['sarvam/sarvam-105b', 'hello', false], ['anthropic/claude-haiku-5-5', undefined, true]]);
+  assert.match(lab.talks[2].error, /API key is missing/);
+  const type = async (message, extra = {}) => (await post('/api/admin/placement-lab/turn', { labId: lab.labId, message, ...extra })).json.talks;
+
   let t = await type('My name is Ravi');
-  assert.deepEqual([t.question.step, t.primary.ms, t.others, t.ratings], ['picture', undefined, [], []], 'the name, picture and reading are fixed lines: no AI to compare');
-  t = await type(WORDS[t.question.screen]);
-  assert.equal(t.question.step, 'read');
-  t = await type(t.question.screen);
-  assert.deepEqual(t.question, { step: 'open', n: 1, level: 2 });
-  t = (await post('/api/admin/placement-lab/turn', { labId: lab.labId, message: 'I go to office by bus every day and I work on the computer there' })).json;
-  assert.deepEqual([t.primary.model, t.primary.level, t.primary.counted.level, t.primary.tip.said], ['sarvam/sarvam-105b-conversations', 3, 3, 'I go']);
-  assert.ok(t.primary.ms >= 0 && t.primary.costInr > 0);
-  assert.deepEqual([t.others[0].model, t.others[0].level, t.others[0].reply], ['sarvam/sarvam-105b', 3, 'Oh, you went there!']);
-  assert.match(t.others[1].error, /API key is missing/);
-  assert.deepEqual(t.question, { step: 'open', n: 2, level: 4 });
-  t = (await post('/api/admin/placement-lab/turn', { labId: lab.labId, event: 'no_speech' })).json;
-  assert.equal(t.primary.answered, false);
-  assert.equal(t.question.n, 2);
-  t = (await post('/api/admin/placement-lab/turn', { labId: lab.labId, message: 'Because my office is far from my home so the bus is cheap and easy for me' })).json;
-  assert.equal(t.done.level, 3);
-  assert.equal(t.done.primary.doingWell.length, 2);
-  assert.ok(t.done.primary.costInr > 0 && t.done.primary.closing.includes('practise'), 'the first model\'s closing feedback has its cost and words too');
-  assert.equal(t.done.others[0].closing.includes('practise'), true);
-  assert.match(t.done.others[1].error, /API key is missing/);
-  assert.deepEqual(t.ratings.map((r) => r.level), [3, 3]);
-  assert.equal((await post('/api/admin/placement-lab/turn', { labId: lab.labId, message: 'more' })).status, 409);
+  assert.deepEqual([t[0].step.step, t[1].step.step, t[2], t[0].ai], ['picture', 'picture', null, undefined], 'fixed steps: no AI; the model without a key has no talk');
+  assert.equal(t[0].step.screen, t[1].step.screen, 'the same picture in every talk');
+  t = await type(WORDS[t[0].step.screen]);
+  assert.equal(t[0].step.screen, t[1].step.screen, 'the same line to read');
+  t = await type(t[0].step.screen);
+  assert.deepEqual([t[0].step, t[0].say.at(-2)], [{ step: 'open', n: 1, level: 2 }, t[1].say.at(-2)], 'the same first open question');
+
+  t = await type('I go to office by bus every day and I work on the computer there');
+  assert.deepEqual([t[0].ai.level, t[0].counted.level, t[0].ai.tip.said, t[0].step], [3, 3, 'I go', { step: 'open', n: 2, level: 4 }]);
+  assert.ok(t[0].ai.ms >= 0 && t[0].ai.costInr > 0 && t[0].ai.usage.input > 0);
+  assert.ok(t[1].ai.costInr > t[0].ai.costInr, 'the typed price is used for the second model');
+  assert.match(t[0].say.join(' '), /Oh, you went there!/);
+
+  // Answer only the second model's question: the first talk stays where it is.
+  t = await type('Because my office is far from my home so the bus is cheap and easy for me', { only: 1 });
+  assert.deepEqual([t[0], t[1].done.level, t[1].done.name, t[1].step], [null, 3, 'Good', null]);
+  assert.equal(t[1].done.doingWell.length, 2);
+  assert.ok(t[1].done.ai.costInr > 0, "the closing feedback's own cost");
+  assert.match(t[1].done.reasons[1], /levels 3, 3: level 3 was reached twice/);
+
+  t = await type('', { event: 'no_speech' });
+  assert.deepEqual([t[0].ai.answered, t[0].step.n, t[1]], [false, 2, null], 'the finished talk is left alone');
+  t = await type('I think it is good because I can read my book on the bus every day');
+  assert.equal(t[0].done.level, 3);
+  assert.deepEqual(t[0].ratings.map((r) => r.level), [3, 3]);
+  assert.equal((await post('/api/admin/placement-lab/turn', { labId: lab.labId, message: 'more' })).status, 409, 'every conversation has finished');
 });

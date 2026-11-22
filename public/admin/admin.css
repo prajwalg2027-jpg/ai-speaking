@@ -195,3 +195,11 @@ td.row { gap: 12px; }
 .lab-price { flex-basis: 100%; }
 .lab-price .row { margin-top: 8px; }
 .lab-price input { width: 130px; }
+.lab-cols { align-items: start; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); margin-bottom: 14px; }
+.lab-log .bubble { max-width: 100%; margin: 8px 0; }
+.lab-ai { margin: 4px 0 8px; padding-left: 10px; border-left: 2px solid var(--border); }
+.lab-ai p { margin: 2px 0; }
+.lab-fixed { margin: 2px 0; }
+.lab-own { margin: 8px 0; }
+.lab-result h2 { margin-top: 12px; }
+

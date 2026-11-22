@@ -34,7 +34,8 @@ const called = (word) => `In English, this is called '${word}'.`;
 const levelLine = (level) => `Thank you! Your English is at level ${level} of 4, ${LEVELS[level].name}.`;
 const ACK = { en: 'Okay.', hi: 'ठीक है।' };
 const INDIC = /[ऀ-ൿ]/;
-const pick = (list) => list[Math.floor(Math.random() * list.length)];
+// One at random; with a seed (the admin's model comparison), the same one in every talk.
+const pick = (list, seed = null) => list[seed == null ? Math.floor(Math.random() * list.length) : seed % list.length];
 // What the screen shows for the picture and the reading (the same card shapes as the classic test).
 const pictureCard = (v) => ({ text: v.screen, kind: 'task', look: 'emoji', band: { en: 'What is this? Say it in English.', hi: 'यह क्या है? अंग्रेज़ी में बोलिए।' } });
 const readCard = (v) => ({ text: v.screen, kind: 'read', look: 'sentence', band: { en: 'Read this sentence out loud.', hi: 'इस वाक्य को ज़ोर से पढ़िए।' } });
@@ -74,9 +75,9 @@ export function scriptedLines() {
 }
 
 // ---- the session -------------------------------------------------------------------------------------
-export function startSession({ lab = false } = {}) {
+export function startSession({ lab = false, seed = null } = {}) {
   const s = {
-    id: randomUUID(), mode: 'conversation', lab, at: Date.now(), history: [], answers: [], ratings: [],
+    id: randomUUID(), mode: 'conversation', lab, seed, at: Date.now(), history: [], answers: [], ratings: [],
     profile: { name: null, facts: [], language: null },
     q: { step: 'hello', text: HELLO.en, tries: 0 },
     picture: null, read: null, // what the first two tasks showed (level.js)
@@ -137,7 +138,7 @@ function fixedStep(s, input, note, opts) {
     const name = answered ? nameIn(t) : null;
     if (name) s.profile.name = name;
     note('plan', { next: 'the picture', name });
-    const v = pick(BANK.vocab[1]);
+    const v = pick(BANK.vocab[1], s.seed);
     s.q = { step: 'picture', v, item: v.id, text: v.say, target: 1, card: pictureCard(v), tries: 0 };
     return respond(s, [line(answered ? (name ? `Nice to meet you, ${name}!` : SAY.meet) : ACK.en)], [line(v.say), line(v.hindi, 0.95)], { heard });
   }
@@ -148,7 +149,7 @@ function fixedStep(s, input, note, opts) {
     s.answers.push({ ...entry, questionId: 'picture', kind: 'vocab', features: { vocabHits: [hit] }, scores: { vocabulary: hit ? 4 : 0 } });
     note('picture', { word, named: hit, heard: t || null });
     // An everyday line for someone who knew the word; a very simple one otherwise.
-    const level = hit ? 2 : 1, v = pick(BANK.read[level]);
+    const level = hit ? 2 : 1, v = pick(BANK.read[level], s.seed);
     s.q = { step: 'read', v, item: v.id, text: READ.en, target: level, card: readCard(v), tries: 0 };
     const reply = hit ? SAY.yes : answered ? called(word) : `${SAY.noProblem} ${called(word)}`;
     return respond(s, [line(reply)], [line(READ.en), line(READ.hi, 0.95)], { heard });
@@ -161,7 +162,7 @@ function fixedStep(s, input, note, opts) {
   note('read', { accuracy: s.read.accuracy, qualifies: go, why: go ? 'named the picture or read the line' : 'missed the picture and the reading' });
   const reply = answered ? SAY.thanks : PHRASES.moveOn;
   if (!go) return finish(s, reply, heard, note, opts);
-  const open = pick(BANK.open);
+  const open = pick(BANK.open, s.seed);
   s.q = { step: 'open', n: 1, text: open.simple, target: OPEN_START, tries: 0, unheard: 0 };
   return respond(s, [line(reply)], [line(open.simple), line(open.hindi, 0.95)], { heard });
 }
@@ -231,7 +232,7 @@ export async function handleTurn(s, input, trace, opts = {}) {
   let out, meta = null;
   try {
     const t0 = performance.now();
-    ({ out, meta } = await think(ctx, { config: opts.config || settings.get('placement').brain, structured: opts.structured }));
+    ({ out, meta } = await think(ctx, { config: opts.config || settings.get('placement').brain, structured: opts.structured, ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) }));
     note('brain', { model: `${meta.provider}/${meta.model}`, ms: Math.round(performance.now() - t0), costInr: meta.costInr ?? null, usage: meta.usage, ...out });
   } catch (e) {
     note('brain-failed', { why: e.message, using: 'a plain acknowledgement and a reviewed question' });
@@ -289,7 +290,7 @@ async function finish(s, reply, heard, note, opts) {
   // What the picture and the reading showed, in the learner's words.
   const known = [s.picture?.hit && `You know English words like '${s.picture.word}'.`, (s.read?.accuracy ?? 0) >= READ_OK && 'You can read an English sentence out loud.'].filter(Boolean);
   // The closing feedback is written from what they said in the open answers; without any, plain lines.
-  const sum = said.length ? await summarize({ answers: said, level, known }, { config: opts.summaryConfig || settings.get('placement').summary, structured: opts.structured })
+  const sum = said.length ? await summarize({ answers: said, level, known }, { config: opts.summaryConfig || settings.get('placement').summary, structured: opts.structured, ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) })
     : plainSummary({ answers: [], level, known });
   note('summary', { model: sum.meta ? `${sum.meta.provider}/${sum.meta.model}` : null, ms: sum.meta?.latencyMs ?? null, costInr: sum.meta?.costInr ?? null, usage: sum.meta?.usage ?? null, closing: sum.closing, ...(sum.fallback ? { fallback: sum.fallback } : {}) });
   s.done = true;
