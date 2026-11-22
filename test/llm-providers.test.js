@@ -21,7 +21,9 @@ function startFake(calls, respond) {
       let [code, json, delay = 0] = respond(body, req);
       // OpenAI's Responses API answers in its own shape.
       if (code === 200 && req.url.endsWith('/responses')) json = { status: 'completed', output: [{ type: 'reasoning', summary: body.reasoning ? [{ type: 'summary_text', text: 'They answered in English.' }] : [] }, { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: json.choices[0].message.content }] }],
-        usage: { input_tokens: 50, input_tokens_details: { cached_tokens: 20 }, output_tokens: 10, output_tokens_details: { reasoning_tokens: 4 } } };
+        usage: { input_tokens: 50, input_tokens_details: { cached_tokens: 20 }, output_tokens: 10, output_tokens_details: { reasoning_tokens: 4 } },
+        // The speed it was really served at: a busy moment can serve a Fast request at standard speed.
+        service_tier: body.service_tier === 'fast' && body.model !== 'gpt-6-luna-busy' ? 'fast' : 'default' };
       // Asked to stream: the same answer as server-sent events, its text in small pieces, cut at awkward places.
       if (code === 200 && body.stream && body.model !== 'gpt-breaks') {
         const text = json.output[1].content[0].text, events = [{ type: 'response.created', response: { status: 'in_progress' } }];
@@ -51,6 +53,8 @@ before(async () => {
     ? [400, { error: { message: "Unsupported value: 'temperature' does not support 0.6 with this model. Only the default (1) value is supported.", type: 'invalid_request_error', param: 'temperature', code: 'unsupported_value' } }]
     : b.model === 'gpt-no-stream' && b.stream
     ? [400, { error: { message: "Unsupported parameter: 'stream' is not supported with this model.", type: 'invalid_request_error', param: 'stream' } }]
+    : b.model === 'gpt-no-fast' && b.service_tier
+    ? [400, { error: { message: "Invalid value: 'fast'. The service_tier is not supported with this model.", type: 'invalid_request_error', param: 'service_tier' } }]
     : b.model === 'gpt-no-effort' && b.reasoning?.effort
     // A model that doesn't think (OpenAI's words).
     ? [400, { error: { message: "Unsupported parameter: 'reasoning.effort' is not supported with this model.", type: 'invalid_request_error', param: 'reasoning.effort', code: 'unsupported_parameter' } }]
@@ -223,6 +227,32 @@ test('an answer that leaves fields out: asked for as plain JSON (no schema to th
   assert.deepEqual(openCalls[1].body.response_format, { type: 'json_object' });
   assert.deepEqual((await ask('anthropic', 'claude-haiku-5-5')).data, ANSWER);
   assert.equal('format' in claudeCalls[0].body.output_config, false);
+});
+
+test("OpenAI's Fast mode: asked for when wanted, priced at its own rate, and never needed", async () => {
+  openCalls.length = 0;
+  const usage = { input: 50, cached: 20, output: 10 };
+  const ask = (model, fast) => llm.structured({ job: 'x', config: { provider: 'openai', model, temperature: 0 }, messages, schema: Answer, fast });
+  const slow = await ask('gpt-6-luna'), quick = await ask('gpt-6-luna', true);
+  assert.deepEqual(openCalls.map((c) => c.body.service_tier), [undefined, 'fast']);
+  assert.deepEqual([slow.tier, quick.tier], ['default', 'fast']);
+  // Twice the price per token for this model.
+  assert.deepEqual(prices.usdPrice('openai', 'gpt-6-luna', 'fast'), { input: 0.2, cached: 0.02, output: 1 });
+  assert.ok(Math.abs(quick.costInr - 2 * slow.costInr) < 1e-12 && slow.costInr === prices.costInr({ provider: 'openai', model: 'gpt-6-luna', usage }));
+  assert.equal(prices.usdPrice('openai', 'gpt-4o', 'fast'), null, 'a model without Fast mode has no Fast price');
+  assert.ok(prices.knownPrices().openaiFast['gpt-6-luna']);
+  // Asked for Fast, served at standard speed: charged at the standard price.
+  const busy = await ask('gpt-6-luna-busy', true);
+  assert.equal(busy.tier, 'default');
+  assert.ok(Math.abs(busy.costInr - prices.costInr({ provider: 'openai', model: 'gpt-6-luna-busy', usage })) < 1e-12);
+  // A model that has no Fast mode is asked again without it, and that is remembered.
+  openCalls.length = 0;
+  assert.deepEqual((await ask('gpt-no-fast', true)).data, ANSWER);
+  await ask('gpt-no-fast', true);
+  assert.deepEqual(openCalls.map((c) => c.body.service_tier), ['fast', undefined, undefined]);
+  // Other providers have no such thing.
+  const gem = await llm.structured({ job: 'x', config: { provider: 'gemini', model: 'gemini-x', temperature: 0 }, messages, schema: Answer, fast: true });
+  assert.deepEqual([gem.tier, 'service_tier' in openCalls.at(-1).body], [null, false]);
 });
 
 test('structured({ config }) overrides the settings for the job', async () => {

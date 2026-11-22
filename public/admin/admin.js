@@ -266,6 +266,7 @@ const META = {
   'placement.brain': { label: 'AI for the conversation (every turn, the level and the feedback)' },
   'placement.summary': { label: 'Backup AI for the closing feedback (only if the first leaves the level out)' },
   'placement.maxQuestions': { label: 'Most open questions in a conversation', help: '1 to 6, after the name, picture and reading. The talk ends sooner when the level is clear.' },
+  'placement.speed': { type: 'select', label: 'OpenAI speed', help: "Fast is OpenAI's Fast mode: up to 2.5 times quicker, at about twice the price per token. Only some OpenAI models have it (gpt-6-luna does); others answer at standard speed.", options: [['fast', 'Fast (dearer)'], ['standard', 'Standard']] },
   'placement.turnEffort': { type: 'select', label: 'Thinking on each turn', help: 'How hard the model thinks before Sakhi replies. Less is faster. Used by OpenAI and Claude models; others ignore it.', options: EFFORT_OPTIONS },
   'placement.finalEffort': { type: 'select', label: 'Thinking for the final level and feedback', help: 'If the AI ends the talk on a turn with less thinking than this, that turn is asked once more at this level.', options: EFFORT_OPTIONS },
   'conversation.historyMessages': { label: 'Recent messages the tutor reads', help: 'More = better memory of the conversation, slightly slower and costlier.' },
@@ -420,7 +421,9 @@ let labPicks = null; // { models: [{provider, model, price?}] }: kept for "Start
 const lines = (list) => list.filter(Boolean).map((l) => html`<p>${l}</p>`);
 const tokens = (u) => (u && (u.input || u.output) ? `${n0(u.input)} in${u.cached ? ` (${n0(u.cached)} reused)` : ''} · ${n0(u.output)} out${u.reasoning ? ` (${n0(u.reasoning)} thinking)` : ''}` : '–');
 const reusedPct = (u) => (u?.input ? Math.round((100 * (u.cached || 0)) / u.input) : null);
-const speedCost = (x) => html`<p class="small muted lab-meta">Speed ${ms(x.ms)}${x.replyMs != null ? ` (her reply was ready at ${ms(x.replyMs)})` : ''} · cost ${inr(x.costInr, 3)}${x.effort && x.effort !== 'default' ? ` · thinking: ${x.effort}` : ''}<br>Tokens: ${tokens(x.usage)}</p>`;
+const speedCost = (x) => html`<p class="small muted lab-meta">Speed ${ms(x.ms)}${x.replyMs != null ? ` (her reply was ready at ${ms(x.replyMs)})` : ''} · cost ${inr(x.costInr, 3)}${x.effort && x.effort !== 'default' ? ` · thinking: ${x.effort}` : ''}${servedAt(x)}<br>Tokens: ${tokens(x.usage)}</p>`;
+/** The speed OpenAI really served a call at, when Fast mode was asked for or used. */
+const servedAt = (x) => (x.tier === 'fast' || x.tier === 'priority' ? ' · Fast mode' : x.askedFast ? ' · Fast mode asked for, served at standard speed and price' : '');
 /** What a turn costs besides the AI: speech-to-text for the learner's words (h) and Sakhi's voice (v). */
 const speechCost = (h, v) => html`<p class="small muted lab-meta">${h ? html`Speech-to-text: ${h.seconds} s${h.estimated ? ' (estimated from the words)' : ''} · ${inr(h.inr, 3)}<br>` : ''}Voice: ${n0(v.chars)} characters${v.fixedChars ? ` (and ${n0(v.fixedChars)} in fixed lines, free)` : ''} · ${inr(v.inr, 3)}</p>`;
 /** Adds a turn's speech-to-text and voice to a model's running total. */
@@ -535,7 +538,7 @@ const pretty = (raw) => { try { return JSON.stringify(JSON.parse(raw), null, 2);
 const REUSE_WORDS = { reused: 'reused from cache', partly: 'partly reused', new: 'new, not reused' };
 function logCall(c) {
   const u = c.ai?.usage, log = c.log;
-  const head = html`<h3>Call ${c.n} · ${c.at}${c.ai ? html` <span class="muted small">${ms(c.ai.ms)} · ${inr(c.ai.costInr, 4)}${c.ai.effort && c.ai.effort !== 'default' ? ` · thinking: ${c.ai.effort}` : ''}${c.ai.firstTextMs != null ? ` · first words of the answer at ${ms(c.ai.firstTextMs)}` : ''}${c.ai.replyMs != null ? ` · her reply ready at ${ms(c.ai.replyMs)}` : ''}</span>` : ''}</h3>
+  const head = html`<h3>Call ${c.n} · ${c.at}${c.ai ? html` <span class="muted small">${ms(c.ai.ms)} · ${inr(c.ai.costInr, 4)}${c.ai.effort && c.ai.effort !== 'default' ? ` · thinking: ${c.ai.effort}` : ''}${servedAt(c.ai)}${c.ai.firstTextMs != null ? ` · first words of the answer at ${ms(c.ai.firstTextMs)}` : ''}${c.ai.replyMs != null ? ` · her reply ready at ${ms(c.ai.replyMs)}` : ''}</span>` : ''}</h3>
     <p class="small"><strong>Learner:</strong> ${c.learner}${c.heard ? html` <span class="muted">(spoken, ${c.heard.audioSec} s; Sarvam took ${ms(c.heard.ms)} to hear it)</span>` : ''}</p>`;
   const speech = c.voice ? speechCost(c.stt, c.voice) : '';
   if (!log) return html`<div class="log-call">${head}<p class="small muted">${c.aiFailed ? `The AI did not answer: ${c.aiFailed}. The app's own checks and fixed lines were used.` : 'No AI call on this turn.'}</p>
@@ -574,11 +577,11 @@ async function models() {
   const sugg = (p) => info.suggestions?.[p] || [];
   if (!labPicks?.models) labPicks = { models: (info.defaults?.length ? info.defaults : [{ provider: 'sarvam', model: 'sarvam-105b-conversations' }]).map((m) => ({ ...m })) };
   // The listed price of a model, in words (US dollars per million tokens; Sarvam's is in rupees).
-  const priceOf = (p, model) => {
-    const pr = info.prices || {}, usd = pr[p]?.[model] || Object.entries(pr[p] || {}).filter(([k]) => model.startsWith(`${k}-`)).sort((a, b) => b[0].length - a[0].length)[0]?.[1];
+  const priceOf = (p, model, speed) => {
+    const pr = info.prices || {}, fastUsd = p === 'openai' && speed === 'fast' && pr.openaiFast?.[model], usd = fastUsd || pr[p]?.[model] || Object.entries(pr[p] || {}).filter(([k]) => model.startsWith(`${k}-`)).sort((a, b) => b[0].length - a[0].length)[0]?.[1];
     const per = (x, sign) => `${sign}${x.input} input · ${x.cached != null ? `${sign}${x.cached} reused input · ` : ''}${sign}${x.output} output, per million tokens`;
     if (p === 'sarvam' && pr.sarvamInr) return `Price: ${per(pr.sarvamInr, '₹')}.`;
-    if (usd) return `Price: ${per(usd, '$')}${p === 'openai' ? ` (OpenAI's list price, ${pr.openaiAsOf})` : ''}. Shown in rupees at ₹${pr.usdInr} to the dollar.`;
+    if (usd) return `Price: ${per(usd, '$')}${p === 'openai' ? ` (OpenAI's ${fastUsd ? 'Fast mode' : 'list'} price, ${pr.openaiAsOf})` : ''}${p === 'openai' && speed === 'fast' && !fastUsd ? ' This model has no Fast mode: it will answer at standard speed.' : ''}. Shown in rupees at ₹${pr.usdInr} to the dollar.`;
     return 'No price is known for this model, so its cost will show as "–". Add one below to see it.';
   };
 
@@ -598,8 +601,9 @@ async function models() {
     ${i > 0 ? html`<button type="button" class="link danger" data-remove>Remove</button>` : ''}
     <div class="lab-think" data-think ${TAKES_THINKING.includes(m.provider) ? '' : raw('hidden')}><div class="row">
       <label class="f">Thinking on each turn<select data-effort="turn">${EFFORT_OPTIONS.map(([v, t]) => html`<option value="${v}" ${v === (m.turnEffort ?? info.effortFor?.turn) ? raw('selected') : ''}>${t}</option>`)}</select></label>
-      <label class="f">Thinking for the final level and feedback<select data-effort="final">${EFFORT_OPTIONS.map(([v, t]) => html`<option value="${v}" ${v === (m.finalEffort ?? info.effortFor?.final) ? raw('selected') : ''}>${t}</option>`)}</select></label></div></div>
-    <p class="small muted lab-priceline" data-priceline>${priceOf(m.provider, m.model)}</p>
+      <label class="f">Thinking for the final level and feedback<select data-effort="final">${EFFORT_OPTIONS.map(([v, t]) => html`<option value="${v}" ${v === (m.finalEffort ?? info.effortFor?.final) ? raw('selected') : ''}>${t}</option>`)}</select></label>
+      <label class="f" data-speedbox ${m.provider === 'openai' ? '' : raw('hidden')}>Speed<select data-speed>${[['fast', 'Fast mode (about twice the price)'], ['standard', 'Standard']].map(([v, t]) => html`<option value="${v}" ${v === (m.speed ?? info.speed) ? raw('selected') : ''}>${t}</option>`)}</select></label></div></div>
+    <p class="small muted lab-priceline" data-priceline>${priceOf(m.provider, m.model, m.speed ?? info.speed)}</p>
     <details class="lab-price"><summary class="small muted">Use a different price for this model</summary>
       <div class="row"><label class="f">Input, $ per 1M tokens<input type="number" min="0" step="any" data-price="input" value="${m.price?.input ?? ''}"></label>
       <label class="f">Reused input, $ per 1M<input type="number" min="0" step="any" data-price="cached" value="${m.price?.cached ?? ''}"></label>
@@ -610,7 +614,7 @@ async function models() {
     const price = num('input') != null && num('output') != null ? { input: num('input'), output: num('output'), ...(num('cached') != null ? { cached: num('cached') } : {}) } : undefined;
     const provider = $('[data-prov]', row).value;
     const think = TAKES_THINKING.includes(provider) ? { turnEffort: $('[data-effort="turn"]', row).value, finalEffort: $('[data-effort="final"]', row).value } : {};
-    return { provider, model: $('[data-model]', row).value.trim(), ...think, ...(price ? { price } : {}) };
+    return { provider, model: $('[data-model]', row).value.trim(), ...think, ...(provider === 'openai' ? { speed: $('[data-speed]', row).value } : {}), ...(price ? { price } : {}) };
   };
   const readPicks = () => ({ models: $$('.pick', box).map(readPick) });
 
@@ -626,11 +630,13 @@ async function models() {
       <div class="row"><button class="primary" type="submit">Start the conversations</button></div></form>`);
     for (const row of $$('.pick', box)) {
       const sel = $('[data-prov]', row), input = $('[data-model]', row);
-      const reprice = () => { $('[data-priceline]', row).textContent = priceOf(sel.value, input.value.trim()); };
+      const reprice = () => { $('[data-priceline]', row).textContent = priceOf(sel.value, input.value.trim(), $('[data-speed]', row).value); };
+      $('[data-speed]', row).addEventListener('change', reprice);
       sel.addEventListener('change', () => {
         input.setAttribute('list', `sugg-${sel.value}`);
         if (!sugg(sel.value).includes(input.value)) input.value = sugg(sel.value)[0] || '';
         $('[data-think]', row).hidden = !TAKES_THINKING.includes(sel.value);
+        $('[data-speedbox]', row).hidden = sel.value !== 'openai';
         reprice();
       });
       input.addEventListener('input', reprice);
@@ -725,6 +731,7 @@ async function models() {
           const value = structuredClone(s.sections.placement.value);
           value.brain = { provider: m.provider, model: m.model, temperature: value.brain.temperature };
           value.summary = { provider: m.provider, model: m.model, temperature: value.summary.temperature };
+          if (m.speed) value.speed = m.speed;
           if (m.turnEffort) value.turnEffort = m.turnEffort;
           if (m.finalEffort) value.finalEffort = m.finalEffort;
           await api('/settings/placement', { method: 'PUT', body: { value } });

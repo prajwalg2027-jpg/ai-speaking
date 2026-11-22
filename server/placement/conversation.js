@@ -208,7 +208,7 @@ function plainTurn(s, ctx) {
 /**
  * One learner turn. Every turn goes to the AI (brain.js); the app only replays her last question on "repeat".
  * input: { event: 'answer'|'no_speech'|'live_failed'|'skip'|'repeat'|'in_hindi', transcript?, languageCode?, speechSec?, timing?, interrupted? }
- * opts: { config, summaryConfig, structured, timeoutMs, detail, efforts: { turn, final } } (tests and the model comparison);
+ * opts: { config, summaryConfig, structured, timeoutMs, detail, efforts: { turn, final }, speed } (tests and the model comparison);
  *       onReply(lines): her reaction's lines, as soon as they are known (a provider that streams): see askAI below
  */
 export async function handleTurn(s, input, trace, opts = {}) {
@@ -243,6 +243,7 @@ export async function handleTurn(s, input, trace, opts = {}) {
   const P = settings.get('placement'), config = opts.config || P.brain;
   // How hard the model thinks: the settings, unless this talk was given its own (the model comparison).
   const E = { turn: opts.efforts?.turn ?? P.turnEffort, final: opts.efforts?.final ?? P.finalEffort };
+  const fast = (opts.speed ?? P.speed) === 'fast'; // OpenAI's Fast mode, for the models that have it
   // One call to the AI. as: the name it goes by in the trace.
   const askAI = async (c, effort, as) => {
     const t0 = performance.now();
@@ -253,10 +254,10 @@ export async function handleTurn(s, input, trace, opts = {}) {
       note('early-reply', { ms, lines: lines?.map((l) => l.text) ?? null });
       if (lines?.length) opts.onReply?.(lines);
     } : null;
-    const r = await think(c, { config, structured: opts.structured, wantThinking: !!opts.detail, effort, onReply, ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) });
+    const r = await think(c, { config, structured: opts.structured, wantThinking: !!opts.detail, effort, onReply, fast, ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) });
     // The whole request and the answer as it came, only where someone will read them (the model comparison).
     if (opts.detail) note(as === 'brain' ? 'exchange' : 'final-exchange', { messages: r.messages, raw: r.meta.raw ?? null, thinking: r.meta.thinking ?? null, attempts: r.meta.attempts });
-    note(as, { model: `${r.meta.provider}/${r.meta.model}`, ms: Math.round(performance.now() - t0), firstTextMs: r.meta.firstTextMs ?? null, replyMs: r.meta.replyMs ?? null, costInr: r.meta.costInr ?? null, usage: r.meta.usage, effort: takesEffort(config.provider) ? effort : null, at: c.step, ...r.out });
+    note(as, { model: `${r.meta.provider}/${r.meta.model}`, ms: Math.round(performance.now() - t0), firstTextMs: r.meta.firstTextMs ?? null, replyMs: r.meta.replyMs ?? null, costInr: r.meta.costInr ?? null, usage: r.meta.usage, effort: takesEffort(config.provider) ? effort : null, tier: r.meta.tier ?? null, askedFast: fast && config.provider === 'openai', at: c.step, ...r.out });
     return r.out;
   };
   // How hard the model thinks: lightly on a turn (speed), more for the final level and feedback (care).

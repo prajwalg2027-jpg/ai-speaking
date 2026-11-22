@@ -264,7 +264,7 @@ export function fieldsUpTo(text, key) {
  * onReply(part, ms): with a provider that streams, called once, as soon as her reply is written and before her
  * question and the rest are: part is the turn so far (what happened, the judgements, the name, the reply).
  */
-export async function think(ctx, { config, structured = defaultStructured, timeoutMs = 9000, wantThinking = false, effort = null, onReply = null } = {}) {
+export async function think(ctx, { config, structured = defaultStructured, timeoutMs = 9000, wantThinking = false, effort = null, onReply = null, fast = false } = {}) {
   const messages = turnMessages(ctx);
   const t0 = performance.now();
   let replyMs = null;
@@ -276,7 +276,7 @@ export async function think(ctx, { config, structured = defaultStructured, timeo
     const turn = Turn.safeParse(repairTurn(part)); // the fields still to come read as empty
     if (turn.success) onReply(turn.data, replyMs);
   });
-  const r = await structured({ job: 'placement', config, schema: Turn, schemaName: 'sakhi_turn', repair: repairTurn, maxTokens: 700, timeoutMs, messages, wantThinking, effort, onText,
+  const r = await structured({ job: 'placement', config, schema: Turn, schemaName: 'sakhi_turn', repair: repairTurn, maxTokens: 700, timeoutMs, messages, wantThinking, effort, onText, fast,
     // The format is in the instructions, not a schema given to the provider: a provider's own schema makes the
     // model write every field every time (null when empty), which is most of what it would otherwise write.
     schemaToProvider: false });

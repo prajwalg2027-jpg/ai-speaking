@@ -152,6 +152,28 @@ server checks every answer, repairs near-misses, and asks once more if it is sti
 models log shows when that happened: "the model was asked again"). The order of the keys also comes from the
 instructions now, which is what lets her reply be picked out early while the answer is streamed.
 
+## Speed: what makes a turn fast or slow
+
+What the learner waits for, after they stop talking: speech-to-text finishing, then the AI's answer, then the
+first sound of Sakhi's voice. For the AI's answer, in order of how much each matters:
+
+1. **How hard the model thinks** (next section). Thinking happens before the first word of the answer, so it is
+   pure waiting. `none` is the quickest; `low` is the setting.
+2. **OpenAI's Fast mode** (Settings › Placement test › OpenAI speed; on by default). OpenAI serves the request
+   up to 2.5 times quicker and more steadily, for about twice the price per token: for `gpt-6-luna` $0.2 / $0.02
+   reused / $1.0 per million tokens against $0.1 / $0.01 / $0.5. The AI is the smallest part of what a talk
+   costs, so this adds a few paise a talk. Only some models have it; a model without it, or a busy moment at
+   OpenAI, answers at standard speed and price (the Compare models page shows which speed each call was really
+   served at).
+3. **How much the model writes**: the short answer format above.
+4. **Reuse from cache**: a request whose beginning was sent before is read faster. See "How a turn is sent".
+5. **Streaming**: Sakhi's voice is started as soon as her reply is written (see "Streaming").
+
+To see where the time goes for a model, use **Compare models**: each call shows its whole time, when the first
+words of the answer arrived (thinking and waiting in line come before that) and when her reply was ready. Add
+the same model twice, with different thinking or speed, to compare. What is not yet done: playing her reply in
+the app while the rest of the answer is still being written (the app waits for the whole turn).
+
 ## How hard the model thinks
 
 Two settings (Settings › Placement test), for models that take a thinking level (OpenAI's, Claude's; Sarvam and

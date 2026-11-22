@@ -50,6 +50,7 @@ async function chatCompletions(p, messages, { model, temperature, maxTokens, sch
 
 const noEffort = new Set(); // models that refused a thinking level
 const noStream = new Set(); // models that refused to stream
+const noFast = new Set(); // models that have no Fast mode
 
 /**
  * A streamed answer from the Responses API (server-sent events). onText gets the answer's text so far each time
@@ -82,7 +83,7 @@ function reasoningOf(key, effort, wantThinking) {
 }
 
 /** OpenAI's Responses API. messages: [{ role: 'system'|'user'|'assistant', content }] (system notes may come late). */
-async function responses(p, messages, { model, temperature, maxTokens, schema, schemaName, wantThinking = false, effort = null, onText = null }) {
+async function responses(p, messages, { model, temperature, maxTokens, schema, schemaName, wantThinking = false, effort = null, onText = null, fast = false }) {
   const base = process.env[p.base] || p.defaultBase;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20_000);
@@ -96,6 +97,8 @@ async function responses(p, messages, { model, temperature, maxTokens, schema, s
         headers: { authorization: `Bearer ${process.env[p.key]}`, 'content-type': 'application/json' },
         body: JSON.stringify({
           model, store: false, ...(stream ? { stream: true } : {}),
+          // Fast mode: quicker and steadier, at a higher price per token (the models that have it).
+          ...(fast && !noFast.has(`${p.label}/${model}`) ? { service_tier: 'fast' } : {}),
           input: messages.map((m) => ({ role: m.role, content: String(m.content ?? '') })),
           ...(noTemperature.has(`${p.label}/${model}`) ? {} : { temperature }),
           // How hard to think (none, low, medium, high), when asked. The thinking itself isn't shared, but a
@@ -114,6 +117,7 @@ async function responses(p, messages, { model, temperature, maxTokens, schema, s
         if (res.status === 400 && effort && /effort/i.test(body) && !noEffort.has(`${p.label}/${model}`)) { noEffort.add(`${p.label}/${model}`); continue; }
         if (res.status === 400 && wantThinking && /reasoning|summary/i.test(body) && !noThinking.has(`${p.label}/${model}`)) { noThinking.add(`${p.label}/${model}`); continue; }
         if (res.status === 400 && stream && /stream/i.test(body)) { noStream.add(`${p.label}/${model}`); continue; }
+        if (res.status === 400 && fast && /service_tier|tier/i.test(body) && !noFast.has(`${p.label}/${model}`)) { noFast.add(`${p.label}/${model}`); continue; }
         throw new Error(`${p.label} ${res.status}: ${body.slice(0, 300)}`);
       }
       let firstTextMs = null;
@@ -125,7 +129,8 @@ async function responses(p, messages, { model, temperature, maxTokens, schema, s
       const text = parts.filter((c) => c.type === 'output_text').map((c) => c.text).join('');
       if (!text) throw new Error(`${p.label} gave no answer${j.status === 'incomplete' ? ` (${j.incomplete_details?.reason || 'incomplete'})` : ''}`);
       const u = j.usage || {};
-      return { text, thinking: thinking || null, firstTextMs, usage: { input: u.input_tokens ?? null, cached: u.input_tokens_details?.cached_tokens ?? null, output: u.output_tokens ?? null, reasoning: u.output_tokens_details?.reasoning_tokens ?? null } };
+      // tier: the speed the request was really served at (a Fast request can be served at standard speed and price).
+      return { text, thinking: thinking || null, firstTextMs, tier: j.service_tier ?? null, usage: { input: u.input_tokens ?? null, cached: u.input_tokens_details?.cached_tokens ?? null, output: u.output_tokens ?? null, reasoning: u.output_tokens_details?.reasoning_tokens ?? null } };
     }
   } finally { clearTimeout(timer); }
 }

@@ -39,6 +39,7 @@ const Model = z.strictObject({
   // US dollars per million tokens, for a model whose price the server doesn't know (so its cost can be shown).
   // How hard this model thinks, on each turn and for the final level (OpenAI and Claude). Left out: the settings'.
   turnEffort: z.enum(settings.EFFORTS).optional(), finalEffort: z.enum(settings.EFFORTS).optional(),
+  speed: z.enum(['standard', 'fast']).optional(), // OpenAI's Fast mode or not. Left out: the settings'.
   price: z.strictObject({ input: z.number().min(0).max(10_000), cached: z.number().min(0).max(10_000).optional(), output: z.number().min(0).max(10_000) }).optional(),
 });
 const Start = z.strictObject({ models: z.array(Model).min(1).max(4) });
@@ -56,7 +57,7 @@ function parse(schema, body) {
 }
 const efforts = (m) => (takesEffort(m.provider) ? { turn: m.turnEffort ?? settings.get('placement').turnEffort, final: m.finalEffort ?? settings.get('placement').finalEffort } : null);
 // The same model can be in the comparison twice, with different thinking: the name then says which is which.
-const label = (m) => `${m.provider}/${m.model}${takesEffort(m.provider) && (m.turnEffort || m.finalEffort) ? ` · thinking ${efforts(m).turn}/${efforts(m).final}` : ''}`;
+const label = (m) => `${m.provider}/${m.model}${takesEffort(m.provider) && (m.turnEffort || m.finalEffort) ? ` · thinking ${efforts(m).turn}/${efforts(m).final}` : ''}${m.provider === 'openai' && m.speed ? ` · ${m.speed} speed` : ''}`;
 const ready = (m) => !!providers[m.provider]?.configured();
 const NOT_SET_UP = 'Not set up on the server: its API key is missing (deploy/llm-keys-setup.sh).';
 /** Where a talk is: the step, and what's on the learner's screen. */
@@ -89,7 +90,7 @@ async function takeTurn(talk, input, deps) {
   if (!s) return { model: label(talk.model), error: 'This conversation has ended. Start again.' };
   const trace = { list: [], add(step, data) { this.list.push({ step, ...data }); } };
   let turn;
-  try { turn = await conversation.handleTurn(s, input, trace, { config: talk.model, summaryConfig: talk.model, structured: deps.structured, timeoutMs: 20_000, detail: true, efforts: efforts(talk.model) || undefined }); }
+  try { turn = await conversation.handleTurn(s, input, trace, { config: talk.model, summaryConfig: talk.model, structured: deps.structured, timeoutMs: 20_000, detail: true, efforts: efforts(talk.model) || undefined, speed: talk.model.speed }); }
   catch (e) { return { model: label(talk.model), error: e.message }; }
   const find = (step) => trace.list.find((x) => x.step === step);
   const brain = find('brain'), failed = find('brain-failed'), sum = find('summary'), exchange = find('exchange'), guard = trace.list.filter((x) => x.step === 'guard');
@@ -98,7 +99,7 @@ async function takeTurn(talk, input, deps) {
   return {
     model: label(talk.model), say: turn.say.map((l) => l.text), step: stepOf(s), voice: voiceOf(turn.say),
     // What the AI judged on this turn, with its speed, tokens and cost.
-    ...(brain ? { ai: { ms: brain.ms, firstTextMs: brain.firstTextMs, replyMs: brain.replyMs, costInr: brain.costInr, usage: brain.usage, effort: brain.effort, happened: brain.happened, picture: brain.picture, reading: brain.reading, level: brain.level, evidence: brain.evidence, tip: brain.tip, finish: brain.finish } } : {}),
+    ...(brain ? { ai: { ms: brain.ms, firstTextMs: brain.firstTextMs, replyMs: brain.replyMs, tier: brain.tier, askedFast: brain.askedFast, costInr: brain.costInr, usage: brain.usage, effort: brain.effort, happened: brain.happened, picture: brain.picture, reading: brain.reading, level: brain.level, evidence: brain.evidence, tip: brain.tip, finish: brain.finish } } : {}),
     ...(failed ? { aiFailed: failed.why } : {}),
     // The exact request and the answer as it came (and the thinking, when the provider shares a summary).
     ...(exchange ? { log: logOf(exchange) } : {}),
@@ -122,7 +123,7 @@ export async function handlePlacementLab(req, res, url, deps = {}) {
   if (m === 'GET' && p === '/api/admin/placement-lab') {
     return send(res, 200, {
       providers: Object.fromEntries(Object.entries(providers).map(([k, v]) => [k, { configured: v.configured() }])),
-      current: settings.get('placement'), effortFor: (({ turnEffort, finalEffort }) => ({ turn: turnEffort, final: finalEffort }))(settings.get('placement')), suggestions: await listModels(), // every model each provider offers now
+      current: settings.get('placement'), effortFor: (({ turnEffort, finalEffort }) => ({ turn: turnEffort, final: finalEffort }))(settings.get('placement')), speed: settings.get('placement').speed, suggestions: await listModels(), // every model each provider offers now
       prices: knownPrices(), // US dollars per million tokens, for the models whose price is known
       speechPrices: { sttPerHour: PRICES.sttPerHour, ttsPer10kChars: PRICES.ttsPer10kChars, asOf: PRICES.asOf, wordsASecond: WORDS_A_SECOND }, // rupees, Sarvam
       // What the page compares unless told otherwise: the model in use, and OpenAI's small fast model beside it.

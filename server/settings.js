@@ -37,6 +37,8 @@ export const SECTIONS = {
       maxQuestions: z.number().int().min(1).max(6),          // open questions, after the name, the picture and the reading
       // conversation mode: how hard the model thinks on each turn (speed matters), and for the final level and
       // feedback (care matters). Given a default here so that settings saved before these existed still load.
+      // conversation mode, OpenAI models that have it: 'fast' is OpenAI's Fast mode (quicker, about twice the price per token).
+      speed: z.enum(['standard', 'fast']).default('fast'),
       turnEffort: z.enum(EFFORTS).default('low'),
       finalEffort: z.enum(EFFORTS).default('medium'),
     }),
@@ -45,6 +47,7 @@ export const SECTIONS = {
       brain: { provider: 'sarvam', model: 'sarvam-105b-conversations', temperature: 0.6 },
       summary: { provider: 'sarvam', model: 'sarvam-105b', temperature: 0.3 },
       maxQuestions: 3,
+      speed: 'fast',
       turnEffort: 'low',
       finalEffort: 'medium',
     },

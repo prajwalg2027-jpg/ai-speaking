@@ -77,7 +77,7 @@ test('comparing models: each runs its own conversation end to end; a model witho
   assert.ok(info.suggestions.anthropic.includes('claude-haiku-5-5'));
   // What the page starts with: the model in use beside OpenAI's small one, and every known price.
   assert.deepEqual(info.defaults, [{ provider: 'sarvam', model: settings.get('placement').brain.model }, { provider: 'openai', model: 'gpt-6-luna' }]);
-  assert.deepEqual(info.effortFor, { turn: 'low', final: 'medium' });
+  assert.deepEqual([info.effortFor, info.speed], [{ turn: 'low', final: 'medium' }, 'fast']);
   assert.deepEqual(info.speechPrices, { sttPerHour: 30, ttsPer10kChars: 20, asOf: info.speechPrices.asOf, wordsASecond: 2 });
   assert.deepEqual(info.prices.openai['gpt-6-luna'], { input: 0.1, cached: 0.01, output: 0.5 });
   assert.ok(Object.keys(info.prices.openai).length >= 25 && info.prices.openaiAsOf && info.prices.usdInr > 0 && info.prices.sarvamInr.input > 0);
@@ -186,5 +186,10 @@ test('comparing models: each OpenAI or Claude model can be given its own thinkin
   const t = (await post('/api/admin/placement-lab/turn', { labId: lab.labId, message: 'My name is Ravi' })).json.talks;
   assert.deepEqual(t.map((x) => x.ai.effort), ['none', 'low', null], "the chosen level; the settings' level; none for Sarvam");
   assert.equal((await start([{ ...luna, turnEffort: 'enormous' }])).status, 400);
+  // Speed too: the same model at Fast and at standard speed, side by side.
+  const pair = (await start([{ ...luna, speed: 'fast' }, { ...luna, speed: 'standard' }])).json;
+  assert.deepEqual(pair.talks.map((x) => x.model), ['openai/gpt-6-luna · fast speed', 'openai/gpt-6-luna · standard speed']);
+  const two = (await post('/api/admin/placement-lab/turn', { labId: pair.labId, message: 'My name is Ravi' })).json.talks;
+  assert.deepEqual(two.map((x) => x.ai.askedFast), [true, false]);
 });
 

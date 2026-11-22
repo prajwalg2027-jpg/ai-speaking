@@ -19,10 +19,10 @@ before(async () => {
 /** A stand-in AI: answers each call from the list, in order; keeps what it was asked. */
 function fakeAI(turns) {
   const asked = [];
-  const structured = async ({ job, schema, messages, repair, effort, config, onText }) => {
+  const structured = async ({ job, schema, messages, repair, effort, config, onText, fast }) => {
     // What the AI was given: the app's latest STEP line, the learner's words, and what came after them (MEASURED).
     const lines = messages.slice(1), at = lines.findLastIndex((m) => m.role === 'user');
-    asked.push({ job, messages, effort, model: config?.model, streamed: !!onText, said: lines[at]?.content,
+    asked.push({ job, messages, effort, fast, model: config?.model, streamed: !!onText, said: lines[at]?.content,
       step: lines.filter((m) => m.role === 'system' && /STEP: /.test(m.content)).at(-1)?.content, measured: lines.slice(at + 1).map((m) => m.content).join('\n') });
     const next = turns.shift();
     if (!next) throw new Error('the AI is down');
@@ -406,13 +406,21 @@ test('thinking: light on each turn, more for the final level; an early ending by
   x = await toOpen([T({ level: 2, reply: 'You made tea!', finish: true, final: FINAL(2) })]);
   t = await x.go('I made tea today');
   assert.deepEqual([x.ai.asked.length, t.done.level], [1, 2], 'Sarvam: one call');
+  // Speed: OpenAI's Fast mode is asked for unless the settings, or the talk itself (the model comparison), say standard.
+  assert.equal(settings.get('placement').speed, 'fast');
+  x = await toOpen([T({ level: 2, question: 'And then?' })], LUNA);
+  await x.go('I made tea today');
+  assert.equal(x.ai.asked[0].fast, true);
+  x = await toOpen([T({ level: 2, question: 'And then?' })], { ...LUNA, speed: 'standard' });
+  await x.go('I made tea today');
+  assert.equal(x.ai.asked[0].fast, false);
   // A talk can be given its own thinking levels (the model comparison), whatever the settings say.
   x = await toOpen([T({ level: 2, reply: 'You made tea!', finish: true, final: FINAL(2) }), T({ level: 2, reply: 'Tea!', finish: true, final: FINAL(3) })], { ...LUNA, efforts: { turn: 'none', final: 'xhigh' } });
   t = await x.go('I made tea today');
   assert.deepEqual([x.ai.asked.map((a) => a.effort), t.done.level], [['none', 'xhigh'], 3]);
   // Settings saved before these two existed still load, with the usual values.
   const old = { mode: 'conversation', brain: LUNA.config, summary: LUNA.config, maxQuestions: 2 };
-  assert.deepEqual(settings.SECTIONS.placement.schema.parse(old), { ...old, turnEffort: 'low', finalEffort: 'medium' });
+  assert.deepEqual(settings.SECTIONS.placement.schema.parse(old), { ...old, speed: 'fast', turnEffort: 'low', finalEffort: 'medium' });
 });
 
 test('a model that streams: her reply is known, and its voice can start, before the rest of the answer is written', async () => {
