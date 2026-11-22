@@ -44,10 +44,10 @@ export function startMockRest({ transcript = 'my name is ravi i like tea' } = {}
           corrections: /\bI go\b/.test(said) ? [{ original: 'I go', corrected: 'I went', category: 'grammar', concept: 'past_simple', explanation: 'Use went for the past.', severity: 'important' }] : [] });
       }
       // The conversation placement's brain. It reads what the real AI is given: the app's lines in the talk
-      // ("[The app] STEP: ...", "RECORDED: ...", "MEASURED: ...") and the learner's last words, and answers in
+      // ("[System] STEP: ...", "RECORDED: ...", "MEASURED: ...") and the learner's last words, and answers in
       // the shape the real AI must use.
       else if (/first talk with them/.test(sys)) {
-        const isApp = (m) => m.role !== 'assistant' && m.content.startsWith('[The app]');
+        const isApp = (m) => m.role !== 'assistant' && m.content.startsWith('[System]');
         const app = msgs.slice(1).filter(isApp).map((m) => m.content);
         const stepLine = app.filter((c) => /STEP: /.test(c)).at(-1) || '';
         const at = msgs.findLastIndex((m) => m.role === 'user' && !isApp(m)), last = msgs[at].content;
@@ -61,7 +61,8 @@ export function startMockRest({ transcript = 'my name is ravi i like tea' } = {}
         const final = (level) => ({ level, reason: `Mock: level ${level}.`, doingWell: ['You answered every question in English.', 'You talked about your own life.'], practise: ["Say 'I went' instead of 'I go' for yesterday.", 'Next, we will join two ideas with because.'], closing: 'You talked about your life in English. Next, we will practise talking about yesterday.' });
         if (stay) o.question = 'Let me ask again, more simply. आसान शब्दों में फिर से पूछती हूँ।';
         else if (step === 'HELLO') { o.name = said?.match(/my name is (\w+)/i)?.[1] || null; o.reply = o.name ? `Nice to meet you, ${o.name}!` : 'Hello!'; o.question = 'A picture is on your screen. What is it called in English?'; }
-        else if (step === 'PICTURE') { o.picture = !help && /" is in their reply/.test(after) ? 'named' : help ? null : 'not_named'; o.reply = o.picture === 'named' ? 'Yes!' : 'Okay.'; o.question = 'Now please read the line on your screen out loud.'; }
+        else if (step === 'PICTURE') { const names = (app.map((c) => c.match(/The picture on their screen shows: ([^.(]+)(?: \(also right: ([^)]*)\))?/)).filter(Boolean).at(-1) || []).slice(1).filter(Boolean).flatMap((x) => x.split(',')).map((x) => x.trim().toLowerCase());
+          o.picture = help ? null : names.some((w) => (said || '').toLowerCase().includes(w)) ? 'named' : 'not_named'; o.reply = o.picture === 'named' ? 'Yes!' : 'Okay.'; o.question = 'Now please read the line on your screen out loud.'; }
         else if (step === 'READING') {
           const m = after.match(/about (\d+) of the line's (\d+) words/), share = m ? m[1] / m[2] : 0;
           o.reading = help ? null : share >= 0.8 ? 'well' : share >= 0.4 ? 'partly' : 'not';

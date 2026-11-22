@@ -38,7 +38,7 @@ function extractJson(text) {
 export const lateSystemAsUser = (messages) => messages.map((m, i) => (i > 0 && m.role === 'system'
   ? { role: 'user', content: fromTheApp(m.content) } : m));
 /** A system message in mid-talk, for a provider that takes none there: marked as the app's, unless it already says so. */
-export const fromTheApp = (text) => (text.startsWith('[The app]') ? text : `[Note from the app, not said by the learner]\n${text}`);
+export const fromTheApp = (text) => (text.startsWith('[System]') ? text : `[Note from the app, not said by the learner]\n${text}`);
 
 /** The providers whose answer can be streamed (onText). */
 export const streams = (provider) => provider === 'openai';

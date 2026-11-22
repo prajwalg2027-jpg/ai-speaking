@@ -109,15 +109,14 @@ test('comparing models: each runs its own conversation end to end; a model witho
   const sent = t[0].log.messages;
   assert.deepEqual(sent.map((m) => m.role), ['system', 'user', 'assistant', 'user', 'user'], "Sarvam takes no system message in mid-talk: the app's line goes as a user message, marked");
   assert.match(sent[0].content, /^You are Sakhi/);
-  assert.deepEqual(sent.slice(1).map((m) => m.content.split('\n')[0]), ['(The call begins.)', 'Hi, my name is Sakhi. What is your name?', '[The app] STEP: HELLO. You may stay for: help, something else.', 'My name is Ravi']);
+  assert.deepEqual(sent.slice(1).map((m) => m.content.split('\n')[0]), ['(The call begins.)', 'Hi, my name is Sakhi. What is your name?', '[System] STEP: HELLO. You may stay for: help, something else.', 'My name is Ravi']);
   assert.deepEqual([JSON.parse(t[0].log.raw), t[0].log.attempts, t[0].log.thinking], [{ h: 'a', ev: '4 words', n: 'Ravi', r: 'Nice to meet you, Ravi!', q: 'A picture is on your screen. What is it called in English?' }, 1, null], 'the answer as it came: short');
   const first = sent;
   t = await type(WORDS[t[0].step.screen]);
   assert.deepEqual([t[0].ai.picture, t[0].step.step], ['named', 'read']);
   assert.deepEqual(t[0].log.messages.slice(0, first.length), first, 'the next request is the one before, whole, and more');
   const more = t[0].log.messages.slice(first.length).map((m) => m.content.split('\n')[0]);
-  assert.deepEqual([more.length, more[0], more[1].slice(0, 23), /^\[The app\] MEASURED: ".+" is in their reply\.$/.test(more[3])], [4, 'Nice to meet you, Ravi!', '[The app] STEP: PICTURE', true],
-    "new: her last words, the app's STEP line, their reply, the app's MEASURED line");
+  assert.deepEqual([more.length, more[0], more[1].slice(0, 22)], [3, 'Nice to meet you, Ravi!', '[System] STEP: PICTURE'], "new: her last words, the STEP line, their reply");
   assert.equal(t[0].step.screen, t[1].step.screen, 'the same line to read');
   t = await type(t[0].step.screen);
   assert.deepEqual([t[0].ai.reading, t[0].step], ['well', { step: 'open', n: 1, level: 2 }]);

@@ -82,14 +82,14 @@ The app tells the server how far into her turn she was when they started talking
 ```
 assistant  You made tea in the morning!                       ← her whole turn, as she said it
            Who do you live with?
-system     [The app] RECORDED: open answer 1: level 2 (11 English words). STEP: OPEN QUESTION 2 of 3. …
-system     [The app] CUT OFF: The learner started talking while you were still speaking. They heard only:
+system     [System] RECORDED: open answer 1: level 2 (11 English words). STEP: OPEN QUESTION 2 of 3. …
+system     [System] CUT OFF: The learner started talking while you were still speaking. They heard only:
            "You". They did not hear: "made tea in the morning! Who do you live with?" They were still answering
            your earlier question, "So, what did you do this morning?": everything they have said since it is
            ONE answer, in parts. This replaces what was recorded for its first part.
-system     [The app] STEP: OPEN QUESTION 1 of 3. You may stay for: help, something else.
+system     [System] STEP: OPEN QUESTION 1 of 3. You may stay for: help, something else.
 user       and then I walked to the market                    ← only their new words
-system     [The app] MEASURED: 23 English words in the whole answer, all its parts together.
+system     [System] MEASURED: 23 English words in the whole answer, all its parts together.
 ```
 
 - **They heard her question** (or most of it): their words are a reply to it. The CUT OFF line says what they
@@ -309,25 +309,25 @@ nearly all of it, at a lower price, and only what is truly new is paid for in fu
 system     Sakhi's fixed instructions
 user       (The call begins.)
 assistant  Hi, my name is Sakhi. What is your name? …
-system     [The app] STEP: HELLO. You may stay for: help, something else.
+system     [System] STEP: HELLO. You may stay for: help, something else.
 user       My name is Ravi
 assistant  Nice to meet you, Ravi! There's a picture on your screen. What is it called in English?
-system     [The app] STEP: PICTURE. The picture on their screen shows: house (also right: home). You may stay for: …
+system     [System] STEP: PICTURE. The picture on their screen shows: house (also right: home). You may stay for: …
 user       It's a house
-system     [The app] MEASURED: "house" is in their reply.
 assistant  Yes, a house! Now there's a line on your screen. Could you read it out?        ┐ new in this
-system     [The app] RECORDED: picture named. STEP: READING. The line on their screen …  │ request: not
+system     [System] RECORDED: picture named. STEP: READING. The line on their screen …  │ request: not
 user       Yesterday I went to the market …                                               │ yet reusable
-system     [The app] MEASURED: about 10 of the line's 11 words are in their reply.        ┘
+system     [System] MEASURED: about 10 of the line's 11 words are in their reply.        ┘
 ```
 
-The app's lines:
+The "[System]" lines are written by the server (not by the phone app; the learner never sees or hears them):
 - **STEP**, after each of Sakhi's turns: the step the learner is now answering; what she needs for it (the
   picture, the line to read), told when the step begins and not before; what the app **RECORDED** from the turn
   just judged (picture named, reading well, the level of an open answer); and what she may still stay on the
   step for (help twice, something off the point once). The last open question says so.
-- **MEASURED**, after the learner's reply: the one thing the app counted in it (is the word there, how many of
-  the line's words, how many English words).
+- **MEASURED**, after the learner's reply to the reading and to open questions: the one thing the server
+  counted in it (how many of the line's words, how many English words). Nothing is measured for the picture: the
+  model sees the word in their reply for itself.
 - **CUT OFF**, when they talked over her (see above).
 
 **What can and cannot be reused.** A provider can only reuse what it has already been sent. So in each request
@@ -348,7 +348,7 @@ shows as Sakhi asking about the wrong step; watch for it when trying a new model
 
 OpenAI gets exactly this through its **Responses API** (`POST /responses`, `input`, `store: false`), the app's
 lines as system messages. Claude, Gemini and Sarvam take system messages only at the start, so for them the
-app's lines go in as user messages (they are marked "[The app]" either way); Claude is also told to cache the
+app's lines go in as user messages (they are marked "[System]" either way); Claude is also told to cache the
 repeated part. The Compare models page shows how many input tokens were reused on each turn, and marks each
 message as reused or new (an estimate: providers report only the count). Caching only starts once a request is
 long enough (about a thousand tokens for OpenAI); the fixed instructions alone are longer than that. The

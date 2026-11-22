@@ -159,8 +159,7 @@ export function buildCtx(s, input) {
   let hit = null, acc = null, measured = null;
   if (q.step === 'picture') {
     const words = q.v.expect[0];
-    hit = spoke && vocabHits(t, [words])[0];
-    if (spoke) measured = `"${words[0]}" is ${hit ? '' : 'not '}in their reply.`;
+    hit = spoke && vocabHits(t, [words])[0]; // the server's own check: used only if the AI gives no judgement
   } else if (q.step === 'read') {
     acc = spoke ? readAccuracy(q.v.screen, t) : 0;
     const total = q.v.screen.split(/\s+/).length;

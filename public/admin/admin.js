@@ -521,9 +521,9 @@ async function transcribe(wav, language) {
 }
 
 // ---- the log: every AI call's exact request and answer -------------------------------------------------
-// Who a message in the log is from. The app's lines are system messages for OpenAI and marked user messages for the others.
+// Who a message in the log is from. The server's own lines ("[System] ...") are system messages for OpenAI and marked user messages for the others.
 const ROLE = (m, i, all) => (m.role === 'assistant' ? 'Sakhi' : i === 0 && m.role === 'system' ? 'Fixed instructions'
-  : m.role === 'system' || /^\[(The app|Note from the app)/.test(m.content) ? (/^\[The app\] (RECORDED|STEP)/.test(m.content) ? 'The app: the step' : /^\[The app\] MEASURED/.test(m.content) ? 'The app: measured' : /^\[The app\] CUT OFF/.test(m.content) ? 'The app: cut off' : 'The app')
+  : m.role === 'system' || /^\[(System\]|Note from the app)/.test(m.content) ? (/^\[System\] (RECORDED|STEP)/.test(m.content) ? 'System: the step' : /^\[System\] MEASURED/.test(m.content) ? 'System: measured' : /^\[System\] CUT OFF/.test(m.content) ? 'System: cut off' : 'System')
   : i === 1 && all[0].role === 'system' && /^\(/.test(m.content) ? 'Start' : 'Learner');
 /**
  * Which messages were reused from cache. Providers say only HOW MANY input tokens were reused, not which; reuse
