@@ -97,6 +97,11 @@ async function handleSessionTurn(req, res) {
     // By the time the app asks for the line it is ready, or well on its way (the app joins it).
     onReply: (lines) => { for (const l of lines) sarvam.streamSpeech(l.text, { lang: l.lang, pace: l.pace }).catch(() => {}); },
   }));
+  // The conversation: the voice for every line of her turn is started now, not when the app comes to each line.
+  // The app asks for one line at a time, as it reaches it; without this her question would only start being
+  // made after her reply had been played, and she would pause between the two. (A line already made, or being
+  // made, is not made again.)
+  if (s.mode === 'conversation') withLedger(s.ledger, () => { for (const l of turn.say || []) sarvam.streamSpeech(l.text, { lang: l.lang, pace: l.pace }).catch(() => {}); });
   send(res, 200, withTeamData(turn, trace, s));
   accounts.afterTurn(s, { event: body.event }); // saved after the reply, so it adds no delay
 }

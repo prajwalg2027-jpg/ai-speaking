@@ -223,6 +223,16 @@ turn; a second or more on the last turn, where the level and feedback are writte
 takes to start. The model's thinking before it writes anything is not shortened by streaming: that is what the
 thinking level above is for.
 
+Her **question** no longer waits either: the app asks for one line at a time, as it reaches it, so the question
+used to start being made only after the reply had been played, and she paused between the two. The server now
+starts the voice for every line of the turn as soon as the turn is known; by the time the app reaches a line
+it is ready. (If the learner talks over her first line, the lines after it were made for nothing: a few
+characters of voice.)
+
+Why not feed the voice word by word, as the model writes? Her reply is one short sentence, written in a fraction
+of a second, so there is little to gain; a voice needs a whole clause to sound natural; and the checks on what
+she may say (no question in her reply, never the picture's word, no invented name) need the whole sentence.
+
 Limits, so nobody is surprised:
 - The app still waits for the whole turn before it plays anything. Playing her reply while the rest is still
   being written needs the turn itself to reach the app in pieces: a change to the app and to

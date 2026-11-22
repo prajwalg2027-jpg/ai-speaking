@@ -49,8 +49,16 @@ test('the app runs a whole conversation placement through the same API as the cl
     const chats = () => mock.calls.filter((c) => c.path === '/v1/chat/completions').length;
     const before = chats();
     const turn = (transcript) => post('/api/session/turn', { sessionId: start.sessionId, event: 'answer', transcript, speechSec: 5 });
+    const voiceCalls = () => mock.calls.filter((c) => c.path === '/text-to-speech/stream').length, voiceBefore = voiceCalls();
     let t = (await turn('My name is Ravi')).json;
     assert.match(t.say.map((l) => l.text).join(' '), /^Nice to meet you, Ravi! A picture is on your screen/, "the AI's words, not a fixed line");
+    // The voice for every line of her turn is started by the server, before the app asks for any of them: her
+    // question is ready when her reply has been played, with no pause between the two.
+    await new Promise((ok) => setTimeout(ok, 60));
+    assert.deepEqual([t.say.length, voiceCalls() - voiceBefore], [2, 2]);
+    const ask = t.say[1];
+    const asked = await fetch(`${base}/api/tts/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: ask.text, lang: ask.lang, pace: ask.pace, sessionId: start.sessionId }) });
+    assert.deepEqual([asked.status, asked.headers.get('x-tts-cached'), (await asked.arrayBuffer()).byteLength, voiceCalls() - voiceBefore], [200, 'true', 9600, 2], 'nothing more is generated when the app reaches it');
     assert.deepEqual([t.task.id, t.card.look], ['picture', 'emoji']);
     t = (await turn(WORDS[t.card.text])).json;
     assert.deepEqual([t.task.id, t.card.kind, t.listen.language], ['read', 'read', 'en-IN']);
@@ -165,9 +173,10 @@ test("a model that streams: Sakhi's voice for her reply is being made before the
     // While the model is "still writing her question": has her reply's voice been asked for already?
     let early = null;
     stream.pauseMs = 60; stream.atReply = () => { early = voiceCalls() - before; };
-    const t = (await post('/api/session/turn', { sessionId: start.sessionId, event: 'answer', transcript: 'My name is Ravi', speechSec: 2 })).json;
+    // (A name no other test uses: a line already made for an earlier test would not be made again.)
+    const t = (await post('/api/session/turn', { sessionId: start.sessionId, event: 'answer', transcript: 'My name is Meera', speechSec: 2 })).json;
     stream.pauseMs = 0; stream.atReply = null;
-    assert.equal(t.say[0].text, 'Nice to meet you, Ravi!');
+    assert.equal(t.say[0].text, 'Nice to meet you, Meera!');
     assert.equal(early, 1, 'her reply went to the voice before the answer was complete');
     // The app then asks for that line: nothing new is generated.
     const line = t.say[0];
