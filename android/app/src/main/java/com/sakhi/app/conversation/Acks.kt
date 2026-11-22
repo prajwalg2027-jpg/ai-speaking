@@ -9,7 +9,7 @@ import com.sakhi.app.net.Turn
 val BACKCHANNELS = listOf("Mm-hmm.", "Mhm.", "Hmm.", "Aha.", "Uh-huh.", "Achha.")
 
 /** How often a quick reaction is played when there is room for one (people don't react to every answer). */
-const BACKCHANNEL_CHANCE = 0.5
+const val BACKCHANNEL_CHANCE = 0.5f
 
 private val ACK = Regex(
     "^\\s*(?:okay|ok|alright|all right|right|got it|i see|hmm+|mm-?hmm|mhm|aha|uh-?huh|achha|great|nice|good|thanks|thank you)" +
