@@ -23,7 +23,7 @@ export const config = {
     sttLanguage: env('SARVAM_STT_LANGUAGE', ''), // empty = let the API auto-detect
     ttsModel: env('SARVAM_TTS_MODEL', 'bulbul:v4-flash'),
     // v4-flash voice IDs are <persona>_<lang>_<use case>; v2/v3 short names (e.g. "anushka") return 400.
-    ttsSpeaker: env('SARVAM_TTS_SPEAKER', 'ishita_enhi_companion'),
+    ttsSpeaker: env('SARVAM_TTS_SPEAKER', 'roopa_hi_companion'), // Roopa, companion style: speaks Sakhi's English and Hindi lines
     ttsSampleRate: Number(env('SARVAM_TTS_SAMPLE_RATE', 24000)),
     // Verified against the live API (Nov 2026): /v1/chat/completions accepts sarvam-105b and
     // sarvam-105b-conversations; sarvam-m and sarvam-30b return 400, as does reasoning_effort "none".

@@ -12,7 +12,7 @@
 |---|---|---|---|
 | **Live speech → text** (primary) | **Saaras v4** `saaras:v4`, `mode=codemix`, `language_code=auto` | `wss://api.sarvam.ai/speech-to-text-realtime/ws` | Sarvam's Realtime STT for voice agents. **Server-side VAD** decides when the user has finished, **partial transcripts** drive live captions, and `vad.speech_start` drives barge-in. Audio streams while the user speaks, so there's no upload step at the end. Details in §2.1. |
 | **Why codemix matters** | | | It writes English words in Latin script and Hindi words in Devanagari, so the transcript *itself* shows how much of the answer was English. That's the core signal for the placement test. |
-| Text → speech (the bot's voice) | **Bulbul v4 Flash** `bulbul:v4-flash` | `POST /text-to-speech` | Field names: `text`, **`language_code`** (not `target_language_code`), `speaker`, `pace` (0.5–2.0), `speech_sample_rate`, `output_audio_codec: "wav"`. Voice: **`ishita_enhi_companion`** (female, English + Hindi). ✅ It's in the SDK's voice catalog and synthesises both languages. Old short names like `anushka` are rejected. |
+| Text → speech (the bot's voice) | **Bulbul v4 Flash** `bulbul:v4-flash` | `POST /text-to-speech` | Field names: `text`, **`language_code`** (not `target_language_code`), `speaker`, `pace` (0.5–2.0), `speech_sample_rate`, `output_audio_codec: "wav"`. Voice: **`roopa_hi_companion`** (Roopa, companion style). ✅ Sarvam's API accepts it for `bulbul:v4-flash` and it synthesises both our English (`en-IN`) and Hindi (`hi-IN`) lines (checked 22 Nov 2026). Before that: `ishita_enhi_companion`. Sending an unknown speaker name to the API returns the full list of voices. Old short names like `anushka` are rejected. |
 | Scoring / intent | **Sarvam-105B** `sarvam-105b` | `POST /v1/chat/completions` | ✅ Tested: `sarvam-m` and `sarvam-30b` now return **400**. v1 accepts only `sarvam-105b` and `sarvam-105b-conversations`. Uses `reasoning_effort: "low"` (✅ about 0.4 s). `"none"` returns **400** on Sarvam models. `response_format: {type: "json_object"}` guarantees parseable rubric output. |
 | Spoken acknowledgments | **Sarvam-105B Conversations** `sarvam-105b-conversations` | same | The variant Sarvam tuned for real-time dialogue and voice agents. ✅ e.g. *"Lovely, Priya. Walking with friends sounds wonderful."* |
 
@@ -25,7 +25,7 @@ talks to `/api/*` and `/api/live`, never to Sarvam directly.
 | Client energy VAD + upload WAV after each answer | **Realtime STT** over WebSocket with server VAD and partials. The only speech path since the Hearing pass. | Sarvam's recommended path for voice agents. The legacy `/speech-to-text/ws` is superseded. |
 | `saarika:v2.5` + `language_code=unknown` | `saaras:v4` + `mode=codemix` | Saarika v2.x is superseded. One model with modes now covers transcribe, translate and code-mix. |
 | Translating Hindi answers to English | No translation: Sarvam-105B reads Hindi and code-mixed text directly | Tested: it classified Hindi "please repeat" requests correctly and replied to a Hinglish answer in 0.4 s. Translation added 1–2.5 s for beginners. |
-| `bulbul:v2`, `anushka`, `target_language_code`, 22050 Hz | `bulbul:v4-flash`, `ishita_enhi_companion`, `language_code`, 24 kHz | v2 is legacy. Bulbul v3 reached end of life for voice agents on 10 Nov 2026. v4 Flash rejects the old voice names. |
+| `bulbul:v2`, `anushka`, `target_language_code`, 22050 Hz | `bulbul:v4-flash`, `roopa_hi_companion`, `language_code`, 24 kHz | v2 is legacy. Bulbul v3 reached end of life for voice agents on 10 Nov 2026. v4 Flash rejects the old voice names. |
 | `sarvam-m` | `sarvam-105b` / `sarvam-105b-conversations`, `reasoning_effort: low`, JSON mode | sarvam-m (and sarvam-30b) return 400. |
 
 ## 2. Turn pipeline
@@ -179,7 +179,7 @@ SARVAM_STT_MODE=codemix
 SARVAM_REALTIME_MODEL=saaras:v4       # or saaras:v3-realtime
 SARVAM_REALTIME_STREAM_TYPE=balanced  # fast = lower-latency partials
 SARVAM_TTS_MODEL=bulbul:v4-flash
-SARVAM_TTS_SPEAKER=ishita_enhi_companion
+SARVAM_TTS_SPEAKER=roopa_hi_companion
 SARVAM_LLM_MODEL=sarvam-105b
 SARVAM_LLM_REPLY_MODEL=sarvam-105b-conversations
 SARVAM_LLM_REASONING_EFFORT=low       # "none" is rejected by Sarvam models
