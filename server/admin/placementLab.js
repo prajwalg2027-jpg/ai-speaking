@@ -27,6 +27,8 @@ const Model = z.strictObject({
   provider: z.enum(['sarvam', 'openai', 'anthropic', 'gemini']),
   model: z.string().trim().min(1).max(100),
   temperature: z.number().min(0).max(1.5).default(0.6),
+  // US dollars per million tokens, for a model whose price the server doesn't know (so its cost can be shown).
+  price: z.strictObject({ input: z.number().min(0).max(10_000), cached: z.number().min(0).max(10_000).optional(), output: z.number().min(0).max(10_000) }).optional(),
 });
 const Start = z.strictObject({ primary: Model, others: z.array(Model).max(3).default([]) });
 const Turn = z.strictObject({
@@ -50,7 +52,7 @@ async function tryThink(ctx, m, deps) {
   if (!ready(m)) return { model: label(m), error: NOT_SET_UP };
   try {
     const { out, meta } = await think(ctx, { config: m, structured: deps.structured, timeoutMs: 20_000 });
-    return { model: label(m), ms: meta.latencyMs, costInr: meta.costInr ?? null, attempts: meta.attempts, ...out };
+    return { model: label(m), ms: meta.latencyMs, costInr: meta.costInr ?? null, usage: meta.usage, attempts: meta.attempts, ...out };
   } catch (e) { return { model: label(m), error: e.message }; }
 }
 
@@ -101,7 +103,7 @@ export async function handlePlacementLab(req, res, url, deps = {}) {
       say: turn.say.map((l) => l.text),
       question: turn.task ? stepOf(s) : null,
       primary: {
-        model: label(primary), ...(brain ? { ms: brain.ms, costInr: brain.costInr, answered: brain.answered, level: brain.level, evidence: brain.evidence, tip: brain.tip, reply: brain.reply, question: brain.question } : {}),
+        model: label(primary), ...(brain ? { ms: brain.ms, costInr: brain.costInr, usage: brain.usage, answered: brain.answered, level: brain.level, evidence: brain.evidence, tip: brain.tip, reply: brain.reply, question: brain.question } : {}),
         ...(failed ? { error: failed.why } : {}),
         counted: rated ? { level: rated.level, ...(rated.missed ? { missed: true } : {}) } : null, // the level after the measured checks
       },
@@ -113,11 +115,11 @@ export async function handlePlacementLab(req, res, url, deps = {}) {
       const sum = trace.list.find((x) => x.step === 'summary');
       out.done = {
         level: turn.done.level, name: turn.done.name, reasons: turn.done.reasons,
-        primary: { model: label(primary), ms: sum?.ms ?? null, costInr: sum?.costInr ?? null, doingWell: turn.done.doingWell, practise: turn.done.practise, closing: sum?.closing ?? '', ...(sum?.fallback ? { fallback: sum.fallback } : {}) },
+        primary: { model: label(primary), ms: sum?.ms ?? null, costInr: sum?.costInr ?? null, usage: sum?.usage ?? null, doingWell: turn.done.doingWell, practise: turn.done.practise, closing: sum?.closing ?? '', ...(sum?.fallback ? { fallback: sum.fallback } : {}) },
         others: await Promise.all(others.map(async (x) => {
           if (!ready(x)) return { model: label(x), error: NOT_SET_UP };
           const r = await summarize({ answers: said, level: turn.done.level }, { config: x, structured: deps.structured, timeoutMs: 20_000 });
-          return { model: label(x), ms: r.meta?.latencyMs ?? null, costInr: r.meta?.costInr ?? null, doingWell: r.doingWell, practise: r.practise, closing: r.closing, ...(r.fallback ? { fallback: r.fallback } : {}) };
+          return { model: label(x), ms: r.meta?.latencyMs ?? null, costInr: r.meta?.costInr ?? null, usage: r.meta?.usage ?? null, doingWell: r.doingWell, practise: r.practise, closing: r.closing, ...(r.fallback ? { fallback: r.fallback } : {}) };
         })),
       };
     }

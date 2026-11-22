@@ -232,7 +232,7 @@ export async function handleTurn(s, input, trace, opts = {}) {
   try {
     const t0 = performance.now();
     ({ out, meta } = await think(ctx, { config: opts.config || settings.get('placement').brain, structured: opts.structured }));
-    note('brain', { model: `${meta.provider}/${meta.model}`, ms: Math.round(performance.now() - t0), costInr: meta.costInr ?? null, ...out });
+    note('brain', { model: `${meta.provider}/${meta.model}`, ms: Math.round(performance.now() - t0), costInr: meta.costInr ?? null, usage: meta.usage, ...out });
   } catch (e) {
     note('brain-failed', { why: e.message, using: 'a plain acknowledgement and a reviewed question' });
     out = plainTurn(ctx);
@@ -291,7 +291,7 @@ async function finish(s, reply, heard, note, opts) {
   // The closing feedback is written from what they said in the open answers; without any, plain lines.
   const sum = said.length ? await summarize({ answers: said, level, known }, { config: opts.summaryConfig || settings.get('placement').summary, structured: opts.structured })
     : plainSummary({ answers: [], level, known });
-  note('summary', { model: sum.meta ? `${sum.meta.provider}/${sum.meta.model}` : null, ms: sum.meta?.latencyMs ?? null, costInr: sum.meta?.costInr ?? null, closing: sum.closing, ...(sum.fallback ? { fallback: sum.fallback } : {}) });
+  note('summary', { model: sum.meta ? `${sum.meta.provider}/${sum.meta.model}` : null, ms: sum.meta?.latencyMs ?? null, costInr: sum.meta?.costInr ?? null, usage: sum.meta?.usage ?? null, closing: sum.closing, ...(sum.fallback ? { fallback: sum.fallback } : {}) });
   s.done = true;
   s.result = {
     level, name: L.name, blurb: L.blurb, hindi: L.hindi, overall: null, dims: {}, reasons, mode: 'conversation',

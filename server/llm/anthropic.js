@@ -80,5 +80,5 @@ export async function anthropicChat(messages, { model, maxTokens = 900, schema, 
   const u = res.usage || {};
   const input = u.input_tokens == null ? null : u.input_tokens + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
   // Claude's output_tokens include thinking; the API doesn't split it out, so reasoning is unknown.
-  return { text, usage: { input, output: u.output_tokens ?? null, reasoning: null } };
+  return { text, usage: { input, cached: u.cache_read_input_tokens ?? null, output: u.output_tokens ?? null, reasoning: null } };
 }

@@ -38,7 +38,7 @@ async function callProvider(job, messages, { schema, schemaName, maxTokens }) {
   const meta = {};
   const text = await sarvam.chat(messages, { model: job.model, temperature: job.temperature, maxTokens, json: true, meta, purpose: 'tutor' });
   const u = meta.usage || {};
-  return { text, usage: { input: u.prompt_tokens ?? null, output: u.completion_tokens ?? null, reasoning: u.completion_tokens_details?.reasoning_tokens ?? null } };
+  return { text, usage: { input: u.prompt_tokens ?? null, cached: u.prompt_tokens_details?.cached_tokens ?? null, output: u.completion_tokens ?? null, reasoning: u.completion_tokens_details?.reasoning_tokens ?? null } };
 }
 
 /**
@@ -73,7 +73,7 @@ export async function structured({ job, config = null, timeoutMs = null, message
 
 async function ask(cfg, { messages, schema, schemaName, maxTokens, repair }) {
   const t0 = performance.now();
-  let convo = messages, last = null, usage = { input: 0, output: 0, reasoning: 0 };
+  let convo = messages, last = null, usage = { input: 0, cached: 0, output: 0, reasoning: 0 }; // input includes the cached part; output includes reasoning
   for (let attempt = 1; attempt <= 2; attempt++) {
     let res;
     try { res = await callProvider(cfg, convo, { schema, schemaName, maxTokens }); }
@@ -82,7 +82,7 @@ async function ask(cfg, { messages, schema, schemaName, maxTokens, repair }) {
     const json = extractJson(res.text);
     const parsed = json ? schema.safeParse(repair ? repair(json) : json) : null;
     if (parsed?.success) {
-      return { data: parsed.data, provider: cfg.provider, model: cfg.model, latencyMs: Math.round(performance.now() - t0), usage, costInr: costInr({ provider: cfg.provider, model: cfg.model, usage }), attempts: attempt };
+      return { data: parsed.data, provider: cfg.provider, model: cfg.model, latencyMs: Math.round(performance.now() - t0), usage, costInr: costInr({ provider: cfg.provider, model: cfg.model, usage, price: cfg.price }), attempts: attempt };
     }
     last = json ? parsed.error.issues.slice(0, 4).map((i) => `${i.path.join('.') || 'answer'}: ${i.message}`).join('; ') : 'not valid JSON';
     convo = [...messages, { role: 'assistant', content: String(res.text || '').slice(0, 2000) },

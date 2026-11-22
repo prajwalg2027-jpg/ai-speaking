@@ -192,3 +192,6 @@ td.row { gap: 12px; }
 .lab-meta { margin: 10px 0 0; }
 .bubble p { margin: 0 0 4px; }
 .bubble p:last-of-type { margin-bottom: 0; }
+.lab-price { flex-basis: 100%; }
+.lab-price .row { margin-top: 8px; }
+.lab-price input { width: 130px; }

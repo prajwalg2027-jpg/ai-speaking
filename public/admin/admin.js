@@ -408,7 +408,17 @@ let labPicks = null; // { primary: {provider, model}, others: [...] }: kept for 
 const levelBadge = (x) => (x.answered === false ? html`<span class="badge">Not an answer</span>`
   : x.level == null ? html`<span class="muted small">–</span>` : html`<span class="badge on">Level ${x.level} · ${LEVEL_WORDS[x.level] || ''}</span>`);
 const lines = (list) => list.filter(Boolean).map((l) => html`<p>${l}</p>`);
-const speedCost = (x) => html`<p class="small muted lab-meta">Speed ${ms(x.ms)} · cost ${inr(x.costInr, 3)}</p>`;
+const tokens = (u) => (u && (u.input || u.output) ? `${n0(u.input)} in${u.cached ? ` (${n0(u.cached)} cached)` : ''} · ${n0(u.output)} out${u.reasoning ? ` (${n0(u.reasoning)} thinking)` : ''}` : '–');
+const speedCost = (x) => html`<p class="small muted lab-meta">Speed ${ms(x.ms)} · cost ${inr(x.costInr, 3)}<br>Tokens: ${tokens(x.usage)}</p>`;
+/** Adds one AI call to a model's running total for the talk. */
+function addUse(totals, x) {
+  if (!x || x.error || !('ms' in x) || x.ms == null) return;
+  const t = (totals[x.model] ||= { calls: 0, ms: 0, cost: 0, priced: true, input: 0, cached: 0, output: 0, reasoning: 0 });
+  t.calls++; t.ms += x.ms || 0;
+  if (x.costInr == null) t.priced = false; else t.cost += x.costInr;
+  for (const k of ['input', 'cached', 'output', 'reasoning']) t[k] += x.usage?.[k] || 0;
+}
+const totalLine = (t) => (t ? html`<h3>The whole talk</h3><p class="small">${t.calls} AI call${t.calls === 1 ? '' : 's'} · ${ms(t.ms)} in all · cost ${t.priced ? inr(t.cost, 3) : '– (add this model\'s price to see it)'}<br>Tokens: ${tokens(t)}</p>` : '');
 
 function progressLine(ratings, q) {
   const parts = [];
@@ -438,7 +448,7 @@ function labTurnCol(x, first, say) {
 const labHead = (x, first) => html`<div class="lab-model"><strong>${x.model}</strong>${first ? html` <span class="badge on">runs the conversation</span>` : ''}</div>`;
 
 /** One model's closing feedback. say: Sakhi's last lines (the first model's). */
-function labEndCol(x, first, say) {
+function labEndCol(x, first, say, totals = {}) {
   const list = (title, items) => (items?.length ? html`<h3>${title}</h3><ul class="lab-list">${items.map((i) => html`<li>${i}</li>`)}</ul>` : '');
   if (x.error) return html`<div class="card lab-col ${first ? 'first' : ''}">${labHead(x, first)}<p class="err">${x.error}</p></div>`;
   const closing = first ? say : x.closing ? [x.closing].flat() : [];
@@ -446,7 +456,7 @@ function labEndCol(x, first, say) {
     ${list('What you did well', x.doingWell)}${list('What we’ll practise next', x.practise)}
     ${closing.length ? html`<h3>Says at the end</h3><div class="lab-say">${lines(closing)}</div>` : ''}
     ${x.fallback ? html`<p class="small muted">Plain lines were used: ${x.fallback}</p>` : ''}
-    ${speedCost(x)}</div>`;
+    ${speedCost(x)}${totalLine(totals[x.model])}</div>`;
 }
 
 async function models() {
@@ -466,8 +476,17 @@ async function models() {
   const pickRow = (m, i) => html`<div class="row end pick" data-i="${i}">
     <label class="f">Provider<select data-prov>${provs.map((p) => html`<option value="${p}" ${p === m.provider ? raw('selected') : ''} ${i < 0 && !ok(p) ? raw('disabled') : ''}>${providerName(p)}${ok(p) ? '' : ' (no API key on the server)'}</option>`)}</select></label>
     <label class="f grow">Model<input data-model value="${m.model}" list="sugg-${m.provider}" maxlength="100" autocomplete="off" required></label>
-    ${i >= 0 ? html`<button type="button" class="link danger" data-remove>Remove</button>` : ''}</div>`;
-  const readPick = (row) => ({ provider: $('[data-prov]', row).value, model: $('[data-model]', row).value.trim() });
+    ${i >= 0 ? html`<button type="button" class="link danger" data-remove>Remove</button>` : ''}
+    <details class="lab-price"><summary class="small muted">Price (optional, to show cost for models the server has no price for)</summary>
+      <div class="row"><label class="f">Input, $ per 1M tokens<input type="number" min="0" step="any" data-price="input" value="${m.price?.input ?? ''}"></label>
+      <label class="f">Cached input, $ per 1M<input type="number" min="0" step="any" data-price="cached" value="${m.price?.cached ?? ''}"></label>
+      <label class="f">Output, $ per 1M<input type="number" min="0" step="any" data-price="output" value="${m.price?.output ?? ''}"></label></div>
+      <p class="small muted">From the provider's pricing page. Sarvam and Claude prices are already known. Leave empty otherwise.</p></details></div>`;
+  const readPick = (row) => {
+    const num = (k) => { const v = $(`[data-price="${k}"]`, row).value; return v === '' ? undefined : Number(v); };
+    const price = num('input') != null && num('output') != null ? { input: num('input'), output: num('output'), ...(num('cached') != null ? { cached: num('cached') } : {}) } : undefined;
+    return { provider: $('[data-prov]', row).value, model: $('[data-model]', row).value.trim(), ...(price ? { price } : {}) };
+  };
   const readPicks = () => ({ primary: readPick($('.pick[data-i="-1"]', box)), others: $$('#others .pick', box).map(readPick) });
 
   function setup() {
@@ -525,6 +544,7 @@ async function models() {
     const form = $('#turn', box), input = $('#said', box), log = $('#log', box);
     input.focus();
     const busy = (on) => { for (const el of $$('input, button', form)) el.disabled = on; $('#wait', box).hidden = !on; };
+    const totals = {}; // per model: AI calls, time, tokens and cost over the whole talk
 
     async function send(event, message) {
       const err = $('#terr', box); err.textContent = '';
@@ -539,8 +559,9 @@ async function models() {
       turn.innerHTML = fmt(html`<div class="bubble learner">${event === 'answer' ? message : html`<span class="muted">${LEARNER_EVENTS[event]}</span>`}<div class="meta">Learner</div></div>
         <div class="lab-cols">${labTurnCol(r.primary, true, r.done ? [] : r.say)}${r.others.map((x) => labTurnCol(x, false))}</div>`);
       log.append(turn);
+      for (const x of [r.primary, ...r.others, ...(r.done ? [r.done.primary, ...r.done.others] : [])]) addUse(totals, x);
       $('#progress', box).textContent = progressLine(r.ratings || [], r.done ? null : r.question);
-      if (r.done) { form.hidden = true; result(r, picks); return; }
+      if (r.done) { form.hidden = true; result(r, picks, totals); return; }
       input.value = ''; busy(false); input.focus();
       turn.scrollIntoView({ block: 'start' });
     }
@@ -548,13 +569,13 @@ async function models() {
     for (const b of $$('[data-event]', form)) b.addEventListener('click', () => send(b.dataset.event));
   }
 
-  function result(r, picks) {
+  function result(r, picks, totals) {
     const d = r.done, first = `${picks.primary.provider}/${picks.primary.model}`;
     const card = document.createElement('div');
     card.className = 'card section lab-result';
     card.innerHTML = fmt(html`<h2>Level ${d.level} of 4 · ${d.name}</h2>
       ${d.reasons?.length ? html`<h3>Why</h3><ul class="lab-list">${d.reasons.map((x) => html`<li>${x}</li>`)}</ul>` : ''}
-      <div class="lab-cols">${labEndCol(d.primary, true, r.say)}${d.others.map((x) => labEndCol(x, false))}</div>
+      <div class="lab-cols">${labEndCol(d.primary, true, r.say, totals)}${d.others.map((x) => labEndCol(x, false, null, totals))}</div>
       <div class="row" style="margin-top:14px"><button type="button" data-again>Start again</button>
         ${can('settings.edit') ? html`<button type="button" class="primary" data-use>Use ${first} for the placement test</button>` : ''}</div>
       <p class="err" data-err role="alert"></p>`);

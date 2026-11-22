@@ -11,6 +11,9 @@ const PROVIDERS = {
   gemini: { label: 'Gemini', key: 'GEMINI_API_KEY', base: 'GEMINI_BASE_URL', defaultBase: 'https://generativelanguage.googleapis.com/v1beta/openai', maxParam: 'max_tokens' },
 };
 
+// Models that refused a temperature (newer OpenAI models accept only their default): not sent to them again.
+const noTemperature = new Set();
+
 async function chatCompletions(p, messages, { model, temperature, maxTokens, schema, schemaName }) {
   const base = process.env[p.base] || p.defaultBase;
   const ctrl = new AbortController();
@@ -21,17 +24,22 @@ async function chatCompletions(p, messages, { model, temperature, maxTokens, sch
         method: 'POST', signal: ctrl.signal,
         headers: { authorization: `Bearer ${process.env[p.key]}`, 'content-type': 'application/json' },
         body: JSON.stringify({
-          model, messages, temperature, [p.maxParam]: maxTokens,
+          model, messages, ...(noTemperature.has(`${p.label}/${model}`) ? {} : { temperature }), [p.maxParam]: maxTokens,
           response_format: schema
             ? { type: 'json_schema', json_schema: { name: schemaName, strict: true, schema: z.toJSONSchema(schema, { target: 'draft-7' }) } }
             : { type: 'json_object' },
         }),
       });
       if ((res.status === 429 || res.status >= 500) && attempt < 2) { await new Promise((r) => setTimeout(r, 500 * 2 ** attempt)); continue; }
-      if (!res.ok) throw new Error(`${p.label} ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      if (!res.ok) {
+        const body = (await res.text()).slice(0, 400);
+        // "temperature does not support 0.6 with this model": ask again without it, and remember.
+        if (res.status === 400 && /temperature/i.test(body) && !noTemperature.has(`${p.label}/${model}`)) { noTemperature.add(`${p.label}/${model}`); continue; }
+        throw new Error(`${p.label} ${res.status}: ${body.slice(0, 300)}`);
+      }
       const j = await res.json();
       const u = j.usage || {};
-      return { text: j.choices?.[0]?.message?.content ?? '', usage: { input: u.prompt_tokens ?? null, output: u.completion_tokens ?? null, reasoning: u.completion_tokens_details?.reasoning_tokens ?? null } };
+      return { text: j.choices?.[0]?.message?.content ?? '', usage: { input: u.prompt_tokens ?? null, cached: u.prompt_tokens_details?.cached_tokens ?? null, output: u.completion_tokens ?? null, reasoning: u.completion_tokens_details?.reasoning_tokens ?? null } };
     }
   } finally { clearTimeout(timer); }
 }

@@ -32,7 +32,10 @@ before(async () => {
     if (lastUser(b).includes('REFUSE')) return [200, claudeMessage(b.model, { content: [], stop_reason: 'refusal', stop_details: { type: 'refusal', category: 'cyber', explanation: null } })];
     return [200, claudeMessage(b.model, { content: [{ type: 'thinking', thinking: '', signature: 'sig' }, { type: 'text', text: JSON.stringify(ANSWER) }], stop_reason: 'end_turn' })];
   });
-  openFake = await startFake(openCalls, (b) => [200, { choices: [{ message: { content: JSON.stringify(ANSWER) } }], usage: { prompt_tokens: 50, completion_tokens: 10 } }, lastUser(b).includes('SLOW') ? 600 : 0]);
+  openFake = await startFake(openCalls, (b) => (b.model === 'gpt-fixed-temp' && 'temperature' in b
+    // A model that only accepts its default temperature (OpenAI's words).
+    ? [400, { error: { message: "Unsupported value: 'temperature' does not support 0.6 with this model. Only the default (1) value is supported.", type: 'invalid_request_error', param: 'temperature', code: 'unsupported_value' } }]
+    : null) || [200, { choices: [{ message: { content: JSON.stringify(ANSWER) } }], usage: { prompt_tokens: 50, completion_tokens: 10, prompt_tokens_details: { cached_tokens: 20 }, completion_tokens_details: { reasoning_tokens: 4 } } }, lastUser(b).includes('SLOW') ? 600 : 0]);
   Object.assign(process.env, {
     ANTHROPIC_API_KEY: 'claude-test-key', ANTHROPIC_BASE_URL: `http://127.0.0.1:${claudeFake.address().port}`,
     GEMINI_API_KEY: 'gemini-test-key', GEMINI_BASE_URL: `http://127.0.0.1:${openFake.address().port}/gemini`,
@@ -55,7 +58,7 @@ test('Claude: structured JSON that validates, and the request it sends', async (
   assert.deepEqual(r.data, ANSWER);
   assert.equal(r.provider, 'anthropic');
   assert.equal(r.attempts, 1);
-  assert.deepEqual(r.usage, { input: 1000, output: 200, reasoning: 0 });
+  assert.deepEqual(r.usage, { input: 1000, cached: 0, output: 200, reasoning: 0 });
   assert.equal(claudeCalls.length, 1);
   const { path, headers, body } = claudeCalls[0];
   assert.match(path, /^\/v1\/messages/);
@@ -143,4 +146,22 @@ test('costInr: Claude priced, unknown model null', async () => {
   assert.equal(typeof prices.costInr({ provider: 'sarvam', model: 'sarvam-105b', usage: { input: 1000, output: 200 } }), 'number');
   const r = await llm.structured({ job: 'x', config: { provider: 'anthropic', model: 'claude-haiku-5-5' }, messages, schema: Answer });
   assert.ok(Math.abs(r.costInr - (1000 * 0.1 + 200 * 0.5) / 1e6 * 88) < 1e-9);
+});
+
+test('a model that refuses a temperature is asked again without one, and not sent one after that', async () => {
+  openCalls.length = 0;
+  const cfg = { provider: 'openai', model: 'gpt-fixed-temp', temperature: 0.6 };
+  const r = await llm.structured({ job: 'placement', config: cfg, messages, schema: Answer });
+  assert.deepEqual(openCalls.map((c) => 'temperature' in c.body), [true, false]);
+  assert.deepEqual(r.usage, { input: 50, cached: 20, output: 10, reasoning: 4 }, 'tokens: input (cached inside it), output (thinking inside it)');
+  assert.equal(r.costInr, null, 'no price known for this model');
+  await llm.structured({ job: 'placement', config: cfg, messages, schema: Answer });
+  assert.equal(openCalls.length, 3, 'remembered: one request the second time');
+});
+
+test('a price typed for a model gives its cost; cached tokens cost less', async () => {
+  const price = { input: 1, cached: 0.1, output: 4 }; // US dollars per million tokens
+  const r = await llm.structured({ job: 'placement', config: { provider: 'openai', model: 'gpt-x', temperature: 0.6, price }, messages, schema: Answer });
+  assert.ok(Math.abs(r.costInr - ((30 * 1 + 20 * 0.1 + 10 * 4) / 1e6) * 88) < 1e-9);
+  assert.ok(Math.abs(prices.costInr({ provider: 'openai', model: 'm', usage: { input: 1000, cached: 0, output: 0 }, price: { input: 2, output: 8 } }) - 0.176) < 1e-9);
 });
