@@ -111,7 +111,7 @@ test('comparing models: each runs its own conversation end to end; a model witho
   assert.match(sent[0].content, /^You are Sakhi/);
   assert.deepEqual([sent[1].content, sent[3].content], ['(The call begins.)', 'My name is Ravi']);
   assert.match(sent[4].content, /^\[Note from the app, not said by the learner\][\s\S]*STEP: HELLO/);
-  assert.deepEqual([JSON.parse(t[0].log.raw).name, t[0].log.attempts, t[0].log.thinking], ['Ravi', 1, null]);
+  assert.deepEqual([JSON.parse(t[0].log.raw), t[0].log.attempts, t[0].log.thinking], [{ h: 'a', ev: '4 words', n: 'Ravi', r: 'Nice to meet you, Ravi!', q: 'A picture is on your screen. What is it called in English?' }, 1, null], 'the answer as it came: short');
   const first = sent;
   t = await type(WORDS[t[0].step.screen]);
   assert.deepEqual([t[0].ai.picture, t[0].step.step], ['named', 'read']);

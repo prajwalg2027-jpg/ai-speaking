@@ -107,6 +107,47 @@ what she said, each request is the last one plus new messages (the reusable part
 code no longer edits the past. The saving in reused tokens is small in itself, because the old edits only
 touched the two newest turns. A request with a cut-off is a little longer (her full line and the app's line).
 
+## The AI's answer: as short as it can be
+
+Output tokens are the dearest and the slowest part of a call, so the model is asked for the least it can write:
+short keys, one letter for a value, and **nothing at all for what does not apply** (no `null`, no empty text).
+
+| Key | Meaning | Values |
+| --- | --- | --- |
+| `h` | what happened (always) | `a` answered · `h` asked for help · `c` could not · `s` something else · `g` gave up |
+| `p` | picture (that step only) | `y` named · `n` not named |
+| `rd` | reading (that step only) | `w` well · `p` partly · `n` not |
+| `lv` | level of an open answer | 1 to 4 |
+| `ev` | why it judged so (only with `p`, `rd` or `lv`) | under 12 words |
+| `tip` | the one fix it made | `["their words", "the right way"]` |
+| `n` | their name, if they said it | |
+| `r` | her reply (always) | |
+| `q` | her question (left out when she finishes) | |
+| `f` | the final level and feedback; its presence ends the talk | `{ lv, why, good: [..], next: [..], bye }` |
+
+The hello turn, before and after:
+
+```
+before (11 fields, about 345 characters)       after (4 fields, about 125 characters)
+{ "happened": "answered",                      {"h":"a","n":"Prajwal",
+  "picture": null, "reading": null,             "r":"Nice to meet you, Prajwal.",
+  "level": null, "evidence": "They gave …",     "q":"There's a picture on your screen. What is it called in English?"}
+  "tip": null, "name": "Prajwal",
+  "reply": "…", "question": "…",
+  "finish": false, "final": null }
+```
+
+`server/placement/brain.js` reads the short answer back into full words (`repairTurn`) for the rest of the code,
+the saved results and the Compare models page; `toWire` goes the other way. A model that ignores the format and
+writes the long names, or nulls, is still understood.
+
+**The trade-off.** A provider's own strict schema (OpenAI's structured output) makes the model write every field
+every time: a field can be empty (`null`) but not absent. To leave fields out, the call asks for plain JSON
+instead, and the format lives in the fixed instructions. So the provider no longer guarantees the shape; the
+server checks every answer, repairs near-misses, and asks once more if it is still not usable (the Compare
+models log shows when that happened: "the model was asked again"). The order of the keys also comes from the
+instructions now, which is what lets her reply be picked out early while the answer is streamed.
+
 ## How hard the model thinks
 
 Two settings (Settings › Placement test), for models that take a thinking level (OpenAI's, Claude's; Sarvam and

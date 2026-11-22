@@ -67,10 +67,12 @@ async function callProvider(job, messages, { schema, schemaName, maxTokens, want
  * @param {boolean} [p.wantThinking]  ask the provider for a summary of the model's thinking (the admin's log)
  * @param {(text: string) => void} [p.onText]  stream the answer (OpenAI only): called with its text so far as it is written.
  *                                             The first answer only; not called again if the model is asked to repair it.
+ * @param {boolean} [p.schemaToProvider]  false: ask for plain JSON and check it here only (the format is then in the
+ *                                         instructions). For answers that leave fields out, which a provider's strict schema can't.
  * @param {string} [p.effort]  how hard to think: 'none'|'low'|'medium'|'high' (OpenAI and Claude; 'default' or nothing: the model's own)
  * @returns {Promise<{data, provider, model, latencyMs, usage, costInr, attempts, raw, thinking, firstTextMs}>}  costInr: an estimate, or null
  */
-export async function structured({ job, config = null, timeoutMs = null, messages, schema, schemaName = 'answer', maxTokens = 900, repair = null, wantThinking = false, effort = null, onText = null }) {
+export async function structured({ job, config = null, timeoutMs = null, messages, schema, schemaName = 'answer', maxTokens = 900, repair = null, wantThinking = false, effort = null, onText = null, schemaToProvider = true }) {
   effort = effort && effort !== 'default' ? effort : null;
   let cfg = config || settings.get('llm')[job];
   if (!cfg) throw new LlmError(`no settings for job ${job}`, { kind: 'config' });
@@ -79,22 +81,22 @@ export async function structured({ job, config = null, timeoutMs = null, message
     console.warn(`[llm] ${cfg.provider} is selected for ${job} but not configured: using Sarvam`);
     cfg = settings.SECTIONS.llm.defaults[job] || { provider: 'sarvam', model: 'sarvam-105b', temperature: cfg.temperature ?? 0.3 };
   }
-  if (!timeoutMs) return ask(cfg, { messages, schema, schemaName, maxTokens, repair, wantThinking, effort, onText });
+  if (!timeoutMs) return ask(cfg, { messages, schema, schemaName, maxTokens, repair, wantThinking, effort, onText, schemaToProvider });
   // The provider call can't be cancelled from here, so it may finish in the background; its result is ignored.
   let timer;
-  const run = ask(cfg, { messages, schema, schemaName, maxTokens, repair, wantThinking, effort, onText });
+  const run = ask(cfg, { messages, schema, schemaName, maxTokens, repair, wantThinking, effort, onText, schemaToProvider });
   run.catch(() => {});
   return Promise.race([run, new Promise((_, reject) => {
     timer = setTimeout(() => reject(new LlmError(`${cfg.provider} took longer than ${timeoutMs} ms`, { kind: 'timeout' })), timeoutMs);
   })]).finally(() => clearTimeout(timer));
 }
 
-async function ask(cfg, { messages, schema, schemaName, maxTokens, repair, wantThinking, effort, onText }) {
+async function ask(cfg, { messages, schema, schemaName, maxTokens, repair, wantThinking, effort, onText, schemaToProvider }) {
   const t0 = performance.now();
   let convo = messages, last = null, usage = { input: 0, cached: 0, output: 0, reasoning: 0 }; // input includes the cached part; output includes reasoning
   for (let attempt = 1; attempt <= 2; attempt++) {
     let res;
-    try { res = await callProvider(cfg, convo, { schema, schemaName, maxTokens, wantThinking, effort, onText: attempt === 1 ? onText : null }); }
+    try { res = await callProvider(cfg, convo, { schema: schemaToProvider ? schema : null, schemaName, maxTokens, wantThinking, effort, onText: attempt === 1 ? onText : null }); }
     catch (e) { throw new LlmError(`${cfg.provider} failed: ${e.message}`, { kind: e.name === 'AbortError' ? 'timeout' : 'provider' }); }
     for (const k of Object.keys(usage)) usage[k] += res.usage?.[k] || 0;
     const json = extractJson(res.text);

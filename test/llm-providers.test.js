@@ -214,6 +214,17 @@ test('OpenAI: with onText the answer is streamed, its text handed over as it is 
   await assert.rejects(ask('gpt-breaks', () => {}), (e) => e.kind === 'provider' && /stopped before the answer was finished/.test(e.message));
 });
 
+test('an answer that leaves fields out: asked for as plain JSON (no schema to the provider), still checked here', async () => {
+  openCalls.length = 0; claudeCalls.length = 0;
+  const ask = (provider, model) => llm.structured({ job: 'x', config: { provider, model, temperature: 0 }, messages, schema: Answer, schemaToProvider: false });
+  assert.deepEqual((await ask('openai', 'gpt-x')).data, ANSWER);
+  assert.deepEqual(openCalls[0].body.text.format, { type: 'json_object' });
+  assert.deepEqual((await ask('gemini', 'gemini-x')).data, ANSWER);
+  assert.deepEqual(openCalls[1].body.response_format, { type: 'json_object' });
+  assert.deepEqual((await ask('anthropic', 'claude-haiku-5-5')).data, ANSWER);
+  assert.equal('format' in claudeCalls[0].body.output_config, false);
+});
+
 test('structured({ config }) overrides the settings for the job', async () => {
   openCalls.length = 0; claudeCalls.length = 0;
   // The settings say Sarvam for `tutor` (not configured here, so without config this would fail).

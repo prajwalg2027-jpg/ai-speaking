@@ -31,7 +31,9 @@ function fakeAI(turns) {
   return { structured, asked };
 }
 // What the AI answers on a turn (every field, as it must): the defaults are a plain "answered" turn.
-const T = (o = {}) => ({ happened: 'answered', picture: null, reading: null, level: null, evidence: 'ok', tip: null, name: null, reply: 'Nice.', question: '', finish: false, final: null, ...o });
+// Written here in full words, for reading; handed to the code in the short shape the AI is asked for (brain.toWire).
+const FULL = (o = {}) => ({ happened: 'answered', picture: null, reading: null, level: null, evidence: 'ok', tip: null, name: null, reply: 'Nice.', question: '', finish: false, final: null, ...o });
+const T = (o = {}) => brain.toWire(FULL(o));
 const FINAL = (level, o = {}) => ({ level, reason: `Sounds like level ${level}.`, doingWell: ['You answered every question in English.', 'You talked about your own life.'], practise: ['Next, we will make longer sentences.', 'Next, we will talk about yesterday.'], closing: 'You talked about your life in English. Next, we will make longer sentences.', ...o });
 const say = (t) => t.say.map((l) => l.text).join(' | ');
 // With seed 0 every talk has the same picture (a dog), lines to read and first open question.
@@ -136,11 +138,11 @@ test('every turn goes to the AI: hello, picture, reading, open questions, and th
   assert.ok(!brain.BRAIN_SYSTEM.includes('Asha'), 'nothing about one learner is in the fixed instructions');
 });
 
-test('the fixed instructions: "reply" and "question" are one spoken turn, and "reply" asks nothing', async () => {
+test('the fixed instructions: her reply ("r") and her question ("q") are one spoken turn, and the reply asks nothing', async () => {
   const told = brain.BRAIN_SYSTEM;
-  assert.match(told, /"reply" and "question" are spoken one straight after the other, as a single turn/);
-  assert.match(told, /"question" picks up from where "reply" ended\. It does not start afresh, does not greet or react again, and does not repeat anything "reply" already said/);
-  assert.match(told, /- reply: [^\n]*It must contain no question: not one question mark\. Everything you ask goes in "question"\./);
+  assert.match(told, /"r" and "q" are spoken one straight after the other, as a single turn/);
+  assert.match(told, /"q" picks up from where "r" ended\. It does not start afresh, does not greet or react again, and does not repeat anything "r" already said/);
+  assert.match(told, /- "r": [^\n]*It must contain no question: not one question mark\. Everything you ask goes in "q"\./);
   // The app's net for a model that asks in its reply anyway: the question there is left out, moving on or staying.
   const { go } = await toOpen([
     T({ level: 2, reply: 'You made tea! Do you like tea?', question: 'Who do you live with?' }),
@@ -442,15 +444,46 @@ test('a model that streams: her reply is known, and its voice can start, before 
 });
 
 test('reading an answer while it is still being written: the fields up to the reply', () => {
-  const whole = JSON.stringify(T({ evidence: 'They said "reply": yes, and {more}', tip: { said: 'I go', better: 'I went' }, name: 'Asha', reply: 'Oh, you went to the "big" market!', question: 'Why?' }));
-  const upTo = (n) => brain.fieldsUpTo(whole.slice(0, n), 'reply');
+  const whole = JSON.stringify(T({ level: 3, evidence: 'They said "r": yes, and {more}', tip: { said: 'I go', better: 'I went' }, name: 'Asha', reply: 'Oh, you went to the "big" market!', question: 'Why?' }));
+  const upTo = (n) => brain.fieldsUpTo(whole.slice(0, n), 'r');
   const end = whole.indexOf('market!"') + 'market!"'.length; // just past the reply's closing quote
   assert.equal(upTo(end - 1), null, 'not until the reply is finished');
-  assert.deepEqual(upTo(end), { happened: 'answered', picture: null, reading: null, level: null, evidence: 'They said "reply": yes, and {more}', tip: { said: 'I go', better: 'I went' }, name: 'Asha', reply: 'Oh, you went to the "big" market!' });
+  assert.deepEqual(upTo(end), { h: 'a', lv: 3, ev: 'They said "r": yes, and {more}', tip: ['I go', 'I went'], n: 'Asha', r: 'Oh, you went to the "big" market!' });
   assert.deepEqual(upTo(whole.length), upTo(end), 'the same however much more has arrived');
-  assert.equal(brain.fieldsUpTo('', 'reply'), null);
-  assert.equal(brain.fieldsUpTo('Sorry, I cannot', 'reply'), null);
-  assert.equal(brain.fieldsUpTo('{"tip": {"reply": "inside"}, "rep', 'reply'), null, 'only the answer\'s own field counts');
+  assert.equal(brain.fieldsUpTo('', 'r'), null);
+  assert.equal(brain.fieldsUpTo('Sorry, I cannot', 'r'), null);
+  assert.equal(brain.fieldsUpTo('{"f": {"r": "inside"}, "r', 'r'), null, 'only the answer\'s own field counts');
+});
+
+test("the AI's answer is as short as it can be: short keys, letters for values, nothing written that does not apply", async () => {
+  // What it is asked for.
+  const told = brain.BRAIN_SYSTEM;
+  assert.match(told, /leave out every key that does not apply: never write null, an empty text or an empty list/);
+  for (const key of ['h', 'p', 'rd', 'lv', 'ev', 'tip', 'n', 'r', 'q', 'f']) assert.ok(told.includes(`- "${key}": `), `the instructions explain "${key}"`);
+  assert.doesNotMatch(told, /"happened"|"picture"|"reading"|"evidence"|"reply"|"question"|"finish"|"final"|doingWell|practise:/, 'no long names left to copy');
+  // The short answer read back into the full shape the code uses.
+  const hello = { h: 'a', n: 'Prajwal', r: 'Nice to meet you, Prajwal.', q: "There's a picture on your screen. What is it called in English?" };
+  assert.deepEqual(brain.repairTurn(hello), FULL({ evidence: '', name: 'Prajwal', reply: hello.r, question: hello.q }));
+  assert.deepEqual(brain.toWire(brain.repairTurn(hello)), hello, 'and back: nothing is added');
+  const last = { h: 'a', lv: 3, ev: "Joined ideas: 'because it is near'", tip: ['I go', 'I went'], r: 'Oh, you went there!', f: { lv: 3, why: 'Connected sentences.', good: ['You gave a reason.', 'You spoke in full sentences.'], next: ["Say 'I went' for yesterday.", 'Next, we will tell a story.'], bye: 'You gave a clear reason. Next, we will tell stories.' } };
+  assert.deepEqual(brain.repairTurn(last), FULL({ level: 3, evidence: last.ev, tip: { said: 'I go', better: 'I went' }, reply: 'Oh, you went there!', finish: true,
+    final: { level: 3, reason: 'Connected sentences.', doingWell: last.f.good, practise: last.f.next, closing: last.f.bye } }));
+  assert.deepEqual(brain.toWire(brain.repairTurn(last)), last);
+  assert.deepEqual(brain.repairTurn({ h: 'h', p: 'n', rd: 'p', r: 'Okay.' }), FULL({ happened: 'asked_for_help', picture: 'not_named', reading: 'partly', evidence: '', reply: 'Okay.' }));
+  // The short answer is much shorter than the long one was.
+  const long = JSON.stringify({ ...brain.repairTurn(hello), evidence: 'They gave their name in a clear English sentence.' }, null, 2);
+  assert.ok(JSON.stringify(hello).length < long.length / 2.5, `${JSON.stringify(hello).length} characters against ${long.length}`);
+  // A model that ignores the format (long names, nulls) is still understood; "f" without a level ends the talk on the app's rule.
+  assert.equal(brain.repairTurn({ happened: 'gave_up', picture: null, reply: 'That is fine.', question: '', finish: false, final: null }).happened, 'gave_up');
+  assert.deepEqual([brain.repairTurn({ h: 'a', r: 'Bye.', f: {} }).finish, brain.repairTurn({ h: 'a', r: 'Bye.', f: {} }).final], [true, null]);
+
+  // It is asked for as plain JSON, checked here: a provider's own strict schema would force every field to be written.
+  const seen = [];
+  const s = convo.getSession(convo.startSession({ seed: 0 }).sessionId);
+  const structured = async (p) => { seen.push(p); return { data: p.schema.parse(p.repair(hello)), provider: 'fake', model: 'fake-1', latencyMs: 1, usage: {}, costInr: 0, attempts: 1 }; };
+  const t = await convo.handleTurn(s, { event: 'answer', transcript: 'My name is Prajwal', speechSec: 2 }, null, { structured });
+  assert.equal(seen[0].schemaToProvider, false);
+  assert.equal(say(t), "Nice to meet you, Prajwal. | There's a picture on your screen. What is it called in English?");
 });
 
 test('the switch: classic stays the default; conversation when chosen; each test keeps its kind', async () => {

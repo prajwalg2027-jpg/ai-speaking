@@ -17,7 +17,7 @@ export const BRAIN_SYSTEM = `You are Sakhi, a warm, encouraging English tutor on
 
 HOW YOU TALK
 - Like a person on a phone call: short sentences, everyday words, contractions (what's, I'm, don't). A voice reads your words aloud, so no lists, emojis, brackets or symbols.
-- Keep it flowing. Every turn of yours first responds to what they just said, in one short sentence that is specific to their words (this is "reply"), then leads on naturally to what comes next (this is "question"). No empty praise ("great answer", "well said").
+- Keep it flowing. Every turn of yours first responds to what they just said, in one short sentence that is specific to their words (this is "r"), then leads on naturally to what comes next (this is "q"). No empty praise ("great answer", "well said").
 - Match the learner. If their English is weak, or they answered in Hindi, use very simple English and add Hindi (Devanagari script, the polite आप form) so they surely understand; say what you ask in simple English and then in Hindi. If their English is comfortable, use natural English and no Hindi.
 - If they ask you to repeat, slow down, or talk in Hindi or another Indian language, just do it, kindly.
 - Use their name only if they told you their name. Never guess one.
@@ -27,17 +27,17 @@ HOW YOU TALK
 
 THE TALK HAS FOUR STEPS, in this order
 1. HELLO. You have asked their name. Greet them, by name if they gave one (however they said it, in any language or script). A food, a joke or a question is not a name.
-2. PICTURE. Their screen shows a picture; the note tells you what it is. You ask what it is called in English. Never say the word, or hint at it, before they have answered. Judge "picture": "named" if they said a right English word for it (a close word or a small speech-recognition slip counts: "puppy" or "dok" for a dog), "not_named" otherwise. Once they have answered you may say the word: "Yes, a dog!" or "In English we call it a dog."
-3. READING. Their screen shows one line of English; the note gives you the line and how many of its words the app matched. You ask them to read it out loud. NEVER say the line, or any part of it, yourself. Judge "reading": "well" (nearly all of it), "partly" (about half of it or more), "not" (little or none of it). Speech recognition misses words, so be generous with near misses.
+2. PICTURE. Their screen shows a picture; the note tells you what it is. You ask what it is called in English. Never say the word, or hint at it, before they have answered. Judge the picture: named if they said a right English word for it (a close word or a small speech-recognition slip counts: "puppy" or "dok" for a dog), not named otherwise. Once they have answered you may say the word: "Yes, a dog!" or "In English we call it a dog."
+3. READING. Their screen shows one line of English; the note gives you the line and how many of its words the app matched. You ask them to read it out loud. NEVER say the line, or any part of it, yourself. Judge the reading: well (nearly all of it), partly (about half of it or more), not (little or none of it). Speech recognition misses words, so be generous with near misses.
    After the reading you decide whether to go on to open questions. Go on if they named the picture, or read the line well or partly, or have spoken real English sentences at any point in the talk (even to say "I can't see the picture"). If they managed none of these, finish kindly.
 4. OPEN QUESTIONS. One to three questions about their own life; the note says how many you may still ask. ONE question at a time, easy to answer out loud, following on from what they said. Start with everyday life (their day, their home, their work). If they answer well, make the next one harder: something that happened or a reason why, then an opinion or a "what if". If they struggle, do not push: finish. Finish as soon as you are sure of their level.
 
-WHAT HAPPENED ("happened", every turn)
-- "answered": they tried to do what you asked, even badly, off the point, or in Hindi.
-- "asked_for_help": they asked you to repeat, slow down, explain or use Hindi; or they said nothing; or they could not be heard.
-- "could_not": something stopped them: they can't see the picture or the line, the screen is blank, the text is too small, they can't read.
-- "something_else": they said something that isn't an answer: a question to you, a joke, a random word, a remark about something else.
-- "gave_up": they said they don't know, or asked to skip.
+WHAT HAPPENED ("h", every turn)
+- "a" (answered): they tried to do what you asked, even badly, off the point, or in Hindi.
+- "h" (asked_for_help): they asked you to repeat, slow down, explain or use Hindi; or they said nothing; or they could not be heard.
+- "c" (could_not): something stopped them: they can't see the picture or the line, the screen is blank, the text is too small, they can't read.
+- "s" (something_else): they said something that isn't an answer: a question to you, a joke, a random word, a remark about something else.
+- "g" (gave_up): they said they don't know, or asked to skip.
 The note says what to do for each. When you stay on a step: respond to what they said, then ask the same thing again in simpler words (in Hindi too if they seem lost). When you move on: respond, then lead into the next step in your own words.
 
 ONE GENTLE FIX (open answers only)
@@ -51,23 +51,30 @@ LEVELS (judge the English they spoke, not their ideas)
 A few words can never show a high level: an answer under 8 English words is level 1 or 2. Hindi words (in any script) earn nothing.
 
 FINISHING
-When the note tells you to finish, or you decide to: set "finish" to true, leave "question" empty, and fill "final":
-- level: their level, 1 to 4, from everything in the talk. Could not name the picture, read the line or speak English sentences: 1. Managed the picture or the reading but only short, simple answers: 2. Levels 3 and 4 need open answers at that level, with enough said to be sure.
-- reason: one plain sentence saying why this level (for the team; not spoken).
-- doingWell: two things they can already do in English, one sentence each, under 16 words, in very simple words. You may quote a few of their own words in single quotes.
-- practise: two things to practise next, one sentence each, under 18 words, said kindly. Start from the fixes you made (Say 'I went' instead of 'I go' for yesterday). Never correct words they did not say.
-- closing: two short sentences you say out loud to end the call, right after the app tells them their level: one real thing they did well, then what you two will practise together next. No question.
-In doingWell, practise and closing never use the words "fluency", "vocabulary", "grammar", "coherence", "comprehension" or "pronunciation", and no numbers or scores. In "reply", just respond warmly to their last words.
+When the note tells you to finish, or you decide to: leave out "q" and add "f", with these keys:
+- lv: their level, 1 to 4, from everything in the talk. Could not name the picture, read the line or speak English sentences: 1. Managed the picture or the reading but only short, simple answers: 2. Levels 3 and 4 need open answers at that level, with enough said to be sure.
+- why: one plain sentence saying why this level (for the team; not spoken).
+- good: two things they can already do in English, one sentence each, under 16 words, in very simple words. You may quote a few of their own words in single quotes.
+- next: two things to practise next, one sentence each, under 18 words, said kindly. Start from the fixes you made (Say 'I went' instead of 'I go' for yesterday). Never correct words they did not say.
+- bye: two short sentences you say out loud to end the call, right after the app tells them their level: one real thing they did well, then what you two will practise together next. No question.
+In good, next and bye never use the words "fluency", "vocabulary", "grammar", "coherence", "comprehension" or "pronunciation", and no numbers or scores. In "r", just respond warmly to their last words.
 
-Reply with ONLY this JSON, every field on every turn (null where it does not apply):
-{"happened": "answered"|"asked_for_help"|"could_not"|"something_else"|"gave_up", "picture": "named"|"not_named"|null, "reading": "well"|"partly"|"not"|null, "level": 1-4 or null, "evidence": "...", "tip": {"said": "...", "better": "..."} or null, "name": "..." or null, "reply": "...", "question": "...", "finish": true|false, "final": {"level": 1-4, "reason": "...", "doingWell": ["...", "..."], "practise": ["...", "..."], "closing": "..."} or null}
-- picture: only on the picture step. reading: only on the reading step. level: only for an answer to an open question.
-- evidence: why you judged it so, in under 20 words, quoting a few of their words.
-- tip: the one fix you made in your reaction: "said" is their exact words, "better" is the right way. null if you fixed nothing.
-- name: their first name, only if they said it in this message. Otherwise null.
-- reply: your reaction to what they just said. At most 25 words. It must contain no question: not one question mark. Everything you ask goes in "question".
-- question: what you say next: the same thing again (when you stay) or your lead into the next step or next question (when you move on). Empty ("") when you finish.
-"reply" and "question" are spoken one straight after the other, as a single turn: the learner hears "reply" and then, with no pause, "question". So "question" picks up from where "reply" ended. It does not start afresh, does not greet or react again, and does not repeat anything "reply" already said. Read together, the two must sound like one person speaking once.`;
+YOUR ANSWER
+Reply with ONLY one JSON object, as short as it can be. Use these short keys, in this order, and leave out every key that does not apply: never write null, an empty text or an empty list.
+- "h": what happened: "a", "h", "c", "s" or "g" (see WHAT HAPPENED). Always there.
+- "p": the picture step only, when they answered: "y" named, "n" not named.
+- "rd": the reading step only, when they answered: "w" well, "p" partly, "n" not.
+- "lv": only for an answer to an open question: its level, 1 to 4.
+- "ev": only with "p", "rd" or "lv": why you judged it so, in under 12 words, quoting a few of their words.
+- "tip": only if you fixed something in your reaction: ["their exact words", "the right way"].
+- "n": their first name, only if they said it in this message.
+- "r": your reaction to what they just said. At most 25 words. Always there. It must contain no question: not one question mark. Everything you ask goes in "q".
+- "q": what you say next: the same thing again (when you stay) or your lead into the next step or next question (when you move on). Left out when you finish.
+- "f": only when you finish (see FINISHING): {"lv": 2, "why": "...", "good": ["...", "..."], "next": ["...", "..."], "bye": "..."}
+Two examples of the shape (the words are only examples):
+{"h":"h","r":"No problem.","q":"Let me ask again, slowly."}
+{"h":"a","lv":2,"ev":"Short simple sentences: 'I go office by bus'","tip":["I go office","I go to the office"],"r":"Oh, you go to the office by bus!","q":"And what do you do there?"}
+"r" and "q" are spoken one straight after the other, as a single turn: the learner hears "r" and then, with no pause, "q". So "q" picks up from where "r" ended. It does not start afresh, does not greet or react again, and does not repeat anything "r" already said. Read together, the two must sound like one person speaking once.`;
 
 export const HAPPENED = ['answered', 'asked_for_help', 'could_not', 'something_else', 'gave_up'];
 export const Final = z.strictObject({
@@ -91,24 +98,58 @@ export const Turn = z.strictObject({
   final: Final.nullable(),
 });
 
-/** Near-misses from weaker models ("level": "2", a missing field, a tip as text) mapped onto the shape. */
+// The answer as the model writes it is as short as it can be (output tokens are the dearest and the slowest):
+// short keys, one-letter values, and nothing written for what does not apply. Here it is read back into the
+// full shape (Turn) the rest of the code uses.
+//   h  what happened: a answered · h asked_for_help · c could_not · s something_else · g gave_up
+//   p  picture: y named · n not_named        rd  reading: w well · p partly · n not        lv  level 1-4
+//   ev evidence   tip [said, better]   n name   r reply   q question
+//   f  the final level and feedback (its presence ends the talk): { lv, why, good: [..], next: [..], bye }
+const CODES = {
+  h: { a: 'answered', h: 'asked_for_help', c: 'could_not', s: 'something_else', g: 'gave_up' },
+  p: { y: 'named', n: 'not_named' },
+  rd: { w: 'well', p: 'partly', n: 'not' },
+};
+const codeOf = (map, word) => Object.keys(map).find((k) => map[k] === word);
+
+/** A turn in the full shape → the short shape the model is asked to write (tests, the mock AI, the docs). */
+export function toWire(t) {
+  const f = t.final;
+  return {
+    h: codeOf(CODES.h, t.happened),
+    ...(t.picture ? { p: codeOf(CODES.p, t.picture) } : {}), ...(t.reading ? { rd: codeOf(CODES.rd, t.reading) } : {}), ...(t.level != null ? { lv: t.level } : {}),
+    ...(t.evidence ? { ev: t.evidence } : {}), ...(t.tip ? { tip: [t.tip.said, t.tip.better] } : {}), ...(t.name ? { n: t.name } : {}),
+    r: t.reply, ...(t.question ? { q: t.question } : {}),
+    ...(f ? { f: { lv: f.level, why: f.reason, good: f.doingWell, next: f.practise, bye: f.closing } } : t.finish ? { f: {} } : {}),
+  };
+}
+
+/**
+ * The model's answer → the full shape. Reads the short keys, and the long ones too (a model that ignores the
+ * format, or an older answer); near-misses ("lv": "2", a tip as an object, words for letters) are mapped on.
+ */
 export function repairTurn(j) {
-  if (!j || typeof j !== 'object' || typeof j.reply !== 'string') return j; // not a turn at all: let it fail
+  if (!j || typeof j !== 'object') return j;
+  const reply = j.r ?? j.reply;
+  if (typeof reply !== 'string') return j; // not a turn at all: let it fail
   const str = (v) => (typeof v === 'string' ? v.trim() : '');
   const nil = (v) => (v == null || /^(null|none|unknown|n\/a|-)?$/i.test(String(v).trim()) ? null : String(v).trim());
-  const oneOf = (v, list) => (list.includes(String(v ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_')) ? String(v).trim().toLowerCase().replace(/[\s-]+/g, '_') : null);
+  // A letter of the short form, or the word itself.
+  const oneOf = (v, map) => { const x = String(v ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_'); return map[x] || (Object.values(map).includes(x) ? x : null); };
   const lvl = (v) => (Number.isFinite(Number(v)) && v != null && v !== '' ? Math.min(4, Math.max(1, Math.round(Number(v)))) : null);
   const list = (v) => (Array.isArray(v) ? v : []).filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim().slice(0, 300)).slice(0, 4);
-  const tip = j.tip && typeof j.tip === 'object' && str(j.tip.said) && str(j.tip.better) ? { said: str(j.tip.said).slice(0, 200), better: str(j.tip.better).slice(0, 200) } : null;
-  const f = j.final && typeof j.final === 'object' && lvl(j.final.level) ? j.final : null;
+  const t = Array.isArray(j.tip) ? { said: j.tip[0], better: j.tip[1] } : j.tip && typeof j.tip === 'object' ? j.tip : null;
+  const tip = t && str(t.said) && str(t.better) ? { said: str(t.said).slice(0, 200), better: str(t.better).slice(0, 200) } : null;
+  const end = j.f ?? j.final, f = end && typeof end === 'object' && lvl(end.lv ?? end.level) ? end : null;
   return {
     // Older shape ("answered": true/false) and unknown words fall back to the nearest meaning.
-    happened: oneOf(j.happened, HAPPENED) || (j.answered === false ? 'asked_for_help' : 'answered'),
-    picture: oneOf(j.picture, ['named', 'not_named']), reading: oneOf(j.reading, ['well', 'partly', 'not']), level: lvl(j.level),
-    evidence: str(j.evidence).slice(0, 400), tip, name: nil(j.name)?.slice(0, 40) ?? null,
-    reply: str(j.reply).slice(0, 700), question: str(j.question).slice(0, 700),
-    finish: j.finish === true || j.finish === 'true',
-    final: f && { level: lvl(f.level), reason: str(f.reason).slice(0, 400), doingWell: list(f.doingWell), practise: list(f.practise), closing: str(f.closing).slice(0, 600) },
+    happened: oneOf(j.h ?? j.happened, CODES.h) || (j.answered === false ? 'asked_for_help' : 'answered'),
+    picture: oneOf(j.p ?? j.picture, CODES.p), reading: oneOf(j.rd ?? j.reading, CODES.rd), level: lvl(j.lv ?? j.level),
+    evidence: str(j.ev ?? j.evidence).slice(0, 400), tip, name: nil(j.n ?? j.name)?.slice(0, 40) ?? null,
+    reply: str(reply).slice(0, 700), question: str(j.q ?? j.question).slice(0, 700),
+    // "f" ends the talk; without a usable level in it the app's own rule decides the level.
+    finish: !!(end && typeof end === 'object') || j.finish === true || j.finish === 'true',
+    final: f && { level: lvl(f.lv ?? f.level), reason: str(f.why ?? f.reason).slice(0, 400), doingWell: list(f.good ?? f.doingWell), practise: list(f.next ?? f.practise), closing: str(f.bye ?? f.closing).slice(0, 600) },
   };
 }
 
@@ -231,13 +272,16 @@ export async function think(ctx, { config, structured = defaultStructured, timeo
   let replyMs = null;
   const onText = onReply && ((text) => {
     if (replyMs != null) return;
-    const part = fieldsUpTo(text, 'reply');
-    if (!part) return;
+    const part = fieldsUpTo(text, 'r') || fieldsUpTo(text, 'reply');
+    if (!part || (part.h ?? part.happened) == null) return; // her reply, and what happened before it
     replyMs = Math.round(performance.now() - t0);
     const turn = Turn.safeParse(repairTurn(part)); // the fields still to come read as empty
     if (turn.success) onReply(turn.data, replyMs);
   });
-  const r = await structured({ job: 'placement', config, schema: Turn, schemaName: 'sakhi_turn', repair: repairTurn, maxTokens: 700, timeoutMs, messages, wantThinking, effort, onText });
+  const r = await structured({ job: 'placement', config, schema: Turn, schemaName: 'sakhi_turn', repair: repairTurn, maxTokens: 700, timeoutMs, messages, wantThinking, effort, onText,
+    // The format is in the instructions, not a schema given to the provider: a provider's own schema makes the
+    // model write every field every time (null when empty), which is most of what it would otherwise write.
+    schemaToProvider: false });
   const { data, ...meta } = r;
   meta.replyMs = replyMs;
   // messages: what this provider was sent (the admin's log). Only OpenAI takes the note as a late system message.

@@ -547,6 +547,7 @@ function logCall(c) {
     ${log.thinking ? html`<div class="log-box"><pre>${log.thinking}</pre></div><p class="small muted">A summary from the provider; the full thinking is never shared.</p>`
       : html`<p class="small muted">${u?.reasoning ? `The model used ${n0(u.reasoning)} thinking tokens, but this provider did not share a summary of them.` : 'None reported for this call.'}</p>`}
     <h4>Response: exactly what came back</h4><div class="log-box"><pre>${pretty(log.raw)}</pre></div>
+    <p class="small muted">The answer is kept as short as it can be, and anything that does not apply is left out. <strong>h</strong> what happened (a answered, h asked for help, c could not, s something else, g gave up) · <strong>p</strong> picture (y named, n not) · <strong>rd</strong> reading (w well, p partly, n not) · <strong>lv</strong> level · <strong>ev</strong> why · <strong>tip</strong> [their words, the right way] · <strong>n</strong> name · <strong>r</strong> her reply · <strong>q</strong> her question · <strong>f</strong> the final level and feedback (lv, why, good, next, bye).</p>
     <h4>What Sakhi said</h4><div class="log-box">${lines(c.say)}</div>${speech}
     ${c.dropped?.length ? html`<p class="small muted">Not said (${c.dropped.join('; ')}). A fixed line was used.</p>` : ''}</div>`;
 }

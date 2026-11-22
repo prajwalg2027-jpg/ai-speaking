@@ -69,7 +69,10 @@ export function startMockRest({ transcript = 'my name is ravi i like tea' } = {}
           if (/Finish now/.test(note) || (o.level || 0) <= 2 || before.includes(o.level)) { o.finish = true; o.final = final(Math.max(2, Math.min(o.level || 2, ...(before.length ? [Math.max(...before)] : [4])))); }
           else o.question = 'Here is a harder question: why do you like it?';
         }
-        content = JSON.stringify(o);
+        // The short shape the real AI is asked for. (Loaded here, not at the top: the server's code must not be
+        // loaded before a test has set its environment.)
+        const { toWire } = await import('../server/placement/brain.js');
+        content = JSON.stringify(toWire(o));
       }
       else if (/first short talk with a learner/.test(sys)) content = JSON.stringify({ doingWell: ['You answered every question in English.', 'You talked about your own life.'], practise: ["Say 'I went' instead of 'I go' for yesterday.", 'Next, we will join two ideas with because.'], closing: 'You talked about your life in English. Next, we will practise talking about yesterday.' });
       else if (/examiner/.test(sys)) content = '{"comprehension":3,"vocabulary":3,"grammar":3,"fluency":3,"pronunciation":3,"coherence":3,"relevant":true,"note":"ok"}';
