@@ -55,6 +55,7 @@ test('comparing models: each runs its own conversation end to end; a model witho
   assert.ok(info.suggestions.anthropic.includes('claude-haiku-5-5'));
   // What the page starts with: the model in use beside OpenAI's small one, and every known price.
   assert.deepEqual(info.defaults, [{ provider: 'sarvam', model: settings.get('placement').brain.model }, { provider: 'openai', model: 'gpt-6-luna' }]);
+  assert.deepEqual(info.effortFor, { turn: 'low', final: 'medium' });
   assert.deepEqual(info.prices.openai['gpt-6-luna'], { input: 0.1, cached: 0.01, output: 0.5 });
   assert.ok(Object.keys(info.prices.openai).length >= 25 && info.prices.openaiAsOf && info.prices.usdInr > 0 && info.prices.sarvamInr.input > 0);
   assert.equal((await post('/api/admin/placement-lab/start', { models: [{ provider: 'anthropic', model: 'claude-haiku-5-5' }] })).status, 400, 'at least one model needs its key');

@@ -48,8 +48,14 @@ async function chatCompletions(p, messages, { model, temperature, maxTokens, sch
   } finally { clearTimeout(timer); }
 }
 
+const noEffort = new Set(); // models that refused a thinking level
+function reasoningOf(key, effort, wantThinking) {
+  const r = { ...(effort && !noEffort.has(key) ? { effort } : {}), ...(wantThinking && !noThinking.has(key) ? { summary: 'auto' } : {}) };
+  return Object.keys(r).length ? { reasoning: r } : {};
+}
+
 /** OpenAI's Responses API. messages: [{ role: 'system'|'user'|'assistant', content }] (system notes may come late). */
-async function responses(p, messages, { model, temperature, maxTokens, schema, schemaName, wantThinking = false }) {
+async function responses(p, messages, { model, temperature, maxTokens, schema, schemaName, wantThinking = false, effort = null }) {
   const base = process.env[p.base] || p.defaultBase;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20_000);
@@ -62,8 +68,9 @@ async function responses(p, messages, { model, temperature, maxTokens, schema, s
           model, store: false,
           input: messages.map((m) => ({ role: m.role, content: String(m.content ?? '') })),
           ...(noTemperature.has(`${p.label}/${model}`) ? {} : { temperature }),
-          // The model's thinking isn't shared, but a summary of it can be (for the admin's log).
-          ...(wantThinking && !noThinking.has(`${p.label}/${model}`) ? { reasoning: { summary: 'auto' } } : {}),
+          // How hard to think (none, low, medium, high), when asked. The thinking itself isn't shared, but a
+          // summary of it can be (for the admin's log).
+          ...(reasoningOf(`${p.label}/${model}`, effort, wantThinking)),
           // Thinking counts towards this limit on models that think first, so leave room for it.
           max_output_tokens: maxTokens + 2000,
           text: { format: schema ? { type: 'json_schema', name: schemaName, strict: true, schema: z.toJSONSchema(schema, { target: 'draft-7' }) } : { type: 'json_object' } },
@@ -73,6 +80,8 @@ async function responses(p, messages, { model, temperature, maxTokens, schema, s
       if (!res.ok) {
         const body = (await res.text()).slice(0, 400);
         if (res.status === 400 && /temperature/i.test(body) && !noTemperature.has(`${p.label}/${model}`)) { noTemperature.add(`${p.label}/${model}`); continue; }
+        // A model that doesn't take a thinking level, or doesn't share a summary: ask again without, and remember.
+        if (res.status === 400 && effort && /effort/i.test(body) && !noEffort.has(`${p.label}/${model}`)) { noEffort.add(`${p.label}/${model}`); continue; }
         if (res.status === 400 && wantThinking && /reasoning|summary/i.test(body) && !noThinking.has(`${p.label}/${model}`)) { noThinking.add(`${p.label}/${model}`); continue; }
         throw new Error(`${p.label} ${res.status}: ${body.slice(0, 300)}`);
       }

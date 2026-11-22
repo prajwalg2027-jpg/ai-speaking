@@ -7,6 +7,8 @@ import { pool } from './db/pool.js';
 import { CONFIG as SCORING_DEFAULTS, setScoringConfig } from './scoring.js';
 
 const num = (k, d) => (Number.isFinite(Number(process.env[k])) && process.env[k] !== '' ? Number(process.env[k]) : d);
+// How hard a model thinks before it answers, for the models that take it (OpenAI's and Claude's). 'default': say nothing, the model's own default.
+export const EFFORTS = ['default', 'none', 'low', 'medium', 'high'];
 const llmJob = z.strictObject({
   provider: z.enum(['sarvam', 'openai', 'anthropic', 'gemini']),
   model: z.string().min(1).max(100),
@@ -33,12 +35,18 @@ export const SECTIONS = {
       brain: llmJob,                                     // conversation mode: writes each of Sakhi's turns and rates the answer
       summary: llmJob,                                   // conversation mode: the closing feedback (once per test)
       maxQuestions: z.number().int().min(1).max(6),          // open questions, after the name, the picture and the reading
+      // conversation mode: how hard the model thinks on each turn (speed matters), and for the final level and
+      // feedback (care matters). Given a default here so that settings saved before these existed still load.
+      turnEffort: z.enum(EFFORTS).default('low'),
+      finalEffort: z.enum(EFFORTS).default('medium'),
     }),
     defaults: {
       mode: 'classic',
       brain: { provider: 'sarvam', model: 'sarvam-105b-conversations', temperature: 0.6 },
       summary: { provider: 'sarvam', model: 'sarvam-105b', temperature: 0.3 },
       maxQuestions: 3,
+      turnEffort: 'low',
+      finalEffort: 'medium',
     },
   },
   corrections: {

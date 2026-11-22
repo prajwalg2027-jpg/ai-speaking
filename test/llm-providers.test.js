@@ -38,6 +38,9 @@ before(async () => {
   openFake = await startFake(openCalls, (b) => (b.model === 'gpt-fixed-temp' && 'temperature' in b
     // A model that only accepts its default temperature (OpenAI's words).
     ? [400, { error: { message: "Unsupported value: 'temperature' does not support 0.6 with this model. Only the default (1) value is supported.", type: 'invalid_request_error', param: 'temperature', code: 'unsupported_value' } }]
+    : b.model === 'gpt-no-effort' && b.reasoning?.effort
+    // A model that doesn't think (OpenAI's words).
+    ? [400, { error: { message: "Unsupported parameter: 'reasoning.effort' is not supported with this model.", type: 'invalid_request_error', param: 'reasoning.effort', code: 'unsupported_parameter' } }]
     : null) || [200, { choices: [{ message: { content: JSON.stringify(ANSWER) } }], usage: { prompt_tokens: 50, completion_tokens: 10, prompt_tokens_details: { cached_tokens: 20 }, completion_tokens_details: { reasoning_tokens: 4 } } }, lastUser(b).includes('SLOW') ? 600 : 0]);
   Object.assign(process.env, {
     ANTHROPIC_API_KEY: 'claude-test-key', ANTHROPIC_BASE_URL: `http://127.0.0.1:${claudeFake.address().port}`,
@@ -145,6 +148,29 @@ test("OpenAI: every model's list price is known, dated names too; the thinking s
   assert.deepEqual(['reasoning' in openCalls[0].body, plain.thinking, JSON.parse(plain.raw)], [false, null, ANSWER], 'learners\' turns never ask for it');
   const logged = await llm.structured({ job: 'x', config: cfg, messages, schema: Answer, wantThinking: true });
   assert.deepEqual([openCalls[1].body.reasoning, logged.thinking], [{ summary: 'auto' }, 'They answered in English.']);
+});
+
+test('how hard to think: sent to OpenAI and Claude when asked; a model that refuses it is asked again without', async () => {
+  openCalls.length = 0; claudeCalls.length = 0;
+  const open = (model, effort) => llm.structured({ job: 'x', config: { provider: 'openai', model, temperature: 0 }, messages, schema: Answer, effort });
+  await open('gpt-x', 'low');
+  await open('gpt-x', 'default');
+  await open('gpt-x');
+  assert.deepEqual(openCalls.map((c) => c.body.reasoning), [{ effort: 'low' }, undefined, undefined], "'default' leaves it to the model");
+  // With the log's thinking summary, both go in one field.
+  await llm.structured({ job: 'x', config: { provider: 'openai', model: 'gpt-x', temperature: 0 }, messages, schema: Answer, effort: 'medium', wantThinking: true });
+  assert.deepEqual(openCalls.at(-1).body.reasoning, { effort: 'medium', summary: 'auto' });
+
+  openCalls.length = 0;
+  assert.deepEqual((await open('gpt-no-effort', 'low')).data, ANSWER);
+  assert.deepEqual(openCalls.map((c) => c.body.reasoning), [{ effort: 'low' }, undefined], 'asked again without it');
+  await open('gpt-no-effort', 'medium');
+  assert.equal(openCalls.length, 3, 'remembered: not tried again');
+
+  const claude = (effort) => llm.structured({ job: 'x', config: { provider: 'anthropic', model: 'claude-haiku-5-5', temperature: 0 }, messages, schema: Answer, effort });
+  await claude('medium'); await claude('none'); await claude();
+  assert.deepEqual(claudeCalls.map((c) => c.body.output_config.effort), ['medium', 'low', 'low'], 'Claude has no "none": its usual low');
+  assert.deepEqual([llm.takesEffort('openai'), llm.takesEffort('anthropic'), llm.takesEffort('sarvam'), llm.takesEffort('gemini')], [true, true, false, false]);
 });
 
 test('structured({ config }) overrides the settings for the job', async () => {

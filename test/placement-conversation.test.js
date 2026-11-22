@@ -19,8 +19,8 @@ before(async () => {
 /** A stand-in AI: answers each call from the list, in order; keeps what it was asked. */
 function fakeAI(turns) {
   const asked = [];
-  const structured = async ({ job, schema, messages, repair }) => {
-    asked.push({ job, user: messages.at(-1).content, messages }); // user: the note for the turn (the last message)
+  const structured = async ({ job, schema, messages, repair, effort, config }) => {
+    asked.push({ job, user: messages.at(-1).content, messages, effort, model: config?.model }); // user: the note for the turn (the last message)
     const next = turns.shift();
     if (!next) throw new Error('the AI is down');
     if (next instanceof Error) throw next;
@@ -34,21 +34,21 @@ const FINAL = (level, o = {}) => ({ level, reason: `Sounds like level ${level}.`
 const say = (t) => t.say.map((l) => l.text).join(' | ');
 // With seed 0 every talk has the same picture (a dog), lines to read and first open question.
 const LINE2 = 'Yesterday I went to the market and bought some fresh vegetables.', LINE1 = 'I have a brother and a sister.';
-function start(turns) {
+function start(turns, opts = {}) {
   const ai = fakeAI(turns);
   const s = convo.getSession(convo.startSession({ seed: 0 }).sessionId);
-  const go = (transcript, extra = {}) => convo.handleTurn(s, { event: 'answer', transcript, speechSec: 4, ...extra }, null, { structured: ai.structured });
-  const tap = (event) => convo.handleTurn(s, { event }, null, { structured: ai.structured });
+  const go = (transcript, extra = {}) => convo.handleTurn(s, { event: 'answer', transcript, speechSec: 4, ...extra }, opts.trace || null, { structured: ai.structured, ...opts });
+  const tap = (event) => convo.handleTurn(s, { event }, null, { structured: ai.structured, ...opts });
   return { s, ai, go, tap };
 }
 /** A talk taken to its first open question: the name, the picture named, the line read. turns: the AI's answers from there. */
-async function toOpen(turns) {
+async function toOpen(turns, opts = {}) {
   const x = start([
     T({ name: 'Asha', reply: 'Lovely to meet you, Asha!', question: "There's a picture on your screen. What is it called in English?" }),
     T({ picture: 'named', reply: 'Yes, a dog!', question: 'Now a line of English is on your screen. Could you read it out for me?' }),
     T({ reading: 'well', reply: 'Thank you, that was clear.', question: 'So, what did you do this morning?' }),
     ...turns,
-  ]);
+  ], opts);
   await x.go('My name is Asha'); await x.go('It is a dog'); const t = await x.go(LINE2);
   x.ai.asked.length = 0;
   return { ...x, t };
@@ -334,6 +334,53 @@ test('only the answer just before can be carried on: help in between is not join
   assert.doesNotMatch(ai.asked[2].user, /STILL ANSWERING/);
   assert.match(ai.asked[2].user, /STEP: OPEN QUESTION 2\n\nTHEY TALKED OVER YOU\./);
   assert.equal(s.ratings.length, 2);
+});
+
+test('thinking: light on each turn, more for the final level; an early ending by the AI is evaluated again with more', async () => {
+  const LUNA = { config: { provider: 'openai', model: 'gpt-6-luna', temperature: 0.6 } };
+  assert.deepEqual([settings.get('placement').turnEffort, settings.get('placement').finalEffort], ['low', 'medium']);
+  // The AI ends the talk after the first open answer: that turn is asked again, told to finish, with more thought.
+  let x = await toOpen([
+    T({ level: 2, reply: 'You made tea!', finish: true, final: FINAL(2, { reason: 'A quick look.' }) }),
+    T({ level: 3, reply: 'Tea for everyone, how kind!', finish: true, final: FINAL(3, { reason: 'A careful look.' }) }),
+  ], LUNA);
+  let t = await x.go('I made tea for my husband and my two children today because they like it');
+  assert.deepEqual(x.ai.asked.map((a) => a.effort), ['low', 'medium']);
+  assert.match(x.ai.asked[1].user, /- answered: move on: you have heard enough to be sure of their level\. Finish now\./);
+  assert.deepEqual(talkOf(x.ai.asked[1]), talkOf(x.ai.asked[0]), 'the same talk: only the note differs');
+  assert.deepEqual([t.done.level, t.done.reasons[0], t.say[0].text], [3, 'A careful look.', 'Tea for everyone, how kind!'], 'the careful answer is the one used');
+
+  // The last question allowed: the app knows it is the end, so it is one call, with more thought from the start.
+  x = await toOpen([
+    T({ level: 2, reply: 'Nice.', question: 'Who do you live with?' }),
+    T({ level: 2, reply: 'Lovely.', question: 'What do you do in the evening?' }),
+    T({ level: 2, reply: 'That sounds good.', finish: true, final: FINAL(2) }),
+  ], LUNA);
+  await x.go('I made tea today'); await x.go('I live with my family');
+  t = await x.go('I watch television');
+  assert.deepEqual([x.ai.asked.map((a) => a.effort), t.done.level], [['low', 'low', 'medium'], 2]);
+
+  // The careful evaluation fails, or doesn't finish: the turn's own answer stands.
+  x = await toOpen([T({ level: 2, reply: 'You made tea!', finish: true, final: FINAL(2) }), new Error('busy')], LUNA);
+  t = await x.go('I made tea today');
+  assert.deepEqual([x.ai.asked.length, t.done.level, t.done.decidedBy], [2, 2, 'the AI']);
+  x = await toOpen([T({ level: 2, reply: 'You made tea!', finish: true, final: FINAL(2) }), T({ level: 2, reply: 'Hm.', question: 'And then?' })], LUNA);
+  t = await x.go('I made tea today');
+  assert.equal(t.done.level, 2);
+
+  // The same thinking for both, or a provider that takes no thinking level: never a second call.
+  await settings.set('placement', { ...settings.get('placement'), turnEffort: 'low', finalEffort: 'low' }, 'test');
+  try {
+    x = await toOpen([T({ level: 2, reply: 'You made tea!', finish: true, final: FINAL(2) })], LUNA);
+    await x.go('I made tea today');
+    assert.deepEqual(x.ai.asked.map((a) => a.effort), ['low']);
+  } finally { await settings.reset('placement', 'test'); }
+  x = await toOpen([T({ level: 2, reply: 'You made tea!', finish: true, final: FINAL(2) })]);
+  t = await x.go('I made tea today');
+  assert.deepEqual([x.ai.asked.length, t.done.level], [1, 2], 'Sarvam: one call');
+  // Settings saved before these two existed still load, with the usual values.
+  const old = { mode: 'conversation', brain: LUNA.config, summary: LUNA.config, maxQuestions: 2 };
+  assert.deepEqual(settings.SECTIONS.placement.schema.parse(old), { ...old, turnEffort: 'low', finalEffort: 'medium' });
 });
 
 test('the switch: classic stays the default; conversation when chosen; each test keeps its kind', async () => {

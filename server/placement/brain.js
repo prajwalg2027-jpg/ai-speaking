@@ -195,9 +195,9 @@ export const turnMessages = (ctx) => [
  * One turn of thinking. Changes nothing: the same ctx can be given to several models to compare them.
  * → { out: Turn, meta: { provider, model, latencyMs, usage, costInr, attempts, raw, thinking }, messages }; throws if the model fails.
  */
-export async function think(ctx, { config, structured = defaultStructured, timeoutMs = 9000, wantThinking = false } = {}) {
+export async function think(ctx, { config, structured = defaultStructured, timeoutMs = 9000, wantThinking = false, effort = null } = {}) {
   const messages = turnMessages(ctx);
-  const r = await structured({ job: 'placement', config, schema: Turn, schemaName: 'sakhi_turn', repair: repairTurn, maxTokens: 700, timeoutMs, messages, wantThinking });
+  const r = await structured({ job: 'placement', config, schema: Turn, schemaName: 'sakhi_turn', repair: repairTurn, maxTokens: 700, timeoutMs, messages, wantThinking, effort });
   const { data, ...meta } = r;
   // messages: what this provider was sent (the admin's log). Only OpenAI takes the note as a late system message.
   return { out: data, meta, messages: meta.provider === 'openai' ? messages : lateSystemAsUser(messages) };

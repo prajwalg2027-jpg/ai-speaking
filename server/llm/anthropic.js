@@ -44,7 +44,7 @@ function getClient() {
 }
 
 /** messages in OpenAI shape → { text (the JSON string), usage: { input, output, reasoning } } */
-export async function anthropicChat(messages, { model, maxTokens = 900, schema, schemaName = 'answer', wantThinking = false }) {
+export async function anthropicChat(messages, { model, maxTokens = 900, schema, schemaName = 'answer', wantThinking = false, effort = null }) {
   // The first system message is the system prompt. A later one (a note for one turn) goes in as a user message
   // marked as coming from the app, so the system prompt and the talk before it stay the same from turn to turn.
   const system = messages[0]?.role === 'system' ? messages[0].content : '';
@@ -60,7 +60,7 @@ export async function anthropicChat(messages, { model, maxTokens = 900, schema, 
     // The thinking itself is never returned; a readable summary of it can be (for the admin's log).
     ...(wantThinking ? { thinking: { type: 'adaptive', display: 'summarized' } } : {}),
     output_config: {
-      effort: process.env.ANTHROPIC_EFFORT || 'low',
+      effort: ['low', 'medium', 'high'].includes(effort) ? effort : process.env.ANTHROPIC_EFFORT || 'low',
       ...(schema ? { format: { type: 'json_schema', schema: claudeSchema(z.toJSONSchema(schema)) } } : {}),
     },
     ...(FALLBACK_MODELS.has(model) ? { betas: [FALLBACK_BETA], fallbacks: 'default' } : {}),

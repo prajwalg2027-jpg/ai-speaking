@@ -25,6 +25,7 @@ import { makeLedger } from '../costs.js';
 import { speechSeconds } from '../sarvam.js';
 import { stripInventedNames, fixContractions } from '../tutor.js';
 import * as settings from '../settings.js';
+import { takesEffort } from '../llm/index.js';
 import { normalizeForCompare } from '../normalize.js';
 import { think, summarize, plainSummary, usableFinal, tipIsTheirs, learnerLine, cutOffLine } from './brain.js';
 import { nextStep, placementLevel, missedLevel, qualifies, READ_OK, OPEN_START } from './level.js';
@@ -227,19 +228,42 @@ export async function handleTurn(s, input, trace, opts = {}) {
   }
 
   const ctx = buildCtx(s, input);
-  let out, ai = true;
-  try {
+  const P = settings.get('placement'), config = opts.config || P.brain;
+  // One call to the AI. as: the name it goes by in the trace.
+  const askAI = async (c, effort, as) => {
     const t0 = performance.now();
-    const r = await think(ctx, { config: opts.config || settings.get('placement').brain, structured: opts.structured, wantThinking: !!opts.detail, ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) });
-    out = r.out;
+    const r = await think(c, { config, structured: opts.structured, wantThinking: !!opts.detail, effort, ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) });
     // The whole request and the answer as it came, only where someone will read them (the model comparison).
-    if (opts.detail) note('exchange', { messages: r.messages, raw: r.meta.raw ?? null, thinking: r.meta.thinking ?? null, attempts: r.meta.attempts });
-    note('brain', { model: `${r.meta.provider}/${r.meta.model}`, ms: Math.round(performance.now() - t0), costInr: r.meta.costInr ?? null, usage: r.meta.usage, at: ctx.step, ...out });
-  } catch (e) {
+    if (opts.detail) note(as === 'brain' ? 'exchange' : 'final-exchange', { messages: r.messages, raw: r.meta.raw ?? null, thinking: r.meta.thinking ?? null, attempts: r.meta.attempts });
+    note(as, { model: `${r.meta.provider}/${r.meta.model}`, ms: Math.round(performance.now() - t0), costInr: r.meta.costInr ?? null, usage: r.meta.usage, effort, at: c.step, ...r.out });
+    return r.out;
+  };
+  // How hard the model thinks: lightly on a turn (speed), more for the final level and feedback (care).
+  let out, ai = true;
+  try { out = await askAI(ctx, ctx.mustFinish ? P.finalEffort : P.turnEffort, 'brain'); }
+  catch (e) {
     note('brain-failed', { why: e.message, using: "the app's own checks and fixed lines" });
     out = plainTurn(s, ctx); ai = false;
   }
+  // The AI chose to end the talk on a turn it only thought about lightly: the same turn again with more thought,
+  // told to finish, so the final level and feedback always get the care set for them. (One more call, only then.)
+  const ends = (o) => o.finish && ['read', 'open'].includes(ctx.step) && !stays(ctx, o);
+  if (ai && ends(out) && !ctx.mustFinish && P.finalEffort !== P.turnEffort && takesEffort(config.provider)) {
+    try {
+      const again = await askAI({ ...ctx, mustFinish: true, onward: 'you have heard enough to be sure of their level. Finish now.' }, P.finalEffort, 'final-evaluation');
+      if (again.final && ends(again)) out = again;
+      else note('plan', { next: 'keep the first answer', why: 'the final evaluation did not finish the talk' });
+    } catch (e) { note('final-evaluation-failed', { why: e.message, using: "the turn's own answer" }); }
+  }
   return advance(s, ctx, out, input, note, opts, ai);
+}
+
+/** What the turn is taken as: silence can't be an answer. */
+const happenedIn = (ctx, out) => (ctx.spoke || out.happened !== 'answered' ? out.happened : 'asked_for_help');
+/** Will she stay on the step? Help (twice at most) or a steer back (once). */
+function stays(ctx, out) {
+  const h = happenedIn(ctx, out);
+  return (h === 'asked_for_help' && ctx.stayFor.asked_for_help) || (h === 'something_else' && ctx.stayFor.something_else);
 }
 
 /** Apply the AI's turn: remember what it judged, then stay on the step, move to the next, or finish. */
@@ -253,10 +277,10 @@ async function advance(s, ctx, out, input, note, opts, ai) {
   if (out.name && ctx.spoke && (INDIC.test(transcript) || transcript.toLowerCase().includes(out.name.toLowerCase()))) s.profile.name = out.name;
   let reply = clean(out.reply, s.profile.name), question = clean(out.question, s.profile.name);
   const heard = ctx.spoke ? transcript : undefined;
-  const h = ctx.spoke || out.happened !== 'answered' ? out.happened : 'asked_for_help'; // nothing was said: it can't be an answer
+  const h = happenedIn(ctx, out);
 
   // Stay on the step: help (twice at most) or a steer back (once).
-  if ((h === 'asked_for_help' && ctx.stayFor.asked_for_help) || (h === 'something_else' && ctx.stayFor.something_else)) {
+  if (stays(ctx, out)) {
     if (h === 'asked_for_help') q.helps++; else q.steers++;
     note('plan', { next: 'the same step again', why: h, helps: q.helps, steers: q.steers });
     ({ reply, question } = safeToSay(q, reply, question, note));

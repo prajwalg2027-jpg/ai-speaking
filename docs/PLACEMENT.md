@@ -101,6 +101,28 @@ what she said, each request is the last one plus new messages (the reusable part
 code no longer edits the past. The saving in reused tokens is small in itself, because the old edits only
 touched the two newest turns. A request with a cut-off is a little longer (her full line and the app's line).
 
+## How hard the model thinks
+
+Two settings (Settings › Placement test), for models that take a thinking level (OpenAI's, Claude's; Sarvam and
+Gemini ignore them):
+
+- **Thinking on each turn**: `low`. The learner is waiting to hear Sakhi, so speed matters most.
+- **Thinking for the final level and feedback**: `medium`. Care matters most.
+
+Each can be `default` (the model's own: medium for `gpt-6-luna`), `none`, `low`, `medium` or `high`. OpenAI
+gets it as `reasoning.effort`; Claude as its effort (it has no "none": low is used). A model that refuses a
+thinking level is asked again without one, and that is remembered.
+
+The level and feedback come in the answer to the last turn, so "the final evaluation" is that turn:
+- When the app knows the turn is the last (the last open question allowed), that one call is made at the final
+  level.
+- When the AI itself ends the talk earlier, on a turn it thought about lightly, the same turn is asked **once
+  more** at the final level, told to finish, and that answer is used (if it fails, the first one stands). This
+  costs one more call and its wait, only at the end of such a talk. The request is the same up to the note, so
+  nearly all of it is reused from cache. Set both settings the same to never make the second call.
+
+The Compare models page shows the thinking level on every call and lists the second call in the log.
+
 ## Choosing the AI model
 
 Set in Settings › Placement test: the model for **each turn** does the whole talk, the level and feedback

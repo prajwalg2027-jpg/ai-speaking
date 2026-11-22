@@ -12,7 +12,8 @@
 //   POST /api/admin/placement-lab/transcribe  (a WAV recording; ?language=en-IN for the reading step)
 //                                           → { transcript, audioSec, ms }: Sarvam's speech-to-text, as in the app
 //   POST /api/admin/placement-lab/turn      { labId, message?, event?, speechSec?, only?: index of one talk }
-//                                           → { talks: [ null (not asked) | { model, say, step, ai?, aiFailed?, log?, done? } ] }
+//                                           → { talks: [ null (not asked) | { model, say, step, ai?, aiFailed?, log?, final?, done? } ] }
+// final: { ai, log } when the final evaluation was asked for again with more thought (see conversation.js).
 // log: the exact request (every message) and the model's answer as it came, with its thinking where the provider
 // shares a summary of it.
 import { randomUUID } from 'node:crypto';
@@ -65,13 +66,18 @@ async function takeTurn(talk, input, deps) {
   catch (e) { return { model: label(talk.model), error: e.message }; }
   const find = (step) => trace.list.find((x) => x.step === step);
   const brain = find('brain'), failed = find('brain-failed'), sum = find('summary'), exchange = find('exchange'), guard = trace.list.filter((x) => x.step === 'guard');
+  const again = find('final-evaluation'), againLog = find('final-exchange'), againFailed = find('final-evaluation-failed');
+  const logOf = (x) => ({ messages: x.messages, raw: x.raw, thinking: x.thinking, attempts: x.attempts });
   return {
     model: label(talk.model), say: turn.say.map((l) => l.text), step: stepOf(s),
     // What the AI judged on this turn, with its speed, tokens and cost.
-    ...(brain ? { ai: { ms: brain.ms, costInr: brain.costInr, usage: brain.usage, happened: brain.happened, picture: brain.picture, reading: brain.reading, level: brain.level, evidence: brain.evidence, tip: brain.tip, finish: brain.finish } } : {}),
+    ...(brain ? { ai: { ms: brain.ms, costInr: brain.costInr, usage: brain.usage, effort: brain.effort, happened: brain.happened, picture: brain.picture, reading: brain.reading, level: brain.level, evidence: brain.evidence, tip: brain.tip, finish: brain.finish } } : {}),
     ...(failed ? { aiFailed: failed.why } : {}),
     // The exact request and the answer as it came (and the thinking, when the provider shares a summary).
-    ...(exchange ? { log: { messages: exchange.messages, raw: exchange.raw, thinking: exchange.thinking, attempts: exchange.attempts } } : {}),
+    ...(exchange ? { log: logOf(exchange) } : {}),
+    // The AI ended the talk on a lightly-thought turn: the final evaluation was asked for again, with more thought.
+    ...(again ? { final: { ai: { ms: again.ms, costInr: again.costInr, usage: again.usage, effort: again.effort, level: again.final?.level ?? null, finish: again.finish }, ...(againLog ? { log: logOf(againLog) } : {}) } } : {}),
+    ...(againFailed ? { finalFailed: againFailed.why } : {}),
     ...(guard.length ? { dropped: guard.map((g) => `${g.dropped}: ${g.why}`) } : {}),
     ...(turn.done ? { done: {
       level: turn.done.level, name: turn.done.name, decidedBy: turn.done.decidedBy, reasons: turn.done.reasons, doingWell: turn.done.doingWell, practise: turn.done.practise,
@@ -89,7 +95,7 @@ export async function handlePlacementLab(req, res, url, deps = {}) {
   if (m === 'GET' && p === '/api/admin/placement-lab') {
     return send(res, 200, {
       providers: Object.fromEntries(Object.entries(providers).map(([k, v]) => [k, { configured: v.configured() }])),
-      current: settings.get('placement'), suggestions: await listModels(), // every model each provider offers now
+      current: settings.get('placement'), effortFor: (({ turnEffort, finalEffort }) => ({ turn: turnEffort, final: finalEffort }))(settings.get('placement')), suggestions: await listModels(), // every model each provider offers now
       prices: knownPrices(), // US dollars per million tokens, for the models whose price is known
       // What the page compares unless told otherwise: the model in use, and OpenAI's small fast model beside it.
       defaults: [settings.get('placement').brain, { provider: 'openai', model: 'gpt-6-luna' }].filter((m, i, a) => a.findIndex((x) => x.provider === m.provider && x.model === m.model) === i).map(({ provider, model }) => ({ provider, model })),

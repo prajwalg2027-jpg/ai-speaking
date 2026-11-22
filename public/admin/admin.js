@@ -251,6 +251,7 @@ async function overview() {
 // ---- Settings -------------------------------------------------------------------------------------
 const ORDER = ['placement', 'payments', 'corrections', 'llm', 'conversation', 'limits', 'features', 'scoring'];
 const JOBS = { tutor: 'Tutor replies', verify: 'Correction check (strategy B)', lessonEval: 'Lesson marking' };
+const EFFORT_OPTIONS = [['default', "The model's own default"], ['none', 'None (fastest)'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High (slowest)']];
 const META = {
   'corrections.strategy': { type: 'choice', label: 'How corrections are made', options: [
     ['single', 'A · One call', 'The tutor replies and proposes corrections in one call; the correction rules filter them. Fastest and cheapest.'],
@@ -264,6 +265,8 @@ const META = {
   'placement.brain': { label: 'AI for the conversation (every turn, the level and the feedback)' },
   'placement.summary': { label: 'Backup AI for the closing feedback (only if the first leaves the level out)' },
   'placement.maxQuestions': { label: 'Most open questions in a conversation', help: '1 to 6, after the name, picture and reading. The talk ends sooner when the level is clear.' },
+  'placement.turnEffort': { type: 'select', label: 'Thinking on each turn', help: 'How hard the model thinks before Sakhi replies. Less is faster. Used by OpenAI and Claude models; others ignore it.', options: EFFORT_OPTIONS },
+  'placement.finalEffort': { type: 'select', label: 'Thinking for the final level and feedback', help: 'If the AI ends the talk on a turn with less thinking than this, that turn is asked once more at this level.', options: EFFORT_OPTIONS },
   'conversation.historyMessages': { label: 'Recent messages the tutor reads', help: 'More = better memory of the conversation, slightly slower and costlier.' },
   'limits.dailyBudgetInr': { label: 'Daily budget (₹)', help: 'When today’s AI spend reaches this, new conversations and messages pause until tomorrow.' },
   'limits.sessionsPerIpPerHour': { label: 'Placement tests per learner per hour' },
@@ -416,7 +419,7 @@ let labPicks = null; // { models: [{provider, model, price?}] }: kept for "Start
 const lines = (list) => list.filter(Boolean).map((l) => html`<p>${l}</p>`);
 const tokens = (u) => (u && (u.input || u.output) ? `${n0(u.input)} in${u.cached ? ` (${n0(u.cached)} reused)` : ''} · ${n0(u.output)} out${u.reasoning ? ` (${n0(u.reasoning)} thinking)` : ''}` : '–');
 const reusedPct = (u) => (u?.input ? Math.round((100 * (u.cached || 0)) / u.input) : null);
-const speedCost = (x) => html`<p class="small muted lab-meta">Speed ${ms(x.ms)} · cost ${inr(x.costInr, 3)}<br>Tokens: ${tokens(x.usage)}</p>`;
+const speedCost = (x) => html`<p class="small muted lab-meta">Speed ${ms(x.ms)} · cost ${inr(x.costInr, 3)}${x.effort && x.effort !== 'default' ? ` · thinking: ${x.effort}` : ''}<br>Tokens: ${tokens(x.usage)}</p>`;
 /** Adds one AI call to a model's running total for the talk. */
 function addUse(t, x) {
   if (!x || x.ms == null) return;
@@ -450,7 +453,9 @@ function labAi(x) {
     ${a.evidence ? html`<p class="small">${a.evidence}</p>` : ''}
     ${a.tip ? html`<div class="corr"><span class="was">${a.tip.said}</span> → <strong>${a.tip.better}</strong></div>` : ''}
     ${x.dropped?.length ? html`<p class="small muted">Not said (${x.dropped.join('; ')}). A fixed line was used.</p>` : ''}
-    ${speedCost(a)}</div>`;
+    ${speedCost(a)}
+    ${x.final ? html`<p class="small"><span class="badge">Final evaluation, asked again</span> The model ended the talk here, so the level and feedback were asked for once more with more thinking${x.final.ai.finish && x.final.ai.level != null ? '' : ' (that answer did not finish the talk, so the first was kept)'}.</p>${speedCost(x.final.ai)}` : ''}
+    ${x.finalFailed ? html`<p class="small muted">The final evaluation with more thinking failed (${x.finalFailed}); the turn's own answer was used.</p>` : ''}</div>`;
 }
 
 // ---- the microphone: record, then Sarvam turns it into words (as in the app) --------------------------
@@ -513,7 +518,7 @@ const pretty = (raw) => { try { return JSON.stringify(JSON.parse(raw), null, 2);
 const REUSE_WORDS = { reused: 'reused from cache', partly: 'partly reused', new: 'new, not reused' };
 function logCall(c) {
   const u = c.ai?.usage, log = c.log;
-  const head = html`<h3>Call ${c.n} · ${c.at}${c.ai ? html` <span class="muted small">${ms(c.ai.ms)} · ${inr(c.ai.costInr, 4)}</span>` : ''}</h3>
+  const head = html`<h3>Call ${c.n} · ${c.at}${c.ai ? html` <span class="muted small">${ms(c.ai.ms)} · ${inr(c.ai.costInr, 4)}${c.ai.effort && c.ai.effort !== 'default' ? ` · thinking: ${c.ai.effort}` : ''}</span>` : ''}</h3>
     <p class="small"><strong>Learner:</strong> ${c.learner}${c.heard ? html` <span class="muted">(spoken, ${c.heard.audioSec} s; Sarvam took ${ms(c.heard.ms)} to hear it)</span>` : ''}</p>`;
   if (!log) return html`<div class="log-call">${head}<p class="small muted">${c.aiFailed ? `The AI did not answer: ${c.aiFailed}. The app's own checks and fixed lines were used.` : 'No AI call on this turn.'}</p>
     <h4>What Sakhi said</h4><div class="log-box">${lines(c.say)}</div></div>`;
@@ -590,6 +595,7 @@ async function models() {
       <p class="muted small">Up to four. Each one runs its own conversation.</p>
       <div id="picks">${labPicks.models.map(pickRow)}</div>
       ${labPicks.models.length < 4 ? html`<p><button type="button" id="addm">Add a model</button></p>` : ''}
+      ${info.effortFor ? html`<p class="muted small">Thinking (OpenAI and Claude models): <strong>${info.effortFor.turn}</strong> on each turn, <strong>${info.effortFor.final}</strong> for the final level and feedback. Change it in <a href="#settings">Settings › Placement test</a>.</p>` : ''}
       <p class="muted small">API keys are added on the server with <code>deploy/llm-keys-setup.sh</code>. This page spends real AI credit.</p>
       <p class="err" id="serr" role="alert"></p>
       <div class="row"><button class="primary" type="submit">Start the conversations</button></div></form>`);
@@ -715,8 +721,10 @@ async function models() {
           ${labAi(x)}<div class="bubble tutor"><div class="meta">Sakhi</div>${lines(x.say)}</div>`);
         log.append(turn);
         s.calls.push({ n: s.calls.length + 1, at: stepName(s.step), learner: said, heard, ai: x.ai, log: x.log, say: x.say, dropped: x.dropped, aiFailed: x.aiFailed });
+        if (x.final) s.calls.push({ n: s.calls.length + 1, at: `${stepName(s.step)} · final evaluation, asked again with more thinking`, learner: said, ai: x.final.ai, log: x.final.log, say: x.say });
         s.step = x.step;
         if (x.ai) addUse(s.totals, x.ai);
+        if (x.final) addUse(s.totals, x.final.ai);
         if (x.done?.ai) addUse(s.totals, x.done.ai);
         $('[data-progress]', c).textContent = progressLine(x.step);
         // Once the models ask their own questions, each can be answered on its own.
