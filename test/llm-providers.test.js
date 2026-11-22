@@ -295,6 +295,8 @@ test('a note for one turn (a late system message): a user message from the app f
   const talk = [...messages, { role: 'assistant', content: 'Oh, you went to school!' }, { role: 'user', content: 'yes' }, { role: 'system', content: 'NOTE FOR THIS TURN' }];
   assert.deepEqual(llm.lateSystemAsUser(talk).map((m) => m.role), ['system', 'user', 'assistant', 'user', 'user']);
   assert.match(llm.lateSystemAsUser(talk).at(-1).content, /^\[Note from the app, not said by the learner\]\nNOTE FOR THIS TURN$/);
+  // A line that already says it is the app's is left as it is (the conversation placement's lines).
+  assert.deepEqual(llm.lateSystemAsUser([talk[0], { role: 'system', content: '[The app] STEP: HELLO.' }]).at(-1), { role: 'user', content: '[The app] STEP: HELLO.' });
   claudeCalls.length = 0;
   await anthropic.anthropicChat(talk, { model: 'claude-haiku-5-5', maxTokens: 300, schema: Answer });
   const b = claudeCalls[0].body;

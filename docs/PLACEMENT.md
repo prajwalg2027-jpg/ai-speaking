@@ -50,7 +50,7 @@ Code (`server/placement/conversation.js`) does only this:
 - keeps the order of the steps and what is on the screen;
 - limits how often a step repeats: help twice, a steer back from something off the point once; "couldn't do it"
   skips the step without counting against them;
-- gives the AI a few facts in its note: whether the picture's word was in the reply, how many of the line's words
+- gives the AI a few facts, each said once in a short line of its own in the talk: whether the picture's word was in the reply, how many of the line's words
   matched, how many English words were spoken, how many questions are left;
 - stops Sakhi giving away the picture's word before they answer, or reading the line out herself (such a line is
   dropped and a fixed one used);
@@ -82,30 +82,34 @@ The app tells the server how far into her turn she was when they started talking
 ```
 assistant  You made tea in the morning!                       ← her whole turn, as she said it
            Who do you live with?
-user       [The app: Sakhi was cut off here] The learner started talking while she was still speaking.
-           They heard only: "You". They did not hear: "made tea in the morning! Who do you live with?"
+system     [The app] RECORDED: open answer 1: level 2 (11 English words). STEP: OPEN QUESTION 2 of 3. …
+system     [The app] CUT OFF: The learner started talking while you were still speaking. They heard only:
+           "You". They did not hear: "made tea in the morning! Who do you live with?" They were still answering
+           your earlier question, "So, what did you do this morning?": everything they have said since it is
+           ONE answer, in parts. This replaces what was recorded for its first part.
+system     [The app] STEP: OPEN QUESTION 1 of 3. You may stay for: help, something else.
 user       and then I walked to the market                    ← only their new words
-system     NOTE FOR THIS TURN … THEY WERE STILL ANSWERING. … Everything they have said since you asked
-           "So, what did you do this morning?" is ONE answer … Judge the parts together …
+system     [The app] MEASURED: 23 English words in the whole answer, all its parts together.
 ```
 
-- **They heard her question** (or most of it): their words are a reply to it. The note says what they heard.
-- **They cut in before her question**, right after an open answer: they were still answering. The note names the
-  earlier question and tells the AI to judge all the parts as one answer; the app's word count covers all the
-  parts. The app's own record of that answer (its level) is replaced by the new judgement, so it still counts as
-  one answer to one question. The talk itself is not touched. A third part joins the same way.
-- The fixed instructions tell the AI how to read the cut-off line: words they did not hear were never said, as
+- **They heard her question** (or most of it): their words are a reply to it. The CUT OFF line says what they
+  heard.
+- **They cut in before her question**, right after an open answer: they were still answering. The CUT OFF line
+  names the earlier question, and a new STEP line puts the talk back on it; the fixed instructions tell the AI to
+  judge all the parts as one answer, and the app's word count covers all the parts. The app's own record of that
+  answer (its level) is replaced by the new judgement, so it still counts as one answer to one question. The
+  talk itself is not touched. A third part joins the same way.
+- The fixed instructions tell the AI how to read the CUT OFF line: words they did not hear were never said, as
   far as the learner knows.
 
 **The trade-off.** Before, the talk held only the words the learner heard, so the AI could not lean on anything
 else. Now the unheard words are in front of it, marked as unheard, and it has to follow that mark. A model may
 still behave as if they were heard: refer back to them ("as I asked"), skip a fix it thinks it already gave, or
-ask a different question from the one it had planned without noticing. The cut-off line, the rule in the fixed
-instructions and the note for the turn all point the same way to keep this rare, and stronger models follow it
-more reliably than small ones; it is worth watching in real calls. What is gained: the talk is a true record of
-what she said, each request is the last one plus new messages (the reusable part is never disturbed), and the
-code no longer edits the past. The saving in reused tokens is small in itself, because the old edits only
-touched the two newest turns. A request with a cut-off is a little longer (her full line and the app's line).
+ask a different question from the one it had planned without noticing. The CUT OFF line and the rule in the
+fixed instructions point the same way to keep this rare, and stronger models follow it more reliably than small
+ones; it is worth watching in real calls. What is gained: the talk is a true record of what she said, each
+request is the last one plus new messages (the reusable part is never disturbed), and the code no longer edits
+the past. A request with a cut-off is a little longer (her full turn and the app's lines).
 
 ## The AI's answer: as short as it can be
 
@@ -165,8 +169,8 @@ The level and feedback come in the answer to the last turn, so "the final evalua
   level.
 - When the AI itself ends the talk earlier, on a turn it thought about lightly, the same turn is asked **once
   more** at the final level, told to finish, and that answer is used (if it fails, the first one stands). This
-  costs one more call and its wait, only at the end of such a talk. The request is the same up to the note, so
-  nearly all of it is reused from cache. Set both settings the same to never make the second call.
+  costs one more call and its wait, only at the end of such a talk. The request is the same with one line more at the end
+  ("Finish now"), so nearly all of it is reused from cache. Set both settings the same to never make the second call.
 
 The Compare models page shows the thinking level on every call and lists the second call in the log.
 
@@ -264,31 +268,64 @@ Notes on providers (`server/llm/`):
 
 ## How a turn is sent to the AI
 
-One request per learner turn, the same for every provider. The messages only ever grow, so each request repeats
-the one before it and adds the new turn; providers reuse ("cache") the repeated part at a lower price:
+One request per learner turn, the same for every provider. It is built so that a provider can reuse ("cache")
+nearly all of it, at a lower price, and only what is truly new is paid for in full:
+
+1. **Every rule is in the fixed instructions**, the same in every request of every talk: how Sakhi talks, the
+   four steps, what to do for each thing that can happen at each step, the levels, the answer format. About
+   2,600 tokens, reused from the very first turn of a talk (other learners' talks have already sent them).
+2. **The talk only ever grows.** Whatever the app has to tell the AI about this learner, it says once, in a short
+   line of its own, and that line stays in the talk for good. Nothing is sent for one request only and nothing is
+   rewritten later, so each request is the one before it, whole, plus what is new.
 
 ```
-system     Sakhi's fixed instructions (the same in every request of every talk)
+system     Sakhi's fixed instructions
 user       (The call begins.)
-assistant  Hi, my name is Sakhi. What is your name? …        ┐ the talk so far, as real turns,
-user       My name is Ravi                                    │ exactly as it happened
-assistant  Nice to meet you, Ravi! Look at the picture. …     ┘ ((said nothing), (skipped…) for silences)
-…
-user       I live in Pune with my family                      ← what the learner just said
-system     NOTE FOR THIS TURN: the step, what the app measured, what to do next
+assistant  Hi, my name is Sakhi. What is your name? …
+system     [The app] STEP: HELLO. You may stay for: help, something else.
+user       My name is Ravi
+assistant  Nice to meet you, Ravi! There's a picture on your screen. What is it called in English?
+system     [The app] STEP: PICTURE. The picture on their screen shows: house (also right: home). You may stay for: …
+user       It's a house
+system     [The app] MEASURED: "house" is in their reply.
+assistant  Yes, a house! Now there's a line on your screen. Could you read it out?        ┐ new in this
+system     [The app] RECORDED: picture named. STEP: READING. The line on their screen …  │ request: not
+user       Yesterday I went to the market …                                               │ yet reusable
+system     [The app] MEASURED: about 10 of the line's 11 words are in their reply.        ┘
 ```
 
-Stable things come first (the fixed instructions, then the talk in order) and new messages are only ever added
-at the end: nothing already sent is edited or removed, so everything before the newest turn is identical from one
-request to the next and can be reused.
+The app's lines:
+- **STEP**, after each of Sakhi's turns: the step the learner is now answering; what she needs for it (the
+  picture, the line to read), told when the step begins and not before; what the app **RECORDED** from the turn
+  just judged (picture named, reading well, the level of an open answer); and what she may still stay on the
+  step for (help twice, something off the point once). The last open question says so.
+- **MEASURED**, after the learner's reply: the one thing the app counted in it (is the word there, how many of
+  the line's words, how many English words).
+- **CUT OFF**, when they talked over her (see above).
 
-The note is never kept in the talk, so it never disturbs the repeated part. OpenAI gets exactly this through its
-**Responses API** (`POST /responses`, `input` + `text.format`, `store: false`). Claude, Gemini and Sarvam take
-system instructions only at the start, so for them the note goes in as a last user message marked "[Note from
-the app, not said by the learner]"; Claude is also told to cache the repeated part. The Compare models page
-shows how many input tokens were cached on each turn. Caching only starts once a request is long enough (about
-a thousand tokens for OpenAI); the fixed instructions alone are about two thousand tokens, so reuse can start
-on the first turn. The goodbye, level and feedback come in the last turn's answer: no extra request.
+**What can and cannot be reused.** A provider can only reuse what it has already been sent. So in each request
+four things are new: Sakhi's last words (the model wrote them, but they were never sent to it), the app's STEP
+line, the learner's reply, and the MEASURED line: a few dozen tokens beside the learner's own words. Everything
+before them is the previous request, exactly. On the next turn those four are part of what is reused.
+
+*Before this*, each request ended with a long note for that turn (the step, the facts, and five lines of "what to
+do", about 250 to 300 tokens). It was new every time and thrown away afterwards, so it was never reused: that
+is why the Compare models log always showed it as "new". Its rules are now in the fixed instructions; its facts
+are the short lines above.
+
+**What this asks of the model.** The app no longer repeats, each turn, what to do for each thing that can
+happen: the model reads the rule in its instructions and the latest STEP line. The app still decides the step
+and enforces the limits whatever the model answers (a model that tries to stay on a step once too often is moved
+on), and still falls back to its own checks when a judgement is missing. If a model does lose the thread, it
+shows as Sakhi asking about the wrong step; watch for it when trying a new model on the Compare models page.
+
+OpenAI gets exactly this through its **Responses API** (`POST /responses`, `input`, `store: false`), the app's
+lines as system messages. Claude, Gemini and Sarvam take system messages only at the start, so for them the
+app's lines go in as user messages (they are marked "[The app]" either way); Claude is also told to cache the
+repeated part. The Compare models page shows how many input tokens were reused on each turn, and marks each
+message as reused or new (an estimate: providers report only the count). Caching only starts once a request is
+long enough (about a thousand tokens for OpenAI); the fixed instructions alone are longer than that. The
+goodbye, level and feedback come in the last turn's answer: no extra request.
 
 ## What to know about letting the AI decide
 

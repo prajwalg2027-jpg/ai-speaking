@@ -12,7 +12,8 @@ import { structured as defaultStructured, lateSystemAsUser } from '../llm/index.
 import { normalizeForCompare } from '../normalize.js';
 
 // The same in every request of every talk, so providers reuse it (see "How a turn is sent" below).
-// Nothing about one learner goes in here: that is what the note for the turn is for.
+// Every rule is here, so nothing has to be said again from turn to turn. Nothing about one learner goes in
+// here: that is in the talk itself, in short lines from the app (see "How a turn is sent" below).
 export const BRAIN_SYSTEM = `You are Sakhi, a warm, encouraging English tutor on a voice call with an adult learner in India. This is your first talk with them: about two minutes. You get to know them, help them a little, and work out how good their spoken English is. It must feel like talking to a kind teacher, never like a test: do not mention tests, steps, scores, or how many questions are left. (They hear their level only at the very end.)
 
 HOW YOU TALK
@@ -22,15 +23,17 @@ HOW YOU TALK
 - If they ask you to repeat, slow down, or talk in Hindi or another Indian language, just do it, kindly.
 - Use their name only if they told you their name. Never guess one.
 - The talk so far is given as real turns: yours are what you said aloud, the learner's are what they said (from speech recognition, so ignore odd spellings and missing punctuation). A line in brackets, like (said nothing), is what they did instead of speaking.
-- If the learner starts talking while you are still speaking, your whole line stays in the talk as you said it, and right after it comes a line from the app that starts with "[The app: Sakhi was cut off here]". It says how much of your line they heard. Words they did not hear were never said, as far as they know: never refer back to them ("as I said", "like I asked"). If those words held a question or a fix that still matters, say it again in fresh words.
-- After the talk comes a NOTE from the app. It says which step you are on, what the app measured, and what to do next. Follow it. Never mention the note.
+- The app speaks in the talk too, in lines that start with "[The app]". The learner never hears them and never said them; never mention them. There are three kinds:
+  "[The app] STEP: ..." comes after each of your turns. It says which step the learner is now answering, what you need for it (the picture, the line to read), what the app recorded from the turn before ("RECORDED: ..."), and what you may stay on this step for. The latest STEP line is where you are.
+  "[The app] MEASURED: ..." comes after the learner's reply: what the app counted in that reply.
+  "[The app] CUT OFF: ..." comes after a turn of yours that the learner talked over. Your whole turn stays in the talk as you said it; the line says how much of it they heard. Words they did not hear were never said, as far as they know: never refer back to them ("as I said", "like I asked"). If those words held a question or a fix that still matters, say it again in fresh words. If the line says they were still answering an earlier question, judge everything they have said since that question as ONE answer, in parts (what happened, the level, the evidence, the fix), and ask your next question afresh.
 
 THE TALK HAS FOUR STEPS, in this order
 1. HELLO. You have asked their name. Greet them, by name if they gave one (however they said it, in any language or script). A food, a joke or a question is not a name.
-2. PICTURE. Their screen shows a picture; the note tells you what it is. You ask what it is called in English. Never say the word, or hint at it, before they have answered. Judge the picture: named if they said a right English word for it (a close word or a small speech-recognition slip counts: "puppy" or "dok" for a dog), not named otherwise. Once they have answered you may say the word: "Yes, a dog!" or "In English we call it a dog."
-3. READING. Their screen shows one line of English; the note gives you the line and how many of its words the app matched. You ask them to read it out loud. NEVER say the line, or any part of it, yourself. Judge the reading: well (nearly all of it), partly (about half of it or more), not (little or none of it). Speech recognition misses words, so be generous with near misses.
+2. PICTURE. Their screen shows a picture; the STEP line tells you what it is. You ask what it is called in English. Never say the word, or hint at it, before they have answered. Judge the picture: named if they said a right English word for it (a close word or a small speech-recognition slip counts: "puppy" or "dok" for a dog), not named otherwise. Once they have answered you may say the word: "Yes, a dog!" or "In English we call it a dog."
+3. READING. Their screen shows one line of English; the STEP line gives you the line, and the MEASURED line says how many of its words the app found in their reply. You ask them to read it out loud. NEVER say the line, or any part of it, yourself. Judge the reading: well (nearly all of it), partly (about half of it or more), not (little or none of it). Speech recognition misses words, so be generous with near misses.
    After the reading you decide whether to go on to open questions. Go on if they named the picture, or read the line well or partly, or have spoken real English sentences at any point in the talk (even to say "I can't see the picture"). If they managed none of these, finish kindly.
-4. OPEN QUESTIONS. One to three questions about their own life; the note says how many you may still ask. ONE question at a time, easy to answer out loud, following on from what they said. Start with everyday life (their day, their home, their work). If they answer well, make the next one harder: something that happened or a reason why, then an opinion or a "what if". If they struggle, do not push: finish. Finish as soon as you are sure of their level.
+4. OPEN QUESTIONS. A few questions about their own life; the STEP line says which one this is, of how many. ONE question at a time, easy to answer out loud, following on from what they said. Start with everyday life (their day, their home, their work). If they answer well, make the next one harder: something that happened or a reason why, then an opinion or a "what if". If they struggle, do not push: finish. Finish as soon as you are sure of their level.
 
 WHAT HAPPENED ("h", every turn)
 - "a" (answered): they tried to do what you asked, even badly, off the point, or in Hindi.
@@ -38,7 +41,19 @@ WHAT HAPPENED ("h", every turn)
 - "c" (could_not): something stopped them: they can't see the picture or the line, the screen is blank, the text is too small, they can't read.
 - "s" (something_else): they said something that isn't an answer: a question to you, a joke, a random word, a remark about something else.
 - "g" (gave_up): they said they don't know, or asked to skip.
-The note says what to do for each. When you stay on a step: respond to what they said, then ask the same thing again in simpler words (in Hindi too if they seem lost). When you move on: respond, then lead into the next step in your own words.
+
+WHAT TO DO NEXT
+- "a" (answered): move on.
+- "c" (could_not): don't count it against them. Move on.
+- "g" (gave_up): tell them kindly that it's fine. Move on.
+- "h" (asked_for_help): stay on the step, if the latest STEP line says you may stay for help. If it does not, they have had help already: move on.
+- "s" (something_else): respond to it in a few words. Then stay on the step, if the latest STEP line says you may stay for something else. If it does not, move on.
+Staying on a step: respond to what they said, then ask the same thing again in simpler words (in Hindi too if they seem lost).
+Moving on: respond, then lead into what comes next in your own words:
+- from HELLO: the picture. Tell them a picture is on their screen and ask what it is called in English. (The next STEP line tells you what the picture is.)
+- from PICTURE: the reading. Tell them a line of English is on their screen and ask them to read it out loud. (The next STEP line gives you the line.)
+- from READING: decide whether they can go on (see step 3). If yes, ask your first open question, about their everyday life. If no, finish.
+- from an OPEN QUESTION: ask one more open question, or finish if you are sure of their level. If the STEP line says it is the last question, finish.
 
 ONE GENTLE FIX (open answers only)
 If their English had a mistake, say their idea back the right way as part of your reaction. They say "I go market yesterday", you say "Oh, you went to the market yesterday!". One fix at most: the most useful one. Never say "mistake", "wrong" or "grammar", don't explain rules, and don't ask them to say it again. If their English was fine, fix nothing. Don't "fix" what looks like a speech-recognition slip.
@@ -51,7 +66,7 @@ LEVELS (judge the English they spoke, not their ideas)
 A few words can never show a high level: an answer under 8 English words is level 1 or 2. Hindi words (in any script) earn nothing.
 
 FINISHING
-When the note tells you to finish, or you decide to: leave out "q" and add "f", with these keys:
+When the app tells you to finish, or you decide to: leave out "q" and add "f", with these keys:
 - lv: their level, 1 to 4, from everything in the talk. Could not name the picture, read the line or speak English sentences: 1. Managed the picture or the reading but only short, simple answers: 2. Levels 3 and 4 need open answers at that level, with enough said to be sure.
 - why: one plain sentence saying why this level (for the team; not spoken).
 - good: two things they can already do in English, one sentence each, under 16 words, in very simple words. You may quote a few of their own words in single quotes.
@@ -153,84 +168,67 @@ export function repairTurn(j) {
   };
 }
 
-// How a turn is sent to the model. The messages only ever GROW: nothing already in the talk is ever changed or
-// taken out, not even when the learner talks over Sakhi (her whole line stays, and a line from the app is added
-// after it saying how much they heard). So each request repeats the one before it and adds the new turn. Providers reuse ("cache") the repeated part at a lower price, and models talk more
-// naturally when they are given real turns than a pasted transcript:
-//   system     Sakhi's fixed instructions (BRAIN_SYSTEM), the same in every request of every talk
+// How a turn is sent to the model. Two things make nearly all of every request reusable ("cached") by the
+// provider, at a lower price:
+//   1. Every rule is in the fixed instructions (BRAIN_SYSTEM), the same in every request of every talk.
+//   2. The talk only ever GROWS. Whatever the app has to tell the model about this learner it says once, in a
+//      short line of its own, and that line then stays in the talk for good. Nothing is rewritten or left out
+//      later, so each request is the one before it plus what is new.
+//   system     Sakhi's fixed instructions
 //   user       "(The call begins.)"
-//   assistant  what Sakhi said        ┐ the talk so far, turn by turn, exactly as it happened
-//   user       what the learner said  ┘ (and, after a line of hers they talked over, the app's cut-off line)
+//   assistant  what Sakhi said                                   ┐
+//   system     [The app] STEP: where the learner is now, …       │ one turn of the talk, kept as it happened
+//   user       what the learner said                             │ (system lines: see lateSystemAsUser for the
+//   system     [The app] MEASURED: what the app counted in it    ┘ providers that take none in mid-talk)
 //   …
-//   user       what the learner just said
-//   system     a short note for THIS turn only (the step, what was measured, what to do next).
-//              It is never kept in the talk, so it never disturbs the repeated part.
+// New in a request, so not yet reusable: Sakhi's last words (the model wrote them; they were never sent to it),
+// the app's STEP line after them, the learner's reply, and the MEASURED line. Everything before is repeated
+// exactly. On the next turn these too are part of what is repeated.
 const START = '(The call begins.)';
 const EVENT_TEXT = { no_speech: '(said nothing)', in_hindi: '(asked for the question in Hindi)', skip: '(asked to skip this)', repeat: '(asked to hear it again)', live_failed: '(could not be heard)' };
 /** The learner's turn as it is kept in the talk: their words, or what they did instead. */
 export const learnerLine = (event, transcript = '') => (event === 'answer' && transcript.trim() ? transcript.trim() : EVENT_TEXT[event] || EVENT_TEXT.live_failed);
 
-export const CUT_OFF = '[The app: Sakhi was cut off here]';
+/** A line from the app in the talk: never heard by the learner, never said by them. */
+export const APP = '[The app]';
+export const appLine = (text) => `${APP} ${text}`;
 /**
- * The line the app adds to the talk after a line of Sakhi's that the learner talked over. Her line itself is
- * kept whole. heard: the words of that turn they heard; rest: the words they did not.
+ * The line the app adds to the talk after a turn of Sakhi's that the learner talked over. Her turn itself is
+ * kept whole. heard: the words of that turn they heard; rest: the words they did not; stillAnswering: the earlier
+ * question they had not finished answering (they cut in before her next question).
  */
-export function cutOffLine({ heard, rest }) {
-  return `${CUT_OFF} The learner started talking while she was still speaking. ${heard ? `They heard only: "${heard}"` : 'They heard none of it'}. They did not hear: "${rest}"`;
+export function cutOffLine({ heard, rest }, stillAnswering = null) {
+  return appLine(`CUT OFF: The learner started talking while you were still speaking. ${heard ? `They heard only: "${heard}"` : 'They heard none of it'}. They did not hear: "${rest}"${
+    stillAnswering ? ` They were still answering your earlier question, "${stillAnswering}": everything they have said since it is ONE answer, in parts. This replaces what was recorded for its first part.` : ''}`);
 }
 
 /**
  * The talk as chat turns. history: [{ who: 'sakhi'|'learner'|'app', text }], only ever added to.
- * Sakhi's lines of one turn are one message; a line from the app (a cut-off) is a message of its own.
+ * Sakhi's lines of one turn are one message; each line from the app is a system message of its own.
  */
 export function talkTurns(history) {
   const out = [{ role: 'user', content: START }];
   let lastWho = null;
   for (const h of history) {
     if (h.who === lastWho && h.who !== 'app') out[out.length - 1].content += `\n${h.text}`;
-    else out.push({ role: h.who === 'sakhi' ? 'assistant' : 'user', content: h.text });
+    else out.push({ role: h.who === 'sakhi' ? 'assistant' : h.who === 'app' ? 'system' : 'user', content: h.text });
     lastWho = h.who;
   }
   return out;
 }
 
 /**
- * The note for one turn. ctx (built by the session, see conversation.js):
- *   step 'hello'|'picture'|'read'|'open', facts: [sentences about what the app measured], sofar: [earlier results],
- *   name, stayFor: { asked_for_help, something_else } (may she stay on the step for these?),
- *   onward: what "moving on" means from here (a sentence), mustFinish: the talk has to end this turn
- *   said: the learner's new words (transcript is the whole answer, when it came in two parts)
- *   cut: they talked over her last turn: { heard, askHeard, join?: the earlier question they were still answering }
+ * Everything sent for one turn (see above). ctx (built by the session, see conversation.js):
+ *   history: the talk so far, the app's STEP line for this turn included
+ *   line: the learner's new words, or what they did instead ("(said nothing)"), exactly as kept in the talk
+ *   measured: the app's MEASURED line for those words, if there is one
+ *   extra: one more line from the app for this request only (the final evaluation asked again). Never kept.
  */
-export function turnNote(ctx) {
-  const stay = 'stay on this step: respond, then ask the same thing again in simpler words.';
-  const go = `move on: ${ctx.onward}`;
-  const title = { hello: 'HELLO (you asked their name)', picture: 'PICTURE', read: 'READING', open: `OPEN QUESTION ${ctx.n}` }[ctx.step];
-  return [
-    'NOTE FOR THIS TURN (from the app, not from the learner). The learner\'s last message is their reply.',
-    `STEP: ${title}`,
-    // They talked over her before her next question: this is the rest of the answer they were giving.
-    ...(ctx.cut?.join ? [`THEY WERE STILL ANSWERING. The learner talked over you before you reached your next question, so they never heard it. Everything they have said since you asked "${ctx.cut.join}" is ONE answer to that question, in parts. Judge the parts together as one answer (what happened, the level, the evidence, the fix): this replaces what you judged from the first part alone. Then go on as below; ask your next question afresh.`]
-      : ctx.cut ? [`THEY TALKED OVER YOU. ${ctx.cut.heard ? `They heard only: "${ctx.cut.heard}"` : 'They heard none of your last turn'}${ctx.cut.askHeard ? ' (your question included)' : ''}. Take their reply as a reply to what they heard.`] : []),
-    ...(ctx.facts.length ? [`WHAT THE APP MEASURED:\n${ctx.facts.map((f) => `- ${f}`).join('\n')}`] : []),
-    ...(ctx.sofar.length ? [`EARLIER IN THE TALK: ${ctx.sofar.join(' ')}`] : []),
-    `LEARNER'S NAME: ${ctx.name || 'not known yet (use no name)'}`,
-    `WHAT TO DO, by what happened:\n${[
-      `- answered: ${go}`,
-      `- asked_for_help: ${ctx.stayFor.asked_for_help ? stay : `they have had help already. ${go}`}`,
-      `- could_not: don't count it against them. ${go}`,
-      `- something_else: ${ctx.stayFor.something_else ? `respond to it in a few words, then ${stay}` : `respond to it in a few words. ${go}`}`,
-      `- gave_up: tell them kindly that it's fine. ${go}`,
-    ].join('\n')}`,
-    'Reply with ONLY the JSON object.',
-  ].join('\n\n');
-}
-
-/** Everything sent for one turn (see above). */
 export const turnMessages = (ctx) => [
   { role: 'system', content: BRAIN_SYSTEM }, ...talkTurns(ctx.history),
-  { role: 'user', content: learnerLine(ctx.event, ctx.said ?? ctx.transcript) },
-  { role: 'system', content: turnNote(ctx) },
+  { role: 'user', content: ctx.line },
+  ...(ctx.measured ? [{ role: 'system', content: ctx.measured }] : []),
+  ...(ctx.extra ? [{ role: 'system', content: ctx.extra }] : []),
 ];
 
 /**
@@ -284,7 +282,7 @@ export async function think(ctx, { config, structured = defaultStructured, timeo
     schemaToProvider: false });
   const { data, ...meta } = r;
   meta.replyMs = replyMs;
-  // messages: what this provider was sent (the admin's log). Only OpenAI takes the note as a late system message.
+  // messages: what this provider was sent (the admin's log). Only OpenAI takes the app's lines as system messages in mid-talk.
   return { out: data, meta, messages: meta.provider === 'openai' ? messages : lateSystemAsUser(messages) };
 }
 

@@ -107,15 +107,17 @@ test('comparing models: each runs its own conversation end to end; a model witho
   assert.deepEqual(t[0].voice, { chars: spoken, fixedChars: 0, inr: (spoken / 10_000) * 20 });
   // The log: the request exactly as it was sent, and the answer as it came.
   const sent = t[0].log.messages;
-  assert.deepEqual(sent.map((m) => m.role), ['system', 'user', 'assistant', 'user', 'user'], 'for Sarvam the note goes last, as a user message');
+  assert.deepEqual(sent.map((m) => m.role), ['system', 'user', 'assistant', 'user', 'user'], "Sarvam takes no system message in mid-talk: the app's line goes as a user message, marked");
   assert.match(sent[0].content, /^You are Sakhi/);
-  assert.deepEqual([sent[1].content, sent[3].content], ['(The call begins.)', 'My name is Ravi']);
-  assert.match(sent[4].content, /^\[Note from the app, not said by the learner\][\s\S]*STEP: HELLO/);
+  assert.deepEqual(sent.slice(1).map((m) => m.content.split('\n')[0]), ['(The call begins.)', 'Hi, my name is Sakhi. What is your name?', '[The app] STEP: HELLO. You may stay for: help, something else.', 'My name is Ravi']);
   assert.deepEqual([JSON.parse(t[0].log.raw), t[0].log.attempts, t[0].log.thinking], [{ h: 'a', ev: '4 words', n: 'Ravi', r: 'Nice to meet you, Ravi!', q: 'A picture is on your screen. What is it called in English?' }, 1, null], 'the answer as it came: short');
   const first = sent;
   t = await type(WORDS[t[0].step.screen]);
   assert.deepEqual([t[0].ai.picture, t[0].step.step], ['named', 'read']);
-  assert.deepEqual(t[0].log.messages.slice(0, 4), first.slice(0, 4), 'the next request repeats the one before and adds to it');
+  assert.deepEqual(t[0].log.messages.slice(0, first.length), first, 'the next request is the one before, whole, and more');
+  const more = t[0].log.messages.slice(first.length).map((m) => m.content.split('\n')[0]);
+  assert.deepEqual([more.length, more[0], more[1].slice(0, 23), /^\[The app\] MEASURED: ".+" is in their reply\.$/.test(more[3])], [4, 'Nice to meet you, Ravi!', '[The app] STEP: PICTURE', true],
+    "new: her last words, the app's STEP line, their reply, the app's MEASURED line");
   assert.equal(t[0].step.screen, t[1].step.screen, 'the same line to read');
   t = await type(t[0].step.screen);
   assert.deepEqual([t[0].ai.reading, t[0].step], ['well', { step: 'open', n: 1, level: 2 }]);

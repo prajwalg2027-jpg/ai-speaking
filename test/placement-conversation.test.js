@@ -20,7 +20,10 @@ before(async () => {
 function fakeAI(turns) {
   const asked = [];
   const structured = async ({ job, schema, messages, repair, effort, config, onText }) => {
-    asked.push({ job, user: messages.at(-1).content, messages, effort, model: config?.model, streamed: !!onText });
+    // What the AI was given: the app's latest STEP line, the learner's words, and what came after them (MEASURED).
+    const lines = messages.slice(1), at = lines.findLastIndex((m) => m.role === 'user');
+    asked.push({ job, messages, effort, model: config?.model, streamed: !!onText, said: lines[at]?.content,
+      step: lines.filter((m) => m.role === 'system' && /STEP: /.test(m.content)).at(-1)?.content, measured: lines.slice(at + 1).map((m) => m.content).join('\n') });
     const next = turns.shift();
     if (!next) throw new Error('the AI is down');
     if (next instanceof Error) throw next;
@@ -92,32 +95,28 @@ test('every turn goes to the AI: hello, picture, reading, open questions, and th
   let t = await go('My name is Asha');
   assert.equal(say(t), "Lovely to meet you, Asha! | There's a picture on your screen. What is it called in English?");
   assert.deepEqual([t.task.id, t.card.look, t.card.text, s.profile.name], ['picture', 'emoji', '🐶', 'Asha']);
-  assert.match(ai.asked[0].user, /STEP: HELLO/);
-  assert.match(ai.asked[0].user, /answered: move on: greet them, then lead into the picture/);
+  assert.equal(ai.asked[0].step, '[The app] STEP: HELLO. You may stay for: help, something else.');
+  assert.deepEqual([ai.asked[0].said, ai.asked[0].measured], ['My name is Asha', ''], 'a name: nothing to measure');
 
   t = await go('It is a dog');
-  assert.match(ai.asked[1].user, /STEP: PICTURE/);
-  assert.match(ai.asked[1].user, /The picture on their screen shows: dog\./);
-  assert.match(ai.asked[1].user, /The app's check: "dog" is in their reply\./);
+  assert.equal(ai.asked[1].step, '[The app] STEP: PICTURE. The picture on their screen shows: dog. You may stay for: help, something else.');
+  assert.equal(ai.asked[1].measured, '[The app] MEASURED: "dog" is in their reply.');
   assert.deepEqual([t.task.id, t.task.level, t.card.text, t.listen.language], ['read', 2, LINE2, 'en-IN']);
   assert.equal(s.picture.result, 'named');
 
   t = await go(LINE2);
-  assert.match(ai.asked[2].user, /The line on their screen \(NEVER say it\): "Yesterday I went/);
-  assert.match(ai.asked[2].user, /The app matched about 11 of its 11 words/);
-  assert.match(ai.asked[2].user, /EARLIER IN THE TALK: Picture: named\./);
-  assert.match(ai.asked[2].user, /decide whether they can go on\. If yes: ask your first open question/);
+  assert.equal(ai.asked[2].step, `[The app] RECORDED: picture named. STEP: READING. The line on their screen (NEVER say it): "${LINE2}" You may stay for: help, something else.`);
+  assert.equal(ai.asked[2].measured, "[The app] MEASURED: about 11 of the line's 11 words are in their reply.");
   assert.deepEqual([t.task.id, t.card, s.read.result], ['c1', null, 'well']);
   assert.equal(say(t), 'Thank you, that was clear. | So, what did you do this morning?');
 
   t = await go('I work in an office and today morning I go to gym before my office because I like to stay fit');
-  assert.match(ai.asked[3].user, /STEP: OPEN QUESTION 1/);
-  assert.match(ai.asked[3].user, /They spoke 2\d English words in this reply\./);
-  assert.match(ai.asked[3].user, /either ask one more open question \(you may ask 2 more\) or finish/);
+  assert.equal(ai.asked[3].step, '[The app] RECORDED: reading well. STEP: OPEN QUESTION 1 of 3. You may stay for: help, something else.');
+  assert.match(ai.asked[3].measured, /^\[The app\] MEASURED: 2\d English words\.$/);
   assert.equal(t.task.id, 'c2');
 
   t = await go('I think it depends on the school because some children already play a lot, but in cities they sit all day so yes it should be taught properly');
-  assert.match(ai.asked[4].user, /Earlier open answers: level 3 \(2\d English words\)\./);
+  assert.match(ai.asked[4].step, /^\[The app\] RECORDED: open answer 1: level 3 \(2\d English words\)\. STEP: OPEN QUESTION 2 of 3\. You may stay for: help, something else\.$/);
   assert.equal(ai.asked.length, 5, 'one AI call for each of the five turns, and none more for the goodbye');
   assert.deepEqual([t.done.level, t.done.name, t.done.decidedBy, t.done.mode, t.task], [4, 'Very good', 'the AI', 'conversation', null]);
   assert.equal(t.done.reasons[0], 'Explains opinions at length with few slips.');
@@ -128,13 +127,19 @@ test('every turn goes to the AI: hello, picture, reading, open questions, and th
   assert.deepEqual(t.done.answers[2].tip, { said: 'I go to gym', better: 'I went to the gym' });
   assert.deepEqual([s.answers[2].kind, s.answers[2].scores.level, s.answers[0].judged], ['open', 3, 'named']);
 
-  // The request: fixed instructions, the talk as real turns, the learner's words, and a note for this turn.
+  // The request: the fixed instructions, then the talk: her turns, the app's lines, the learner's words.
   const sent = ai.asked[3].messages;
-  assert.deepEqual([sent[0].role, sent[1].content, sent[2].role, sent.at(-2).role, sent.at(-1).role], ['system', '(The call begins.)', 'assistant', 'user', 'system']);
   assert.equal(sent[0].content, brain.BRAIN_SYSTEM);
-  for (let i = 2; i < sent.length - 1; i++) assert.notEqual(sent[i].role, sent[i - 1].role, 'the roles alternate');
-  // Each request repeats the one before (all but its note) and only adds to it: that part can be cached.
-  for (let i = 1; i < ai.asked.length; i++) assert.ok(JSON.stringify(ai.asked[i].messages).startsWith(JSON.stringify(ai.asked[i - 1].messages.slice(0, -1)).slice(0, -1)), `request ${i + 1} only grows`);
+  assert.deepEqual(sent.slice(1).map((m) => m.role), ['user', 'assistant', 'system', 'user', 'assistant', 'system', 'user', 'system', 'assistant', 'system', 'user', 'system', 'assistant', 'system', 'user', 'system']);
+  assert.ok(sent.slice(1).every((m) => m.role !== 'system' || m.content.startsWith('[The app] ')), "the app's lines are marked");
+  // Nothing is said for one request only: each request is the one before it, whole, plus what is new. So all of
+  // the earlier request can be reused from cache.
+  for (let i = 1; i < ai.asked.length; i++) assert.deepEqual(ai.asked[i].messages.slice(0, ai.asked[i - 1].messages.length), ai.asked[i - 1].messages, `request ${i + 1} is request ${i}, whole, and more`);
+  assert.deepEqual(ai.asked[4].messages.slice(ai.asked[3].messages.length).map((m) => m.role), ['assistant', 'system', 'user', 'system'],
+    "new in a request: her last words, the app's STEP line, their reply, the app's MEASURED line");
+  // The rules themselves are in the fixed instructions, the same for every learner and every turn.
+  for (const rule of [/WHAT TO DO NEXT/, /- "h" \(asked_for_help\): stay on the step, if the latest STEP line says you may stay for help/, /- from HELLO: the picture\./, /- from READING: decide whether they can go on/, /If the STEP line says it is the last question, finish\./])
+    assert.match(brain.BRAIN_SYSTEM, rule);
   assert.ok(!brain.BRAIN_SYSTEM.includes('Asha'), 'nothing about one learner is in the fixed instructions');
 });
 
@@ -162,16 +167,17 @@ test('something unexpected: a steer back once, then on; "I can\'t see it" skips 
   let t = await go('Pizza');
   assert.equal(say(t), 'Ha, I like pizza too! | And what should I call you?');
   assert.deepEqual([t.task.id, s.profile.name], ['hello', null], 'still on the hello, and no name taken');
-  assert.match(ai.asked[0].user, /something_else: respond to it in a few words, then stay on this step/);
+  assert.match(ai.asked[0].step, /You may stay for: help, something else\.$/);
   t = await go('how long is this');
-  assert.match(ai.asked[1].user, /something_else: respond to it in a few words\. move on: greet them, then lead into the picture/, 'one steer back per step');
+  assert.equal(ai.asked[1].step, '[The app] STEP: HELLO, still. You may stay for: help.', 'one steer back per step');
   assert.equal(t.task.id, 'picture');
   t = await go('Sorry I cannot see any picture on my screen');
   assert.deepEqual([t.task.id, t.task.level, s.picture.result], ['read', 1, 'skipped']);
-  assert.match(ai.asked[2].user, /could_not: don't count it against them\. move on: lead into the reading/);
+  assert.equal(ai.asked[2].step, '[The app] STEP: PICTURE. The picture on their screen shows: dog. You may stay for: help, something else.');
   t = await go('The text is too small for me to read it properly');
   assert.deepEqual([t.task.id, s.read.result], ['c1', 'skipped'], 'the AI let them go on: they spoke real English');
-  assert.match(ai.asked[3].user, /EARLIER IN THE TALK: Picture: skipped\./);
+  assert.match(ai.asked[3].step, /^\[The app\] RECORDED: picture skipped\. STEP: READING\./);
+  for (let i = 1; i < ai.asked.length; i++) grows(ai.asked[i - 1], ai.asked[i]);
   assert.equal(say(t), "That's fine. | Tell me, where do you live?");
 });
 
@@ -185,16 +191,18 @@ test('help: twice on a step, then she moves on; silence and unheard replies go t
   let t = await go('sorry?');
   assert.deepEqual([t.task.id, t.say.map((l) => l.lang).join()], ['hello', 'en-IN,en-IN,hi-IN'], 'English and Hindi sentences go to their own voices');
   t = await tap('no_speech');
-  assert.match(ai.asked[1].user, /They said nothing\./);
-  assert.equal(ai.asked[1].messages.at(-2).content, '(said nothing)', 'silence is kept as a turn');
+  assert.deepEqual([ai.asked[1].said, ai.asked[1].messages.at(-1).content], ['(said nothing)', '(said nothing)'], 'silence is kept as a turn, and is the last thing sent');
+  assert.equal(ai.asked[1].step, '[The app] STEP: HELLO, still. You may stay for: help, something else.');
   assert.equal(t.task.id, 'hello');
   t = await go('.');
-  assert.match(ai.asked[2].user, /Their reply could not be heard\./);
-  assert.match(ai.asked[2].user, /asked_for_help: they have had help already\. move on/);
+  assert.equal(ai.asked[2].said, '(could not be heard)');
+  assert.equal(ai.asked[2].step, '[The app] STEP: HELLO, still. You may stay for: something else.', 'they have had help twice');
   assert.equal(t.task.id, 'picture', 'the third time she moves on');
   t = await go('kutta');
   assert.deepEqual([s.picture.result, t.task.level, t.card.text], ['not_named', 1, LINE1], 'a very simple line for someone who missed the picture');
   assert.equal(ai.asked.length, 4);
+  // Silence, an unheard reply, help: whatever happened, each request is the one before it, whole, and more.
+  for (let i = 1; i < ai.asked.length; i++) grows(ai.asked[i - 1], ai.asked[i]);
 });
 
 test("she never gives away the picture's word or the line to read", async () => {
@@ -215,7 +223,7 @@ test("she never gives away the picture's word or the line to read", async () => 
 test('the AI judges: "puppy" names the picture; it can end the talk after the reading, at level 1', async () => {
   let x = start([T({ name: 'Ravi', question: 'What is this called?' }), T({ picture: 'named', evidence: "'puppy' is right", reply: 'Yes!', question: 'Please read the line.' })]);
   await x.go('Ravi'); let t = await x.go('puppy');
-  assert.match(x.ai.asked[1].user, /The app's check: "dog" is not in their reply\./);
+  assert.equal(x.ai.asked[1].measured, '[The app] MEASURED: "dog" is not in their reply.');
   assert.deepEqual([x.s.picture.result, t.task.level, x.s.answers[0].judged], ['named', 2, 'named'], "the AI's judgement stands over the app's check");
 
   x = start([T({ question: 'What is this called?' }), T({ picture: 'not_named', reply: 'In English we call it a dog.', question: 'Please read the line.' }),
@@ -238,7 +246,7 @@ test('the last allowed question ends the talk; if the AI leaves the level out, t
   const long = 'I work in a bank and every day I help the customers with their accounts and loans and after that I go home';
   await go(long); await go(long);
   const t = await go(long);
-  assert.match(ai.asked[2].user, /answered: move on: this was the last question\. Finish now\./);
+  assert.match(ai.asked[2].step, /STEP: OPEN QUESTION 3 of 3\. It is the last question: when you move on from it, finish\. You may stay for: help, something else\.$/);
   assert.deepEqual([t.done.level, t.done.decidedBy], [4, "the app's rule"]);
   assert.match(t.done.reasons[0], /The AI gave no level, so the app's rule was used\. .*levels 3, 4, 4: level 4 was reached twice/);
   assert.equal(ai.asked[3].job, 'placementSummary', 'the feedback then comes from a second call');
@@ -276,8 +284,8 @@ test("a fix must be the learner's own words; questions in the reaction are dropp
   assert.equal(brain.repairTurn({ reaction: 'hi', ask: 'x' }).reply, undefined, 'not a turn at all: left to fail');
 });
 
-// What a request sent, without the note for the turn (its last message): this part must only ever grow.
-const talkOf = (asked) => asked.messages.slice(0, -1).map((m) => `${m.role}: ${m.content}`);
+// What a request sent: it must only ever grow.
+const talkOf = (asked) => asked.messages.map((m) => `${m.role}: ${m.content}`);
 const grows = (earlier, later) => assert.deepEqual(talkOf(later).slice(0, talkOf(earlier).length), talkOf(earlier), 'the earlier request is repeated exactly, and only added to');
 
 test('talking over her before her question: nothing in the talk is changed; the parts are judged as one answer', async () => {
@@ -293,24 +301,25 @@ test('talking over her before her question: nothing in the talk is changed; the 
   let t = await go('and then I walked to the market and bought vegetables for lunch', { interrupted: { index: 0, heardSec: 0.5 } });
   assert.deepEqual(s.history.slice(0, kept.length), kept, 'nothing already in the talk was changed or removed');
   grows(ai.asked[0], ai.asked[1]);
-  // Her whole line, then the app's line saying where she was cut off, then only their new words.
-  assert.deepEqual(ai.asked[1].messages.slice(-5, -1).map((m) => [m.role, m.content]), [
-    ['user', 'I made tea for my husband and my two children today'],
+  // Her whole turn; the app's lines saying where she was cut off and that they were still answering; then only
+  // their new words, and the count for the whole answer.
+  assert.deepEqual(ai.asked[1].messages.slice(ai.asked[0].messages.length).map((m) => [m.role, m.content]), [
     ['assistant', 'You made tea in the morning!\nWho do you live with?'],
-    ['user', '[The app: Sakhi was cut off here] The learner started talking while she was still speaking. They heard only: "You". They did not hear: "made tea in the morning! Who do you live with?"'],
+    ['system', '[The app] RECORDED: open answer 1: level 2 (11 English words). STEP: OPEN QUESTION 2 of 3. You may stay for: help, something else.'],
+    ['system', '[The app] CUT OFF: The learner started talking while you were still speaking. They heard only: "You". They did not hear: "made tea in the morning! Who do you live with?" They were still answering your earlier question, "So, what did you do this morning?": everything they have said since it is ONE answer, in parts. This replaces what was recorded for its first part.'],
+    ['system', '[The app] STEP: OPEN QUESTION 1 of 3. You may stay for: help, something else.'],
     ['user', 'and then I walked to the market and bought vegetables for lunch'],
+    ['system', '[The app] MEASURED: 23 English words in the whole answer, all its parts together.'],
   ]);
-  const note = ai.asked[1].user;
-  assert.match(note, /STEP: OPEN QUESTION 1/, 'judged against the question they were answering');
-  assert.match(note, /THEY WERE STILL ANSWERING\.[^\n]*since you asked "So, what did you do this morning\?" is ONE answer/);
-  assert.match(note, /They spoke 23 English words in the whole answer/);
+  assert.match(brain.BRAIN_SYSTEM, /If the line says they were still answering an earlier question, judge everything they have said since that question as ONE answer/);
   assert.deepEqual([s.ratings.length, s.ratings[0].level], [1, 3], 'still one answer, judged again as a whole');
   assert.equal(s.answers.at(-1).transcript, 'I made tea for my husband and my two children today and then I walked to the market and bought vegetables for lunch');
   assert.equal(t.task.id, 'c2');
   // And once more: a third part joins the same answer.
   t = await go('and I cooked dal and rice', { interrupted: { index: 0, heardSec: 0.2 } });
   grows(ai.asked[1], ai.asked[2]);
-  assert.match(ai.asked[2].user, /They spoke 29 English words in the whole answer/);
+  assert.equal(ai.asked[2].measured, '[The app] MEASURED: 29 English words in the whole answer, all its parts together.');
+  assert.match(ai.asked[2].messages.at(-5).content, /^\[The app\] RECORDED: open answer 1 \(all its parts\): level 3 \(23 English words\)\. STEP: OPEN QUESTION 2 of 3\./);
   assert.deepEqual([s.ratings.length, t.task.id], [1, 'c2']);
   assert.equal(s.answers.at(-1).transcript.split(' ').length, 29);
   t = await tap('repeat');
@@ -326,18 +335,18 @@ test('talking over her after hearing her question: her whole line stays, with a 
   await go('I made tea for my husband and my two children today');
   // Most of the way through her question (the second line).
   await go('I live with my husband and my children', { interrupted: { index: 1, heardSec: 60 } });
-  assert.equal(s.history.filter((h) => h.who === 'app').length, 0, 'they heard all of it: nothing to add');
+  assert.equal(s.history.filter((h) => /CUT OFF/.test(h.text)).length, 0, 'they heard all of it: nothing to add');
   await go('We watch television together', { interrupted: { index: 1, heardSec: 1.8 } });
   grows(ai.asked[0], ai.asked[1]); grows(ai.asked[1], ai.asked[2]);
   const sent = ai.asked[2].messages.map((m) => m.content);
   assert.ok(sent.includes('A full house!\nWhat do you all do in the evening?'), 'her line as she said it');
-  const mark = sent.find((m) => m.startsWith(brain.CUT_OFF));
+  const mark = sent.find((m) => m.startsWith('[The app] CUT OFF:'));
   assert.match(mark, /They heard only: "A full house! What do you all do[^"]*"\. They did not hear: "[^"]*evening\?"$/);
-  assert.match(ai.asked[2].user, /STEP: OPEN QUESTION 3\n\nTHEY TALKED OVER YOU\. They heard only: "A full house! What do you all do[^"]*" \(your question included\)/);
+  assert.match(ai.asked[2].step, /STEP: OPEN QUESTION 3 of 3\./, 'the step is the one she asked about: nothing was joined');
   assert.equal(s.ratings.length, 3, 'three answers to three questions: nothing was joined');
   // The app's line is a message of its own, never run into the learner's words.
   assert.deepEqual(brain.talkTurns([{ who: 'sakhi', text: 'a' }, { who: 'sakhi', text: 'b' }, { who: 'app', text: 'x' }, { who: 'learner', text: 'c' }]).map((m) => [m.role, m.content]),
-    [['user', '(The call begins.)'], ['assistant', 'a\nb'], ['user', 'x'], ['user', 'c']]);
+    [['user', '(The call begins.)'], ['assistant', 'a\nb'], ['system', 'x'], ['user', 'c']]);
 });
 
 test('only the answer just before can be carried on: help in between is not joined to an older answer', async () => {
@@ -349,8 +358,9 @@ test('only the answer just before can be carried on: help in between is not join
   await go('I made tea for my husband and my two children today');
   await go('sorry repeat please');
   await go('my husband and two children', { interrupted: { index: 0, heardSec: 0.3 } });
-  assert.doesNotMatch(ai.asked[2].user, /STILL ANSWERING/);
-  assert.match(ai.asked[2].user, /STEP: OPEN QUESTION 2\n\nTHEY TALKED OVER YOU\./);
+  const cutOff = ai.asked[2].messages.map((m) => m.content).find((c) => c.startsWith('[The app] CUT OFF:'));
+  assert.doesNotMatch(cutOff, /still answering/);
+  assert.equal(ai.asked[2].step, '[The app] STEP: OPEN QUESTION 2 of 3, still. You may stay for: help, something else.');
   assert.equal(s.ratings.length, 2);
 });
 
@@ -364,8 +374,8 @@ test('thinking: light on each turn, more for the final level; an early ending by
   ], LUNA);
   let t = await x.go('I made tea for my husband and my two children today because they like it');
   assert.deepEqual(x.ai.asked.map((a) => a.effort), ['low', 'medium']);
-  assert.match(x.ai.asked[1].user, /- answered: move on: you have heard enough to be sure of their level\. Finish now\./);
-  assert.deepEqual(talkOf(x.ai.asked[1]), talkOf(x.ai.asked[0]), 'the same talk: only the note differs');
+  assert.equal(x.ai.asked[1].messages.at(-1).content, '[The app] You have heard enough to be sure of their level. Finish now: leave out "q" and add "f".');
+  assert.deepEqual(talkOf(x.ai.asked[1]).slice(0, -1), talkOf(x.ai.asked[0]), 'the same request, with that one line more');
   assert.deepEqual([t.done.level, t.done.reasons[0], t.say[0].text], [3, 'A careful look.', 'You made tea!'], 'the careful level and feedback; her reply stays as first given');
 
   // The last question allowed: the app knows it is the end, so it is one call, with more thought from the start.

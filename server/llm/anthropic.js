@@ -45,10 +45,10 @@ function getClient() {
 
 /** messages in OpenAI shape → { text (the JSON string), usage: { input, output, reasoning } } */
 export async function anthropicChat(messages, { model, maxTokens = 900, schema, schemaName = 'answer', wantThinking = false, effort = null }) {
-  // The first system message is the system prompt. A later one (a note for one turn) goes in as a user message
-  // marked as coming from the app, so the system prompt and the talk before it stay the same from turn to turn.
+  // The first system message is the system prompt. A later one (a line from the app in the talk) goes in as a
+  // user message marked as coming from the app.
   const system = messages[0]?.role === 'system' ? messages[0].content : '';
-  messages = messages.slice(system ? 1 : 0).map((m) => (m.role === 'system' ? { role: 'user', content: `[Note from the app, not said by the learner]\n${m.content}` } : m));
+  messages = messages.slice(system ? 1 : 0).map((m) => (m.role === 'system' ? { role: 'user', content: m.content.startsWith('[The app]') ? m.content : `[Note from the app, not said by the learner]\n${m.content}` } : m));
   const params = {
     model,
     // Thinking counts toward max_tokens, so leave room for it on top of the answer (as server/sarvam.js does).

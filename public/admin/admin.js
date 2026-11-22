@@ -517,7 +517,10 @@ async function transcribe(wav, language) {
 }
 
 // ---- the log: every AI call's exact request and answer -------------------------------------------------
-const ROLE = (m, i, all) => (m.role === 'assistant' ? 'Sakhi' : m.role === 'system' ? (i === 0 ? 'Fixed instructions' : 'Note for this turn (from the app)') : /^\[Note from the app/.test(m.content) ? 'Note for this turn (from the app)' : /^\[The app: Sakhi was cut off/.test(m.content) ? 'Cut off (from the app)' : i === 1 && all[0].role === 'system' && /^\(/.test(m.content) ? 'Start' : 'Learner');
+// Who a message in the log is from. The app's lines are system messages for OpenAI and marked user messages for the others.
+const ROLE = (m, i, all) => (m.role === 'assistant' ? 'Sakhi' : i === 0 && m.role === 'system' ? 'Fixed instructions'
+  : m.role === 'system' || /^\[(The app|Note from the app)/.test(m.content) ? (/^\[The app\] (RECORDED|STEP)/.test(m.content) ? 'The app: the step' : /^\[The app\] MEASURED/.test(m.content) ? 'The app: measured' : /^\[The app\] CUT OFF/.test(m.content) ? 'The app: cut off' : 'The app')
+  : i === 1 && all[0].role === 'system' && /^\(/.test(m.content) ? 'Start' : 'Learner');
 /**
  * Which messages were reused from cache. Providers say only HOW MANY input tokens were reused, not which; reuse
  * always starts at the top of the request, so each message is marked by where it falls by length. An estimate.
