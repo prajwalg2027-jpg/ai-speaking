@@ -74,6 +74,24 @@
         ]
       },
       {
+        "source": "/admin",
+        "headers": [
+          {
+            "key": "Permissions-Policy",
+            "value": "camera=(), geolocation=(), microphone=(self), interest-cohort=()"
+          }
+        ]
+      },
+      {
+        "source": "/admin/**",
+        "headers": [
+          {
+            "key": "Permissions-Policy",
+            "value": "camera=(), geolocation=(), microphone=(self), interest-cohort=()"
+          }
+        ]
+      },
+      {
         "source": "**/*.@(css|js|svg|png)",
         "headers": [
           {
