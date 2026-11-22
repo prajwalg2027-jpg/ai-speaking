@@ -160,8 +160,9 @@ Gemini ignore them):
 - **Thinking on each turn**: `low`. The learner is waiting to hear Sakhi, so speed matters most.
 - **Thinking for the final level and feedback**: `medium`. Care matters most.
 
-Each can be `default` (the model's own: medium for `gpt-6-luna`), `none`, `low`, `medium` or `high`. OpenAI
-gets it as `reasoning.effort`; Claude as its effort (it has no "none": low is used). A model that refuses a
+Each can be `default` (the model's own: medium for `gpt-6-luna`), `none`, `low`, `medium`, `high`, `xhigh` or
+`max` (the values OpenAI's `gpt-6-luna` takes). OpenAI gets it as `reasoning.effort`; Claude as its effort (it
+has no "none": low is used; above high: high). A model that refuses a
 thinking level is asked again without one, and that is remembered.
 
 The level and feedback come in the answer to the last turn, so "the final evaluation" is that turn:
@@ -172,7 +173,11 @@ The level and feedback come in the answer to the last turn, so "the final evalua
   costs one more call and its wait, only at the end of such a talk. The request is the same with one line more at the end
   ("Finish now"), so nearly all of it is reused from cache. Set both settings the same to never make the second call.
 
-The Compare models page shows the thinking level on every call and lists the second call in the log.
+On the **Compare models** page each OpenAI or Claude model has its own two choices, starting at the settings'
+levels, so thinking levels can be tried without changing what learners get. Add the same model twice to compare
+two levels side by side (the columns are named "… · thinking none/medium"). The page shows the thinking level on
+every call and lists the second call in the log; "Use this model for the placement test" saves the chosen
+levels with the model.
 
 ## Streaming: Sakhi starts sooner
 

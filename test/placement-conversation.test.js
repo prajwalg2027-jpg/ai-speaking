@@ -406,6 +406,10 @@ test('thinking: light on each turn, more for the final level; an early ending by
   x = await toOpen([T({ level: 2, reply: 'You made tea!', finish: true, final: FINAL(2) })]);
   t = await x.go('I made tea today');
   assert.deepEqual([x.ai.asked.length, t.done.level], [1, 2], 'Sarvam: one call');
+  // A talk can be given its own thinking levels (the model comparison), whatever the settings say.
+  x = await toOpen([T({ level: 2, reply: 'You made tea!', finish: true, final: FINAL(2) }), T({ level: 2, reply: 'Tea!', finish: true, final: FINAL(3) })], { ...LUNA, efforts: { turn: 'none', final: 'xhigh' } });
+  t = await x.go('I made tea today');
+  assert.deepEqual([x.ai.asked.map((a) => a.effort), t.done.level], [['none', 'xhigh'], 3]);
   // Settings saved before these two existed still load, with the usual values.
   const old = { mode: 'conversation', brain: LUNA.config, summary: LUNA.config, maxQuestions: 2 };
   assert.deepEqual(settings.SECTIONS.placement.schema.parse(old), { ...old, turnEffort: 'low', finalEffort: 'medium' });

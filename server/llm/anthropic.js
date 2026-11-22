@@ -60,7 +60,8 @@ export async function anthropicChat(messages, { model, maxTokens = 900, schema, 
     // The thinking itself is never returned; a readable summary of it can be (for the admin's log).
     ...(wantThinking ? { thinking: { type: 'adaptive', display: 'summarized' } } : {}),
     output_config: {
-      effort: ['low', 'medium', 'high'].includes(effort) ? effort : process.env.ANTHROPIC_EFFORT || 'low',
+      // Claude takes low, medium and high: anything above high is asked for as high; "none" and no choice as its usual low.
+      effort: ['low', 'medium', 'high'].includes(effort) ? effort : ['xhigh', 'max'].includes(effort) ? 'high' : process.env.ANTHROPIC_EFFORT || 'low',
       ...(schema ? { format: { type: 'json_schema', schema: claudeSchema(z.toJSONSchema(schema)) } } : {}),
     },
     ...(FALLBACK_MODELS.has(model) ? { betas: [FALLBACK_BETA], fallbacks: 'default' } : {}),

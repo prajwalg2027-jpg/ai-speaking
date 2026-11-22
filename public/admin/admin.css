@@ -226,3 +226,4 @@ button.recording { background: var(--critical); border-color: var(--critical); c
 .lab-costs tr:last-child th { border-top: 1px solid var(--border); padding-top: 4px; }
 
 #labsum td.lab-model { display: table-cell; white-space: nowrap; }
+.lab-think { flex-basis: 100%; } .lab-think[hidden] { display: none; }

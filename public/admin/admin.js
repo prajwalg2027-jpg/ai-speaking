@@ -251,7 +251,8 @@ async function overview() {
 // ---- Settings -------------------------------------------------------------------------------------
 const ORDER = ['placement', 'payments', 'corrections', 'llm', 'conversation', 'limits', 'features', 'scoring'];
 const JOBS = { tutor: 'Tutor replies', verify: 'Correction check (strategy B)', lessonEval: 'Lesson marking' };
-const EFFORT_OPTIONS = [['default', "The model's own default"], ['none', 'None (fastest)'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High (slowest)']];
+const EFFORT_OPTIONS = [['default', "The model's own default"], ['none', 'None (fastest)'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Most (slowest)']];
+const TAKES_THINKING = ['openai', 'anthropic']; // the providers that can be told how hard to think
 const META = {
   'corrections.strategy': { type: 'choice', label: 'How corrections are made', options: [
     ['single', 'A · One call', 'The tutor replies and proposes corrections in one call; the correction rules filter them. Fastest and cheapest.'],
@@ -595,6 +596,9 @@ async function models() {
     <label class="f">Provider<select data-prov>${provs.map((p) => html`<option value="${p}" ${p === m.provider ? raw('selected') : ''}>${providerName(p)}${ok(p) ? '' : ' (no API key on the server)'}</option>`)}</select></label>
     <label class="f grow">Model<input data-model value="${m.model}" list="sugg-${m.provider}" maxlength="100" autocomplete="off" required></label>
     ${i > 0 ? html`<button type="button" class="link danger" data-remove>Remove</button>` : ''}
+    <div class="lab-think" data-think ${TAKES_THINKING.includes(m.provider) ? '' : raw('hidden')}><div class="row">
+      <label class="f">Thinking on each turn<select data-effort="turn">${EFFORT_OPTIONS.map(([v, t]) => html`<option value="${v}" ${v === (m.turnEffort ?? info.effortFor?.turn) ? raw('selected') : ''}>${t}</option>`)}</select></label>
+      <label class="f">Thinking for the final level and feedback<select data-effort="final">${EFFORT_OPTIONS.map(([v, t]) => html`<option value="${v}" ${v === (m.finalEffort ?? info.effortFor?.final) ? raw('selected') : ''}>${t}</option>`)}</select></label></div></div>
     <p class="small muted lab-priceline" data-priceline>${priceOf(m.provider, m.model)}</p>
     <details class="lab-price"><summary class="small muted">Use a different price for this model</summary>
       <div class="row"><label class="f">Input, $ per 1M tokens<input type="number" min="0" step="any" data-price="input" value="${m.price?.input ?? ''}"></label>
@@ -604,7 +608,9 @@ async function models() {
   const readPick = (row) => {
     const num = (k) => { const v = $(`[data-price="${k}"]`, row).value; return v === '' ? undefined : Number(v); };
     const price = num('input') != null && num('output') != null ? { input: num('input'), output: num('output'), ...(num('cached') != null ? { cached: num('cached') } : {}) } : undefined;
-    return { provider: $('[data-prov]', row).value, model: $('[data-model]', row).value.trim(), ...(price ? { price } : {}) };
+    const provider = $('[data-prov]', row).value;
+    const think = TAKES_THINKING.includes(provider) ? { turnEffort: $('[data-effort="turn"]', row).value, finalEffort: $('[data-effort="final"]', row).value } : {};
+    return { provider, model: $('[data-model]', row).value.trim(), ...think, ...(price ? { price } : {}) };
   };
   const readPicks = () => ({ models: $$('.pick', box).map(readPick) });
 
@@ -614,7 +620,7 @@ async function models() {
       <p class="muted small">Up to four. Each one runs its own conversation.</p>
       <div id="picks">${labPicks.models.map(pickRow)}</div>
       ${labPicks.models.length < 4 ? html`<p><button type="button" id="addm">Add a model</button></p>` : ''}
-      ${info.effortFor ? html`<p class="muted small">Thinking (OpenAI and Claude models): <strong>${info.effortFor.turn}</strong> on each turn, <strong>${info.effortFor.final}</strong> for the final level and feedback. Change it in <a href="#settings">Settings › Placement test</a>.</p>` : ''}
+      <p class="muted small">Thinking can be chosen for each OpenAI or Claude model (other providers have no such choice). It starts at the levels in <a href="#settings">Settings › Placement test</a>. To compare thinking levels, add the same model twice.</p>
       <p class="muted small">API keys are added on the server with <code>deploy/llm-keys-setup.sh</code>. This page spends real AI credit.</p>
       <p class="err" id="serr" role="alert"></p>
       <div class="row"><button class="primary" type="submit">Start the conversations</button></div></form>`);
@@ -624,6 +630,7 @@ async function models() {
       sel.addEventListener('change', () => {
         input.setAttribute('list', `sugg-${sel.value}`);
         if (!sugg(sel.value).includes(input.value)) input.value = sugg(sel.value)[0] || '';
+        $('[data-think]', row).hidden = !TAKES_THINKING.includes(sel.value);
         reprice();
       });
       input.addEventListener('input', reprice);
@@ -718,8 +725,10 @@ async function models() {
           const value = structuredClone(s.sections.placement.value);
           value.brain = { provider: m.provider, model: m.model, temperature: value.brain.temperature };
           value.summary = { provider: m.provider, model: m.model, temperature: value.summary.temperature };
+          if (m.turnEffort) value.turnEffort = m.turnEffort;
+          if (m.finalEffort) value.finalEffort = m.finalEffort;
           await api('/settings/placement', { method: 'PUT', body: { value } });
-          toast(`Saved. New tests in conversation mode use ${m.model}.`);
+          toast(`Saved. New tests in conversation mode use ${m.model}${m.turnEffort ? `, thinking ${m.turnEffort} on each turn and ${m.finalEffort} for the final level` : ''}.`);
         } catch (x2) { $('[data-err]', el).textContent = x2.message; }
         btn.disabled = false;
       });

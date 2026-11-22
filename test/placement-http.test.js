@@ -178,3 +178,13 @@ test("a model that streams: Sakhi's voice for her reply is being made before the
   } finally { await settings.reset('placement', 'test'); }
 });
 
+test('comparing models: each OpenAI or Claude model can be given its own thinking; the same model twice is told apart', async () => {
+  const start = (models) => post('/api/admin/placement-lab/start', { models });
+  const luna = { provider: 'openai', model: 'gpt-6-luna' };
+  const lab = (await start([{ ...luna, turnEffort: 'none', finalEffort: 'high' }, luna, { provider: 'sarvam', model: 'sarvam-105b', turnEffort: 'high' }])).json;
+  assert.deepEqual(lab.talks.map((t) => t.model), ['openai/gpt-6-luna · thinking none/high', 'openai/gpt-6-luna', 'sarvam/sarvam-105b'], 'Sarvam has no such choice');
+  const t = (await post('/api/admin/placement-lab/turn', { labId: lab.labId, message: 'My name is Ravi' })).json.talks;
+  assert.deepEqual(t.map((x) => x.ai.effort), ['none', 'low', null], "the chosen level; the settings' level; none for Sarvam");
+  assert.equal((await start([{ ...luna, turnEffort: 'enormous' }])).status, 400);
+});
+

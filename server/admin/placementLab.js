@@ -7,7 +7,7 @@
 // Nothing is saved.
 //
 //   GET  /api/admin/placement-lab           → { providers: { name: { configured } }, current, suggestions, prices, defaults }
-//   POST /api/admin/placement-lab/start     { models: [{provider, model, temperature?, price?}, ..up to 4] }
+//   POST /api/admin/placement-lab/start     { models: [{provider, model, temperature?, price?, turnEffort?, finalEffort?}, ..up to 4] }
 //                                           → { labId, talks: [{ model, say, step, voice } | { model, error }] }
 //   POST /api/admin/placement-lab/transcribe  (a WAV recording; ?language=en-IN for the reading step)
 //                                           → { transcript, audioSec, ms }: Sarvam's speech-to-text, as in the app
@@ -24,7 +24,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import * as settings from '../settings.js';
-import { providers } from '../llm/index.js';
+import { providers, takesEffort } from '../llm/index.js';
 import { listModels } from '../llm/models.js';
 import { knownPrices } from '../llm/prices.js';
 import { PRICES } from '../costs.js';
@@ -37,6 +37,8 @@ const Model = z.strictObject({
   model: z.string().trim().min(1).max(100),
   temperature: z.number().min(0).max(1.5).default(0.6),
   // US dollars per million tokens, for a model whose price the server doesn't know (so its cost can be shown).
+  // How hard this model thinks, on each turn and for the final level (OpenAI and Claude). Left out: the settings'.
+  turnEffort: z.enum(settings.EFFORTS).optional(), finalEffort: z.enum(settings.EFFORTS).optional(),
   price: z.strictObject({ input: z.number().min(0).max(10_000), cached: z.number().min(0).max(10_000).optional(), output: z.number().min(0).max(10_000) }).optional(),
 });
 const Start = z.strictObject({ models: z.array(Model).min(1).max(4) });
@@ -52,7 +54,9 @@ function parse(schema, body) {
   if (!r.success) throw fail(400, r.error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`).join('; '));
   return r.data;
 }
-const label = (m) => `${m.provider}/${m.model}`;
+const efforts = (m) => (takesEffort(m.provider) ? { turn: m.turnEffort ?? settings.get('placement').turnEffort, final: m.finalEffort ?? settings.get('placement').finalEffort } : null);
+// The same model can be in the comparison twice, with different thinking: the name then says which is which.
+const label = (m) => `${m.provider}/${m.model}${takesEffort(m.provider) && (m.turnEffort || m.finalEffort) ? ` · thinking ${efforts(m).turn}/${efforts(m).final}` : ''}`;
 const ready = (m) => !!providers[m.provider]?.configured();
 const NOT_SET_UP = 'Not set up on the server: its API key is missing (deploy/llm-keys-setup.sh).';
 /** Where a talk is: the step, and what's on the learner's screen. */
@@ -85,7 +89,7 @@ async function takeTurn(talk, input, deps) {
   if (!s) return { model: label(talk.model), error: 'This conversation has ended. Start again.' };
   const trace = { list: [], add(step, data) { this.list.push({ step, ...data }); } };
   let turn;
-  try { turn = await conversation.handleTurn(s, input, trace, { config: talk.model, summaryConfig: talk.model, structured: deps.structured, timeoutMs: 20_000, detail: true }); }
+  try { turn = await conversation.handleTurn(s, input, trace, { config: talk.model, summaryConfig: talk.model, structured: deps.structured, timeoutMs: 20_000, detail: true, efforts: efforts(talk.model) || undefined }); }
   catch (e) { return { model: label(talk.model), error: e.message }; }
   const find = (step) => trace.list.find((x) => x.step === step);
   const brain = find('brain'), failed = find('brain-failed'), sum = find('summary'), exchange = find('exchange'), guard = trace.list.filter((x) => x.step === 'guard');

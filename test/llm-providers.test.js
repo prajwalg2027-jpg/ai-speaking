@@ -181,8 +181,8 @@ test('how hard to think: sent to OpenAI and Claude when asked; a model that refu
   assert.equal(openCalls.length, 3, 'remembered: not tried again');
 
   const claude = (effort) => llm.structured({ job: 'x', config: { provider: 'anthropic', model: 'claude-haiku-5-5', temperature: 0 }, messages, schema: Answer, effort });
-  await claude('medium'); await claude('none'); await claude();
-  assert.deepEqual(claudeCalls.map((c) => c.body.output_config.effort), ['medium', 'low', 'low'], 'Claude has no "none": its usual low');
+  await claude('medium'); await claude('none'); await claude(); await claude('max');
+  assert.deepEqual(claudeCalls.map((c) => c.body.output_config.effort), ['medium', 'low', 'low', 'high'], 'Claude has no "none" (its usual low) and nothing above high');
   assert.deepEqual([llm.takesEffort('openai'), llm.takesEffort('anthropic'), llm.takesEffort('sarvam'), llm.takesEffort('gemini')], [true, true, false, false]);
 });
 

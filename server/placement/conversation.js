@@ -208,7 +208,7 @@ function plainTurn(s, ctx) {
 /**
  * One learner turn. Every turn goes to the AI (brain.js); the app only replays her last question on "repeat".
  * input: { event: 'answer'|'no_speech'|'live_failed'|'skip'|'repeat'|'in_hindi', transcript?, languageCode?, speechSec?, timing?, interrupted? }
- * opts: { config, summaryConfig, structured, timeoutMs, detail } (tests and the model comparison);
+ * opts: { config, summaryConfig, structured, timeoutMs, detail, efforts: { turn, final } } (tests and the model comparison);
  *       onReply(lines): her reaction's lines, as soon as they are known (a provider that streams): see askAI below
  */
 export async function handleTurn(s, input, trace, opts = {}) {
@@ -241,6 +241,8 @@ export async function handleTurn(s, input, trace, opts = {}) {
 
   const ctx = buildCtx(s, input);
   const P = settings.get('placement'), config = opts.config || P.brain;
+  // How hard the model thinks: the settings, unless this talk was given its own (the model comparison).
+  const E = { turn: opts.efforts?.turn ?? P.turnEffort, final: opts.efforts?.final ?? P.finalEffort };
   // One call to the AI. as: the name it goes by in the trace.
   const askAI = async (c, effort, as) => {
     const t0 = performance.now();
@@ -259,7 +261,7 @@ export async function handleTurn(s, input, trace, opts = {}) {
   };
   // How hard the model thinks: lightly on a turn (speed), more for the final level and feedback (care).
   let out, ai = true;
-  try { out = await askAI(ctx, ctx.mustFinish ? P.finalEffort : P.turnEffort, 'brain'); }
+  try { out = await askAI(ctx, ctx.mustFinish ? E.final : E.turn, 'brain'); }
   catch (e) {
     note('brain-failed', { why: e.message, using: "the app's own checks and fixed lines" });
     out = plainTurn(s, ctx); ai = false;
@@ -268,9 +270,9 @@ export async function handleTurn(s, input, trace, opts = {}) {
   // told to finish, so the final level and feedback always get the care set for them. (One more call, only then.)
   // The turn itself stays as first answered (her reply may already be on its way to being spoken).
   const ends = (o) => o.finish && ['read', 'open'].includes(ctx.step) && !stays(ctx, o);
-  if (ai && ends(out) && !ctx.mustFinish && P.finalEffort !== P.turnEffort && takesEffort(config.provider)) {
+  if (ai && ends(out) && !ctx.mustFinish && E.final !== E.turn && takesEffort(config.provider)) {
     try {
-      const again = await askAI({ ...ctx, extra: appLine('You have heard enough to be sure of their level. Finish now: leave out "q" and add "f".') }, P.finalEffort, 'final-evaluation');
+      const again = await askAI({ ...ctx, extra: appLine('You have heard enough to be sure of their level. Finish now: leave out "q" and add "f".') }, E.final, 'final-evaluation');
       if (again.final) out = { ...out, final: again.final };
       else note('plan', { next: "keep the first answer's level", why: 'the final evaluation gave no level' });
     } catch (e) { note('final-evaluation-failed', { why: e.message, using: "the turn's own answer" }); }

@@ -8,7 +8,7 @@ import { CONFIG as SCORING_DEFAULTS, setScoringConfig } from './scoring.js';
 
 const num = (k, d) => (Number.isFinite(Number(process.env[k])) && process.env[k] !== '' ? Number(process.env[k]) : d);
 // How hard a model thinks before it answers, for the models that take it (OpenAI's and Claude's). 'default': say nothing, the model's own default.
-export const EFFORTS = ['default', 'none', 'low', 'medium', 'high'];
+export const EFFORTS = ['default', 'none', 'low', 'medium', 'high', 'xhigh', 'max'];
 const llmJob = z.strictObject({
   provider: z.enum(['sarvam', 'openai', 'anthropic', 'gemini']),
   model: z.string().min(1).max(100),
