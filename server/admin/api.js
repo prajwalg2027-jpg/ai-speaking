@@ -24,6 +24,7 @@ import { loginEnabled, firebaseEnabled, otpEnabled, projectId } from '../auth.js
 import { LIMITS } from '../guard.js';
 import { whoIs, need, handleTeam, PERMISSIONS } from './team.js';
 import { handlePlacementLab } from './placementLab.js';
+import { listModels } from '../llm/models.js';
 import { spentToday, PRICES } from '../costs.js';
 import { structured as defaultStructured, providers } from '../llm/index.js';
 import { readJson, send, fail, route, isUuid } from '../http.js';
@@ -118,7 +119,7 @@ export async function handleAdmin(req, res, url, deps = {}) {
     return send(res, 200, {
       sections: Object.fromEntries(Object.entries(settings.SECTIONS).map(([k, s]) => [k, { label: s.label, value: now[k], defaults: s.defaults, changed: JSON.stringify(now[k]) !== JSON.stringify(s.defaults) }])),
       providers: Object.fromEntries(Object.entries(providers).map(([k, v]) => [k, { configured: v.configured() }])),
-      prices: PRICES,
+      prices: PRICES, models: await listModels(), // for the model menus
     }), true;
   }
   if (m === 'GET' && p === '/api/admin/settings/history') return need(who, 'settings.view'), send(res, 200, { changes: await settings.history(100) }), true;

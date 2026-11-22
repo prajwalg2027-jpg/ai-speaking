@@ -11,17 +11,11 @@
 import { z } from 'zod';
 import * as settings from '../settings.js';
 import { providers } from '../llm/index.js';
+import { listModels } from '../llm/models.js';
 import { isUnintelligible } from '../clarify.js';
 import * as conversation from '../placement/conversation.js';
 import { think, summarize } from '../placement/brain.js';
 import { readJson, send, fail } from '../http.js';
-
-// Starting points for the model box (any model name the provider accepts can be typed).
-const SUGGESTIONS = {
-  sarvam: ['sarvam-105b-conversations', 'sarvam-105b'],
-  anthropic: ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5'],
-  openai: [], gemini: [],
-};
 
 const Model = z.strictObject({
   provider: z.enum(['sarvam', 'openai', 'anthropic', 'gemini']),
@@ -64,7 +58,7 @@ export async function handlePlacementLab(req, res, url, deps = {}) {
   if (m === 'GET' && p === '/api/admin/placement-lab') {
     return send(res, 200, {
       providers: Object.fromEntries(Object.entries(providers).map(([k, v]) => [k, { configured: v.configured() }])),
-      current: settings.get('placement'), suggestions: SUGGESTIONS,
+      current: settings.get('placement'), suggestions: await listModels(), // every model each provider offers now
     }), true;
   }
 

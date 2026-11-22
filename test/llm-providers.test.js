@@ -165,3 +165,23 @@ test('a price typed for a model gives its cost; cached tokens cost less', async 
   assert.ok(Math.abs(r.costInr - ((30 * 1 + 20 * 0.1 + 10 * 4) / 1e6) * 88) < 1e-9);
   assert.ok(Math.abs(prices.costInr({ provider: 'openai', model: 'm', usage: { input: 1000, cached: 0, output: 0 }, price: { input: 2, output: 8 } }) - 0.176) < 1e-9);
 });
+
+test('the model menus: each provider is asked for its models; only chat models; nothing offered when a list fails', async () => {
+  const { listModels } = await import('../server/llm/models.js');
+  const fake = await startFake([], (b, req) => (req.url.startsWith('/openai/models') ? [200, { data: ['gpt-6-luna', 'gpt-6', 'text-embedding-3-small', 'whisper-1', 'gpt-image-2', 'o5-mini'].map((id) => ({ id })) }]
+    : req.url.startsWith('/gemini/models') ? [200, { data: ['models/gemini-3-pro', 'models/gemini-3-flash', 'models/gemini-embedding-1', 'models/imagen-4'].map((id) => ({ id })) }]
+    : req.url.startsWith('/v1/models') ? [200, { data: [{ id: 'claude-opus-5-5', type: 'model' }, { id: 'claude-haiku-5-5', type: 'model' }], has_more: false, first_id: 'claude-opus-5-5', last_id: 'claude-haiku-5-5' }]
+    : [404, {}]));
+  const base = `http://127.0.0.1:${fake.address().port}`;
+  const old = { OPENAI_BASE_URL: process.env.OPENAI_BASE_URL, GEMINI_BASE_URL: process.env.GEMINI_BASE_URL, ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL };
+  Object.assign(process.env, { OPENAI_BASE_URL: `${base}/openai`, GEMINI_BASE_URL: `${base}/gemini`, ANTHROPIC_BASE_URL: base });
+  try {
+    const m = await listModels({ fresh: true });
+    assert.deepEqual(m.openai, ['o5-mini', 'gpt-6-luna', 'gpt-6']);
+    assert.deepEqual(m.gemini, ['gemini-3-pro', 'gemini-3-flash']);
+    assert.deepEqual(m.anthropic, ['claude-opus-5-5', 'claude-haiku-5-5']);
+    assert.deepEqual(m.sarvam, ['sarvam-105b-conversations', 'sarvam-105b']);
+    process.env.GEMINI_BASE_URL = `${base}/broken`;
+    assert.deepEqual((await listModels({ fresh: true })).gemini, [], 'the list fails: nothing to offer, and the name can still be typed');
+  } finally { Object.assign(process.env, old); fake.closeAllConnections(); fake.close(); }
+});

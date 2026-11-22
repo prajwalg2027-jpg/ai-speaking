@@ -339,9 +339,15 @@ async function settings() {
   });
   show(html`
     <div class="page-head"><div><h1>Settings</h1><p class="muted">Changes apply within seconds on every server, with no deploy. Every change is recorded below.${can('settings.edit') ? '' : html` <strong>Read only:</strong> your role (${me.roleName}) can't change settings.`}</p></div></div>
-    <datalist id="models"><option value="sarvam-105b"><option value="sarvam-105b-conversations"><option value="claude-haiku-5-5"><option value="claude-sonnet-5-5"><option value="claude-opus-5-5"></datalist>
+    ${Object.entries(s.models || {}).map(([p, list]) => html`<datalist id="models-${p}">${list.map((m) => html`<option value="${m}">`)}</datalist>`)}
     ${sections}
     <div class="card"><h2>Change history</h2>${h.changes.length ? html`<div class="table-wrap"><table><tr><th>When</th><th>Section</th><th>By</th><th>What changed</th></tr>${h.changes.map((c) => html`<tr><td>${when(c.changed_at)}</td><td>${s.sections[c.key]?.label || c.key}</td><td>${c.changed_by || '–'}</td><td class="small">${diff(c.old_value, c.new_value).slice(0, 6).map((d) => html`<div>${d}</div>`)}</td></tr>`)}</table></div>` : html`<p class="muted">No changes yet.</p>`}</div>`);
+  // Each model box offers the models of the provider chosen beside it (the server asks each provider for its list).
+  for (const input of $$('input[data-path$=".model"]')) {
+    const prov = $(`select[data-path="${input.dataset.path.replace(/\.model$/, '.provider')}"]`);
+    const link = () => input.setAttribute('list', `models-${prov?.value || 'sarvam'}`);
+    link(); prov?.addEventListener('change', link);
+  }
   if (!can('settings.edit')) for (const form of $$('form[data-key]')) { for (const el of $$('input, select, textarea', form)) el.disabled = true; for (const b of $$('button', form)) b.hidden = true; }
   for (const form of $$('form[data-key]')) {
     const key = form.dataset.key;
@@ -557,7 +563,8 @@ async function models() {
       const turn = document.createElement('div');
       turn.className = 'lab-turn';
       turn.innerHTML = fmt(html`<div class="bubble learner">${event === 'answer' ? message : html`<span class="muted">${LEARNER_EVENTS[event]}</span>`}<div class="meta">Learner</div></div>
-        <div class="lab-cols">${labTurnCol(r.primary, true, r.done ? [] : r.say)}${r.others.map((x) => labTurnCol(x, false))}</div>`);
+        <div class="lab-cols">${labTurnCol(r.primary, true, r.done ? [] : r.say)}${r.others.map((x) => labTurnCol(x, false))}</div>
+        ${!r.others.length && picks.others.length ? html`<p class="small muted">The name, the picture and the reading use fixed lines, so no model is asked here. ${picks.others.map((m) => m.model).join(' and ')} will answer beside the first model from the open question onwards.</p>` : ''}`);
       log.append(turn);
       for (const x of [r.primary, ...r.others, ...(r.done ? [r.done.primary, ...r.done.others] : [])]) addUse(totals, x);
       $('#progress', box).textContent = progressLine(r.ratings || [], r.done ? null : r.question);
