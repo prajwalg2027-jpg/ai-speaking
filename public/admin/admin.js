@@ -655,14 +655,15 @@ async function models() {
         <div class="lab-model"><strong>${t.model}</strong>${t.error ? '' : html` <button type="button" class="link" data-log>View log</button>`}</div>
         ${t.error ? html`<p class="err">${t.error}</p>` : html`<div class="lab-log"><div class="bubble tutor"><div class="meta">Sakhi</div>${lines(t.say)}</div></div>
           <p class="small muted lab-progress" data-progress>${progressLine(t.step)}</p>
-          <form class="lab-own" hidden><div class="row end"><label class="f grow">Answer this model's question<input maxlength="2000" autocomplete="off"></label>${mic('')}<button type="submit">Send to this one</button></div></form>
+          <form class="lab-own"><div class="row end"><label class="f grow">Reply to this one only<input maxlength="2000" autocomplete="off"></label>${mic('')}<button type="submit">Send to this one</button></div>
+            <div class="row lab-events"><button type="button" data-event="no_speech">Says nothing</button><button type="button" data-event="skip">Skips</button><button type="button" data-event="in_hindi">Asks for Hindi</button></div></form>
           <div data-result></div>`}</div>`)}</div>
       <form id="turn" class="lab-input">
-        <div class="row end"><label class="f grow">What the learner says (goes to every conversation still going)<input id="said" maxlength="2000" autocomplete="off" placeholder="My name is Ravi"></label>
+        <div class="row end"><label class="f grow">Reply to all (goes to every conversation still going)<input id="said" maxlength="2000" autocomplete="off" placeholder="My name is Ravi"></label>
           ${mic('')}<button class="primary" type="submit">Send to all</button></div>
         <div class="row lab-events"><button type="button" data-event="no_speech">Says nothing</button><button type="button" data-event="skip">Skips</button><button type="button" data-event="in_hindi">Asks for Hindi</button>
           <span class="small muted" id="wait" hidden><span class="spin"></span> <span id="waitwhat">Waiting for the models. This can take several seconds.</span></span></div>
-        ${canHear ? html`<p class="small muted">Speak: press, say it, press Stop (up to 30 seconds). Sarvam turns it into words, as in the app, and it is sent.</p>` : ''}
+        <p class="small muted">Each conversation also has its own box, for a reply to that one alone. After that the conversations may be on different steps; a reply to all still goes to each, wherever it is.${canHear ? ' Speak: press, say it, press Stop (up to 30 seconds). Sarvam turns it into words, as in the app, and it is sent.' : ''}</p>
         <p class="err" id="terr" role="alert"></p>
       </form>
       <div id="labsum"></div></div>`);
@@ -745,8 +746,8 @@ async function models() {
         if (x.final) addUse(s.totals, x.final.ai);
         if (x.done?.ai) addUse(s.totals, x.done.ai);
         $('[data-progress]', c).textContent = progressLine(x.step);
-        // Once the models ask their own questions, each can be answered on its own.
-        $('.lab-own', c).hidden = !!x.done || x.step?.step !== 'open';
+        // Each talk can be answered on its own at any point, until it has finished.
+        $('.lab-own', c).hidden = !!x.done;
         if (x.done) { s.over = true; s.done = x.done; finished(i, x); }
       });
       summary();
@@ -785,6 +786,7 @@ async function models() {
 
     form.addEventListener('submit', (e) => { e.preventDefault(); send('answer', input.value.trim()); });
     for (const b of $$('[data-event]', form)) b.addEventListener('click', () => send(b.dataset.event));
+    for (const b of $$('.lab-own [data-event]', box)) b.addEventListener('click', () => send(b.dataset.event, undefined, Number(b.closest('.lab-col').dataset.i)));
     $('[data-mic]', form)?.addEventListener('click', (e) => speak(e.currentTarget));
     for (let i = 0; i < n; i++) {
       const c = col(i);

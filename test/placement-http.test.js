@@ -94,7 +94,10 @@ test('comparing models: each runs its own conversation end to end; a model witho
   let heard;
   const type = async (message, extra = {}) => { const j = (await post('/api/admin/placement-lab/turn', { labId: lab.labId, message, ...extra })).json; heard = j.heard; return j.talks; };
 
-  let t = await type('My name is Ravi');
+  // A reply to one conversation only, from the very first turn: the other is left where it is.
+  let t = await type('', { event: 'in_hindi', only: 1 });
+  assert.deepEqual([t[0], t[1].ai.happened, t[1].step.step, t[2]], [null, 'asked_for_help', 'hello', null]);
+  t = await type('My name is Ravi');
   assert.deepEqual([t[0].step.step, t[1].step.step, t[2]], ['picture', 'picture', null], 'the model without a key has no talk');
   assert.deepEqual([t[0].ai.happened, t[0].ai.ms >= 0, t[0].ai.usage.input > 0], ['answered', true, true], 'the hello is the AI too');
   assert.equal(t[0].step.screen, t[1].step.screen, 'the same picture in every talk');

@@ -176,8 +176,11 @@ Any provider whose key is on the server can be chosen.
 2. **Admin console › Compare models**: pick up to four models (it starts with the model in use beside OpenAI's
    `gpt-6-luna`). Each runs its own conversation, side by side, from the hello to the level and feedback; they
    all start with the same picture, line to read and first open question.
-   - **Type or speak.** What you type goes to every conversation; once the models ask different questions, each
-     column has its own box too. **Speak** records from your microphone (up to 30 seconds) and Sarvam turns it
+   - **Type or speak.** The box at the bottom replies to **all** the conversations still going. Each
+     conversation also has its own box and buttons (says nothing, skips, asks for Hindi, Speak) for a reply to
+     that one **only**, from the first turn. After that the conversations may be on different steps; a reply to
+     all still goes to each, wherever it is.
+     **Speak** records from your microphone (up to 30 seconds) and Sarvam turns it
      into words exactly as in the app (`POST /api/admin/placement-lab/transcribe`); only the words are sent on.
      Sakhi's replies are shown as text, not spoken.
      On adamspeaks.in the website switches the microphone off for every page except `/admin` (the

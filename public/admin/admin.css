@@ -200,7 +200,7 @@ td.row { gap: 12px; }
 .lab-ai { margin: 4px 0 8px; padding-left: 10px; border-left: 2px solid var(--border); }
 .lab-ai p { margin: 2px 0; }
 .lab-fixed { margin: 2px 0; }
-.lab-own { margin: 8px 0; }
+.lab-own { margin: 8px 0; padding-top: 8px; border-top: 1px dashed var(--border); } .lab-own .lab-events { margin-top: 6px; } .lab-own label.f { min-width: 0; }
 .lab-result h2 { margin-top: 12px; }
 
 /* Compare models: the microphone, prices, the log */
@@ -225,3 +225,4 @@ button.recording { background: var(--critical); border-color: var(--critical); c
 .lab-costs { width: auto; margin: 6px 0; font-size: 13px; } .lab-costs td, .lab-costs th { padding: 2px 14px 2px 0; border: 0; text-align: left; } .lab-costs .num { text-align: right; }
 .lab-costs tr:last-child th { border-top: 1px solid var(--border); padding-top: 4px; }
 
+#labsum td.lab-model { display: table-cell; white-space: nowrap; }
