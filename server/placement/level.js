@@ -1,4 +1,6 @@
-// The level rule for the conversation placement. All of it is here, in plain code.
+// THE SAFETY NET for the conversation placement. In the normal course the AI decides everything, the final level
+// included (brain.js). This rule is only used when the AI is slow, fails, or leaves the level out, so that a test
+// still ends with a level. All of it is here, in plain code.
 //
 // The talk goes from easy to hard, so nobody starts on a hard question:
 //   1. Hello     "Hi, my name is Sakhi. What is your name?"      Not counted.

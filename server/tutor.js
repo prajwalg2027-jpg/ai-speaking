@@ -65,6 +65,7 @@ const NOT_NAMES = new Set(('sakhi okay ok now so well yes no oh ah aha hmm great
   + 'hindi english friend dear wonderful awesome amazing interesting true fine perfect indeed yeah yep anyway see tell try let '
   + 'oops wah waah shabash ooh today tomorrow yesterday sunday monday tuesday wednesday thursday friday saturday everyone there '
   + 'go come say read think imagine guess remember tea chai india delhi mumbai '
+  + 'ha aw aww yay oho whoa phew mm mmm uh um ooh aah yum '
   + 'beginner basic level').split(/\s+/)); // level names: "…level 2 of 4, Basic." is not a name
 const isNameLike = (w, known) => {
   const lw = w.toLowerCase();

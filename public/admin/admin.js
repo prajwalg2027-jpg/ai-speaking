@@ -261,8 +261,8 @@ const META = {
   'placement.mode': { type: 'choice', label: 'Kind of placement test', options: [
     ['classic', 'Classic test', 'Five parts: about you, words, listening, reading, speaking. About five minutes.'],
     ['conversation', 'Conversation', 'Name, a picture, a line to read, then open questions for those who can go on, with a gentle tip after each answer. About two minutes.']] },
-  'placement.brain': { label: 'AI for each turn (conversation)' },
-  'placement.summary': { label: 'AI for the closing feedback (conversation)' },
+  'placement.brain': { label: 'AI for the conversation (every turn, the level and the feedback)' },
+  'placement.summary': { label: 'Backup AI for the closing feedback (only if the first leaves the level out)' },
   'placement.maxQuestions': { label: 'Most open questions in a conversation', help: '1 to 6, after the name, picture and reading. The talk ends sooner when the level is clear.' },
   'conversation.historyMessages': { label: 'Recent messages the tutor reads', help: 'More = better memory of the conversation, slightly slower and costlier.' },
   'limits.dailyBudgetInr': { label: 'Daily budget (₹)', help: 'When today’s AI spend reaches this, new conversations and messages pause until tomorrow.' },
@@ -426,25 +426,29 @@ function addUse(totals, x) {
 }
 const totalLine = (t) => (t ? html`<h3>The whole talk</h3><p class="small">${t.calls} AI call${t.calls === 1 ? '' : 's'} · ${ms(t.ms)} in all · cost ${t.priced ? inr(t.cost, 3) : '– (add this model\'s price to see it)'}<br>Tokens: ${tokens(t)}</p>` : '');
 
-function progressLine(ratings, q) {
+function progressLine(q) {
   const parts = [];
-  if (ratings.length) parts.push(`Open answers so far: ${ratings.map((r) => `level ${r.level} (asked ${r.asked}${r.missed ? ", couldn't answer" : ''})`).join(', ')}`);
   if (q) parts.push(q.step === 'hello' ? 'Now: asking their name (not counted)'
     : q.step === 'picture' ? `Now: a picture on their screen (${q.screen}). Type what they call it`
     : q.step === 'read' ? `Now: a line on their screen to read out loud: "${q.screen}". Type what they read`
-    : `Now: open question ${q.n}, a level ${q.level} question`);
+    : `Now: open question ${q.n}`);
   return parts.join(' · ');
 }
 
-/** What one model's AI did on a turn: the level it gave, why, the fix, speed, cost and tokens. */
+const HAPPENED = { answered: 'Answered', asked_for_help: 'Asked for help', could_not: "Couldn't do it", something_else: 'Said something else', gave_up: 'Gave up' };
+const PICTURE = { named: 'Picture named', not_named: 'Picture not named' };
+const READING = { well: 'Read it well', partly: 'Read part of it', not: 'Did not read it' };
+/** What one model judged on a turn: what happened, the picture or reading, the level, why, the fix, speed, tokens and cost. */
 function labAi(x) {
-  if (x.aiFailed) return html`<div class="lab-ai"><p class="err small">The AI did not answer (${x.aiFailed}). Plain lines were used.</p></div>`;
-  if (!x.ai) return html`<p class="small muted lab-fixed">Fixed lines, no AI on this step.</p>`;
-  const a = x.ai, c = x.counted;
-  const counted = c ? (c.missed ? `counted as level ${c.level} (couldn't answer)` : a.level != null && c.level !== a.level ? `counted as level ${c.level} (measured words)` : '') : '';
-  return html`<div class="lab-ai"><p>${levelBadge(a)}${counted ? html` <span class="small muted">${counted}</span>` : ''}</p>
+  if (x.aiFailed) return html`<div class="lab-ai"><p class="err small">The AI did not answer (${x.aiFailed}). The app's own checks and fixed lines were used.</p></div>`;
+  if (!x.ai) return html`<p class="small muted lab-fixed">Her own words again, no AI call.</p>`;
+  const a = x.ai;
+  return html`<div class="lab-ai"><p><span class="badge">${HAPPENED[a.happened] || a.happened}</span>
+      ${a.picture ? html` <span class="badge on">${PICTURE[a.picture]}</span>` : ''}${a.reading ? html` <span class="badge on">${READING[a.reading]}</span>` : ''}
+      ${a.level != null ? html` <span class="badge on">Level ${a.level} · ${LEVEL_WORDS[a.level] || ''}</span>` : ''}${a.finish ? html` <span class="badge">Ends the talk</span>` : ''}</p>
     ${a.evidence ? html`<p class="small">${a.evidence}</p>` : ''}
     ${a.tip ? html`<div class="corr"><span class="was">${a.tip.said}</span> → <strong>${a.tip.better}</strong></div>` : ''}
+    ${x.dropped?.length ? html`<p class="small muted">Not said (${x.dropped.join('; ')}). A fixed line was used.</p>` : ''}
     ${speedCost(a)}</div>`;
 }
 
@@ -456,7 +460,7 @@ async function models() {
   if (!labPicks?.models) { const b = info.current?.brain || {}; labPicks = { models: [{ provider: ok(b.provider) ? b.provider : provs.find(ok) || 'sarvam', model: b.model || '' }] }; }
 
   show(html`
-    <div class="page-head"><div><h1>Compare models</h1><p class="muted">Each AI model runs its own conversation placement test, side by side, from the first hello to the level and feedback. Type what a learner would say: it goes to every model. They all start with the same picture, line to read and first open question. The final level is not the AI's opinion: a fixed rule decides it from the picture, the reading and the levels of the open answers. Nothing is saved.</p></div></div>
+    <div class="page-head"><div><h1>Compare models</h1><p class="muted">Each AI model runs its own conversation placement test, side by side, from the first hello to the level and feedback. Type what a learner would say: it goes to every model. Every turn is handled by the model, which also decides the final level. They all get the same picture and the same line to read. Nothing is saved.</p></div></div>
     ${provs.map((p) => html`<datalist id="sugg-${p}">${sugg(p).map((m) => html`<option value="${m}">`)}</datalist>`)}
     <div id="lab"></div>`);
   const box = $('#lab');
@@ -520,7 +524,7 @@ async function models() {
       <div class="lab-cols">${start.talks.map((t, i) => html`<div class="card lab-col" data-i="${i}">
         <div class="lab-model"><strong>${t.model}</strong></div>
         ${t.error ? html`<p class="err">${t.error}</p>` : html`<div class="lab-log"><div class="bubble tutor"><div class="meta">Sakhi</div>${lines(t.say)}</div></div>
-          <p class="small muted lab-progress" data-progress>${progressLine([], t.step)}</p>
+          <p class="small muted lab-progress" data-progress>${progressLine(t.step)}</p>
           <form class="lab-own" hidden><div class="row end"><label class="f grow">Answer this model's question<input maxlength="2000" autocomplete="off"></label><button type="submit">Send to this one</button></div></form>
           <div data-result></div>`}</div>`)}</div>
       <form id="turn" class="lab-input">
@@ -542,9 +546,9 @@ async function models() {
       const list = (title, items) => (items?.length ? html`<h3>${title}</h3><ul class="lab-list">${items.map((y) => html`<li>${y}</li>`)}</ul>` : '');
       const el = $('[data-result]', col(i));
       el.innerHTML = fmt(html`<div class="lab-result"><h2>Level ${d.level} of 4 · ${d.name}</h2>
+        <p class="small muted">Decided by ${d.decidedBy || 'the AI'}.</p>
         ${list('Why', d.reasons)}${list('What you did well', d.doingWell)}${list('What we’ll practise next', d.practise)}
-        ${d.fallback ? html`<p class="small muted">Plain feedback lines were used: ${d.fallback}</p>` : ''}
-        ${t ? totalLine(t) : html`<p class="small muted">No AI was used in this talk: it ended before the open questions.</p>`}
+        ${t ? totalLine(t) : ''}
         ${can('settings.edit') ? html`<p><button type="button" data-use>Use this model for the placement test</button></p><p class="err" data-err role="alert"></p>` : ''}</div>`);
       $('[data-use]', el)?.addEventListener('click', async (e) => {
         const btn = e.currentTarget; btn.disabled = true; $('[data-err]', el).textContent = '';
@@ -578,7 +582,7 @@ async function models() {
         log.append(turn);
         if (x.ai) addUse(state[i].totals, { model: x.model, ...x.ai });
         if (x.done?.ai) addUse(state[i].totals, { model: x.model, ...x.done.ai });
-        $('[data-progress]', c).textContent = progressLine(x.ratings || [], x.step);
+        $('[data-progress]', c).textContent = progressLine(x.step);
         // Once the models ask their own questions, each can be answered on its own.
         $('.lab-own', c).hidden = !!x.done || x.step?.step !== 'open';
         if (x.done) { state[i].over = true; finished(i, x); }

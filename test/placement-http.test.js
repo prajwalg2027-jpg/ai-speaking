@@ -18,27 +18,30 @@ const post = async (path, body) => { const r = await fetch(`${base}${path}`, { m
 const get = async (path) => (await fetch(`${base}${path}`)).json();
 const WORDS = { '🐶': 'dog', '🏠': 'house', '🍌': 'banana', '🐟': 'fish', '🍞': 'bread' }; // the level 1 pictures
 
-test('the app runs a whole conversation placement through the same API as the classic test', async () => {
+test('the app runs a whole conversation placement through the same API as the classic test, every turn by the AI', async () => {
   await settings.set('placement', { ...settings.get('placement'), mode: 'conversation' }, 'test');
   try {
     const start = (await post('/api/session')).json;
     assert.equal(start.task.id, 'hello');
     assert.equal(start.say.length, 2);
+    const chats = () => mock.calls.filter((c) => c.path === '/v1/chat/completions').length;
+    const before = chats();
     const turn = (transcript) => post('/api/session/turn', { sessionId: start.sessionId, event: 'answer', transcript, speechSec: 5 });
     let t = (await turn('My name is Ravi')).json;
-    assert.deepEqual([t.task.id, t.card.look], ['picture', 'emoji'], 'after the hello: a picture');
+    assert.match(t.say.map((l) => l.text).join(' '), /^Nice to meet you, Ravi! A picture is on your screen/, "the AI's words, not a fixed line");
+    assert.deepEqual([t.task.id, t.card.look], ['picture', 'emoji']);
     t = (await turn(WORDS[t.card.text])).json;
     assert.deepEqual([t.task.id, t.card.kind, t.listen.language], ['read', 'read', 'en-IN']);
     t = (await turn(t.card.text)).json;
-    assert.deepEqual([t.task.id, t.task.level, t.card], ['c1', 2, null], 'qualified: an open question');
+    assert.deepEqual([t.task.id, t.card], ['c1', null], 'the AI let them go on to an open question');
     t = (await turn('In the morning I go to the market and bought some vegetables for my family')).json;
-    assert.match(t.say.map((l) => l.text).join(' '), /Oh, you went there! Here is a level 4 question/);
-    assert.equal(t.task.level, 4);
+    assert.match(t.say.map((l) => l.text).join(' '), /Oh, you went there! Here is a harder question/);
+    assert.equal(t.task.id, 'c2');
     t = (await turn('I like it because the vegetables are fresh there and the shopkeeper knows me well')).json;
-    assert.equal(t.done.level, 3, 'two answers at level 3');
-    assert.equal(t.done.mode, 'conversation');
+    assert.deepEqual([t.done.level, t.done.decidedBy, t.done.mode], [3, 'the AI', 'conversation']);
     assert.match(t.done.practise[0], /I went/);
     assert.match(t.say.map((l) => l.text).join(' '), /Your English is at level 3 of 4, Good\./);
+    assert.equal(chats() - before, 5, 'one AI call per learner turn');
     // Every line she said can be spoken (the voice endpoint only speaks her own lines).
     const voice = await fetch(`${base}/api/tts/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: t.say[0].text, lang: t.say[0].lang, pace: t.say[0].pace, sessionId: start.sessionId }) });
     assert.equal(voice.status, 200);
@@ -46,10 +49,9 @@ test('the app runs a whole conversation placement through the same API as the cl
   assert.equal((await post('/api/session')).json.task.id, 'q1_intro', 'back to the classic test');
 });
 
-test('comparing models: each runs its own conversation end to end, from the same start; a model without a key says so', async () => {
+test('comparing models: each runs its own conversation end to end; a model without a key says so', async () => {
   const info = await get('/api/admin/placement-lab');
   assert.deepEqual([info.providers.sarvam.configured, info.providers.anthropic.configured], [true, false]);
-  assert.equal(info.current.mode, 'classic');
   assert.ok(info.suggestions.anthropic.includes('claude-haiku-5-5'));
   assert.equal((await post('/api/admin/placement-lab/start', { models: [{ provider: 'anthropic', model: 'claude-haiku-5-5' }] })).status, 400, 'at least one model needs its key');
   const lab = (await post('/api/admin/placement-lab/start', { models: [
@@ -62,30 +64,29 @@ test('comparing models: each runs its own conversation end to end, from the same
   const type = async (message, extra = {}) => (await post('/api/admin/placement-lab/turn', { labId: lab.labId, message, ...extra })).json.talks;
 
   let t = await type('My name is Ravi');
-  assert.deepEqual([t[0].step.step, t[1].step.step, t[2], t[0].ai], ['picture', 'picture', null, undefined], 'fixed steps: no AI; the model without a key has no talk');
+  assert.deepEqual([t[0].step.step, t[1].step.step, t[2]], ['picture', 'picture', null], 'the model without a key has no talk');
+  assert.deepEqual([t[0].ai.happened, t[0].ai.ms >= 0, t[0].ai.usage.input > 0], ['answered', true, true], 'the hello is the AI too');
   assert.equal(t[0].step.screen, t[1].step.screen, 'the same picture in every talk');
   t = await type(WORDS[t[0].step.screen]);
+  assert.deepEqual([t[0].ai.picture, t[0].step.step], ['named', 'read']);
   assert.equal(t[0].step.screen, t[1].step.screen, 'the same line to read');
   t = await type(t[0].step.screen);
-  assert.deepEqual([t[0].step, t[0].say.at(-2)], [{ step: 'open', n: 1, level: 2 }, t[1].say.at(-2)], 'the same first open question');
+  assert.deepEqual([t[0].ai.reading, t[0].step], ['well', { step: 'open', n: 1, level: 2 }]);
 
   t = await type('I go to office by bus every day and I work on the computer there');
-  assert.deepEqual([t[0].ai.level, t[0].counted.level, t[0].ai.tip.said, t[0].step], [3, 3, 'I go', { step: 'open', n: 2, level: 4 }]);
-  assert.ok(t[0].ai.ms >= 0 && t[0].ai.costInr > 0 && t[0].ai.usage.input > 0);
+  assert.deepEqual([t[0].ai.level, t[0].ai.tip.said, t[0].ai.finish, t[0].step.n], [3, 'I go', false, 2]);
   assert.ok(t[1].ai.costInr > t[0].ai.costInr, 'the typed price is used for the second model');
   assert.match(t[0].say.join(' '), /Oh, you went there!/);
 
   // Answer only the second model's question: the first talk stays where it is.
   t = await type('Because my office is far from my home so the bus is cheap and easy for me', { only: 1 });
-  assert.deepEqual([t[0], t[1].done.level, t[1].done.name, t[1].step], [null, 3, 'Good', null]);
+  assert.deepEqual([t[0], t[1].done.level, t[1].done.name, t[1].done.decidedBy, t[1].step], [null, 3, 'Good', 'the AI', null]);
   assert.equal(t[1].done.doingWell.length, 2);
-  assert.ok(t[1].done.ai.costInr > 0, "the closing feedback's own cost");
-  assert.match(t[1].done.reasons[1], /levels 3, 3: level 3 was reached twice/);
+  assert.equal(t[1].done.reasons[0], 'Mock: level 3.');
 
   t = await type('', { event: 'no_speech' });
-  assert.deepEqual([t[0].ai.answered, t[0].step.n, t[1]], [false, 2, null], 'the finished talk is left alone');
+  assert.deepEqual([t[0].ai.happened, t[0].step.n, t[1]], ['asked_for_help', 2, null], 'the finished talk is left alone');
   t = await type('I think it is good because I can read my book on the bus every day');
   assert.equal(t[0].done.level, 3);
-  assert.deepEqual(t[0].ratings.map((r) => r.level), [3, 3]);
   assert.equal((await post('/api/admin/placement-lab/turn', { labId: lab.labId, message: 'more' })).status, 409, 'every conversation has finished');
 });

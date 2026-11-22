@@ -43,19 +43,33 @@ export function startMockRest({ transcript = 'my name is ravi i like tea' } = {}
         content = JSON.stringify({ reply: 'That sounds nice! What happened next?', encouragement: null, follow_up_question: 'What happened next?', learning_signals: [],
           corrections: /\bI go\b/.test(said) ? [{ original: 'I go', corrected: 'I went', category: 'grammar', concept: 'past_simple', explanation: 'Use went for the past.', severity: 'important' }] : [] });
       }
-      // The conversation placement's brain: a level from the number of words, the question NEXT asks for, one fix.
-      else if (/first chat with them/.test(sys)) {
-        // The request: system, the talk as turns, the learner's words, then the note for this turn (the last message).
+      // The conversation placement's brain: reads the step and the app's facts from the note (the last message)
+      // and answers in the shape the real AI must use.
+      else if (/first talk with them/.test(sys)) {
         const note = msgs.at(-1).content, last = msgs.at(-2)?.content || '';
         const said = /^\(.*\)$/.test(last) ? null : last;
+        const step = note.match(/STEP: (HELLO|PICTURE|READING|OPEN QUESTION)/)?.[1];
         const words = said ? (said.match(/[A-Za-z']+/g) || []).length : 0;
-        const answered = said != null && !/\b(sorry|repeat|don't understand|did not understand|hindi)\b/i.test(said);
-        const level = !answered ? null : words < 4 ? 1 : words < 12 ? 2 : words < 28 ? 3 : 4;
-        const next = answered ? note.match(new RegExp(`If their answer is level ${level}: (.*)`))?.[1] : note.match(/If they did not answer: (.*)/)?.[1];
-        const lvl = next?.match(/level (\d) question/)?.[1];
-        const question = !next || /finish/.test(next) ? '' : /CURRENT QUESTION again/.test(next) ? 'Let me ask again, more simply. आसान शब्दों में: आप क्या करते हैं?' : `Here is a level ${lvl} question: why do you like it?`;
-        content = JSON.stringify({ answered, level, evidence: answered ? `${words} words` : '', tip: /\bI go\b/.test(said || '') ? { said: 'I go', better: 'I went' } : null,
-          name: said?.match(/my name is (\w+)/i)?.[1] || null, reply: answered ? (/\bI go\b/.test(said) ? 'Oh, you went there!' : 'That sounds nice.') : 'No problem.', question });
+        const help = said == null || /\b(sorry|repeat|don't understand|did not understand|hindi)\b/i.test(said);
+        const stay = help && /- asked_for_help: stay/.test(note);
+        const o = { happened: help ? 'asked_for_help' : 'answered', picture: null, reading: null, level: null, evidence: `${words} words`, tip: null, name: null, reply: help ? 'No problem.' : 'That sounds nice.', question: '', finish: false, final: null };
+        const final = (level) => ({ level, reason: `Mock: level ${level}.`, doingWell: ['You answered every question in English.', 'You talked about your own life.'], practise: ["Say 'I went' instead of 'I go' for yesterday.", 'Next, we will join two ideas with because.'], closing: 'You talked about your life in English. Next, we will practise talking about yesterday.' });
+        if (stay) o.question = 'Let me ask again, more simply. आसान शब्दों में फिर से पूछती हूँ।';
+        else if (step === 'HELLO') { o.name = said?.match(/my name is (\w+)/i)?.[1] || null; o.reply = o.name ? `Nice to meet you, ${o.name}!` : 'Hello!'; o.question = 'A picture is on your screen. What is it called in English?'; }
+        else if (step === 'PICTURE') { o.picture = !help && /" is in their reply/.test(note) ? 'named' : help ? null : 'not_named'; o.reply = o.picture === 'named' ? 'Yes!' : 'Okay.'; o.question = 'Now please read the line on your screen out loud.'; }
+        else if (step === 'READING') {
+          const m = note.match(/matched about (\d+) of its (\d+) words/), share = m ? m[1] / m[2] : 0;
+          o.reading = help ? null : share >= 0.8 ? 'well' : share >= 0.4 ? 'partly' : 'not';
+          if (/Picture: named/.test(note) || ['well', 'partly'].includes(o.reading)) o.question = 'So, what did you do this morning?';
+          else { o.finish = true; o.final = final(1); }
+        } else {
+          o.level = help ? null : words < 4 ? 1 : words < 12 ? 2 : words < 28 ? 3 : 4;
+          if (/\bI go\b/.test(said || '')) { o.tip = { said: 'I go', better: 'I went' }; o.reply = 'Oh, you went there!'; }
+          const before = [...note.matchAll(/level (\d) \(\d+ English words\)/g)].map((x) => Number(x[1]));
+          if (/Finish now/.test(note) || (o.level || 0) <= 2 || before.includes(o.level)) { o.finish = true; o.final = final(Math.max(2, Math.min(o.level || 2, ...(before.length ? [Math.max(...before)] : [4])))); }
+          else o.question = 'Here is a harder question: why do you like it?';
+        }
+        content = JSON.stringify(o);
       }
       else if (/first short talk with a learner/.test(sys)) content = JSON.stringify({ doingWell: ['You answered every question in English.', 'You talked about your own life.'], practise: ["Say 'I went' instead of 'I go' for yesterday.", 'Next, we will join two ideas with because.'], closing: 'You talked about your life in English. Next, we will practise talking about yesterday.' });
       else if (/examiner/.test(sys)) content = '{"comprehension":3,"vocabulary":3,"grammar":3,"fluency":3,"pronunciation":3,"coherence":3,"relevant":true,"note":"ok"}';

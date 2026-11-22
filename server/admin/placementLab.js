@@ -1,15 +1,16 @@
 // Comparing AI models for the conversation placement (admin console › Compare models). Each model runs its OWN
 // conversation, end to end, side by side. You type what a learner says: it goes to every model's conversation,
 // or to one of them (once their questions differ, each can be answered on its own). All of them start the same:
-// the same picture, the same line to read and the same first open question. For each model you see what Sakhi
-// says, the level it gives, the fix, the speed, the tokens and the cost, and at the end its level and feedback.
+// the same picture and the same lines to read. Every turn goes to the model: for each you see what Sakhi says,
+// what the model judged (what happened, the picture, the reading, the level, the fix), the speed, the tokens and
+// the cost, and at the end the level it decided and its feedback.
 // Nothing is saved.
 //
 //   GET  /api/admin/placement-lab           → { providers: { name: { configured } }, current, suggestions }
 //   POST /api/admin/placement-lab/start     { models: [{provider, model, temperature?, price?}, ..up to 4] }
 //                                           → { labId, talks: [{ model, say, step } | { model, error }] }
 //   POST /api/admin/placement-lab/turn      { labId, message?, event?, only?: index of one talk }
-//                                           → { talks: [ null (not asked) | { model, say, step, ai?, counted?, ratings, done? } ] }
+//                                           → { talks: [ null (not asked) | { model, say, step, ai?, aiFailed?, done? } ] }
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import * as settings from '../settings.js';
@@ -56,18 +57,17 @@ async function takeTurn(talk, input, deps) {
   try { turn = await conversation.handleTurn(s, input, trace, { config: talk.model, summaryConfig: talk.model, structured: deps.structured, timeoutMs: 20_000 }); }
   catch (e) { return { model: label(talk.model), error: e.message }; }
   const find = (step) => trace.list.find((x) => x.step === step);
-  const brain = find('brain'), failed = find('brain-failed'), rated = find('rated'), sum = find('summary');
+  const brain = find('brain'), failed = find('brain-failed'), sum = find('summary'), guard = trace.list.filter((x) => x.step === 'guard');
   return {
     model: label(talk.model), say: turn.say.map((l) => l.text), step: stepOf(s),
-    // What the AI did this turn (absent on the fixed steps: the name, the picture and the reading).
-    ...(brain ? { ai: { ms: brain.ms, costInr: brain.costInr, usage: brain.usage, answered: brain.answered, level: brain.level, evidence: brain.evidence, tip: brain.tip } } : {}),
+    // What the AI judged on this turn, with its speed, tokens and cost.
+    ...(brain ? { ai: { ms: brain.ms, costInr: brain.costInr, usage: brain.usage, happened: brain.happened, picture: brain.picture, reading: brain.reading, level: brain.level, evidence: brain.evidence, tip: brain.tip, finish: brain.finish } } : {}),
     ...(failed ? { aiFailed: failed.why } : {}),
-    ...(rated ? { counted: { level: rated.level, ...(rated.missed ? { missed: true } : {}) } } : {}), // the level after the measured checks
-    ratings: s.ratings.map((r) => ({ level: r.level, asked: r.target, englishWords: r.englishWords, ...(r.missed ? { missed: true } : {}) })),
+    ...(guard.length ? { dropped: guard.map((g) => `${g.dropped}: ${g.why}`) } : {}),
     ...(turn.done ? { done: {
-      level: turn.done.level, name: turn.done.name, reasons: turn.done.reasons, doingWell: turn.done.doingWell, practise: turn.done.practise,
-      // The closing feedback's own AI call (none when there were no open answers: plain lines).
-      ...(sum?.model ? { ai: { ms: sum.ms, costInr: sum.costInr, usage: sum.usage } } : {}), ...(sum?.fallback ? { fallback: sum.fallback } : {}),
+      level: turn.done.level, name: turn.done.name, decidedBy: turn.done.decidedBy, reasons: turn.done.reasons, doingWell: turn.done.doingWell, practise: turn.done.practise,
+      // Only when the AI left the level out: the feedback then came from a second call.
+      ...(sum ? { ai: { ms: sum.ms, costInr: sum.costInr, usage: sum.usage } } : {}),
     } } : {}),
   };
 }

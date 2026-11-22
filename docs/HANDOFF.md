@@ -71,8 +71,8 @@ Keep prompt examples apart from `shared/eval/` sentences, or evaluations stop me
 
 Two placement tests, chosen in the admin console (Settings › Placement test); **classic is the default and must
 stay** (Prajwal may switch back). The new **conversation** test goes from easy to hard (Prajwal's order): name, a picture
-word, a line to read, then open questions only for those who qualify, run by one AI call per answer with a gentle
-fix each time. Its level rule is short and readable (`server/placement/level.js`). Its AI
+word, a line to read, then open questions. **Every turn goes to the AI, which also decides the final level**
+(Prajwal's choice); code keeps the step order, repeat limits and a safety net (`server/placement/level.js`). Its AI
 model is a setting: Sarvam, Claude, OpenAI or Gemini, compared side by side on the console's Compare models page.
 Everything is in `docs/PLACEMENT.md`. Not yet done: trying it with real models (keys via
 `deploy/llm-keys-setup.sh`), and the privacy policy line needed before learners' words go to a provider outside India.
