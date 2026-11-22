@@ -193,7 +193,7 @@ function plainTurn(s, ctx) {
 /**
  * One learner turn. Every turn goes to the AI (brain.js); the app only replays her last question on "repeat".
  * input: { event: 'answer'|'no_speech'|'live_failed'|'skip'|'repeat'|'in_hindi', transcript?, languageCode?, speechSec?, timing?, interrupted? }
- * opts (tests and the model comparison): { config, summaryConfig, structured, timeoutMs }
+ * opts (tests and the model comparison): { config, summaryConfig, structured, timeoutMs, detail }
  */
 export async function handleTurn(s, input, trace, opts = {}) {
   s.at = Date.now();
@@ -228,8 +228,10 @@ export async function handleTurn(s, input, trace, opts = {}) {
   let out, ai = true;
   try {
     const t0 = performance.now();
-    const r = await think(ctx, { config: opts.config || settings.get('placement').brain, structured: opts.structured, ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) });
+    const r = await think(ctx, { config: opts.config || settings.get('placement').brain, structured: opts.structured, wantThinking: !!opts.detail, ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) });
     out = r.out;
+    // The whole request and the answer as it came, only where someone will read them (the model comparison).
+    if (opts.detail) note('exchange', { messages: r.messages, raw: r.meta.raw ?? null, thinking: r.meta.thinking ?? null, attempts: r.meta.attempts });
     note('brain', { model: `${r.meta.provider}/${r.meta.model}`, ms: Math.round(performance.now() - t0), costInr: r.meta.costInr ?? null, usage: r.meta.usage, at: ctx.step, ...out });
   } catch (e) {
     note('brain-failed', { why: e.message, using: "the app's own checks and fixed lines" });

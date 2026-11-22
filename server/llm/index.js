@@ -38,15 +38,15 @@ function extractJson(text) {
 export const lateSystemAsUser = (messages) => messages.map((m, i) => (i > 0 && m.role === 'system'
   ? { role: 'user', content: `[Note from the app, not said by the learner]\n${m.content}` } : m));
 
-async function callProvider(job, messages, { schema, schemaName, maxTokens }) {
-  if (job.provider === 'openai') return openaiChat(messages, { model: job.model, temperature: job.temperature, maxTokens, schema, schemaName });
+async function callProvider(job, messages, { schema, schemaName, maxTokens, wantThinking = false }) {
+  if (job.provider === 'openai') return openaiChat(messages, { model: job.model, temperature: job.temperature, maxTokens, schema, schemaName, wantThinking });
   if (job.provider === 'gemini') return geminiChat(lateSystemAsUser(messages), { model: job.model, temperature: job.temperature, maxTokens, schema, schemaName });
   // Current Claude models reject temperature, so it isn't passed.
-  if (job.provider === 'anthropic') return anthropicChat(messages, { model: job.model, maxTokens, schema, schemaName });
+  if (job.provider === 'anthropic') return anthropicChat(messages, { model: job.model, maxTokens, schema, schemaName, wantThinking });
   const meta = {};
   const text = await sarvam.chat(lateSystemAsUser(messages), { model: job.model, temperature: job.temperature, maxTokens, json: true, meta, purpose: 'tutor' });
   const u = meta.usage || {};
-  return { text, usage: { input: u.prompt_tokens ?? null, cached: u.prompt_tokens_details?.cached_tokens ?? null, output: u.completion_tokens ?? null, reasoning: u.completion_tokens_details?.reasoning_tokens ?? null } };
+  return { text, thinking: meta.thinking || null, usage: { input: u.prompt_tokens ?? null, cached: u.prompt_tokens_details?.cached_tokens ?? null, output: u.completion_tokens ?? null, reasoning: u.completion_tokens_details?.reasoning_tokens ?? null } };
 }
 
 /**
@@ -59,9 +59,10 @@ async function callProvider(job, messages, { schema, schemaName, maxTokens }) {
  * @param {string} p.schemaName
  * @param {Function} [p.repair]  maps near-misses onto the schema before validation (see learning/schemas.js)
  * @param {number} [p.timeoutMs]  give up (LlmError kind 'timeout') if the whole call, retries included, takes longer
- * @returns {Promise<{data, provider, model, latencyMs, usage, costInr, attempts}>}  costInr: an estimate, or null
+ * @param {boolean} [p.wantThinking]  ask the provider for a summary of the model's thinking (the admin's log)
+ * @returns {Promise<{data, provider, model, latencyMs, usage, costInr, attempts, raw, thinking}>}  costInr: an estimate, or null
  */
-export async function structured({ job, config = null, timeoutMs = null, messages, schema, schemaName = 'answer', maxTokens = 900, repair = null }) {
+export async function structured({ job, config = null, timeoutMs = null, messages, schema, schemaName = 'answer', maxTokens = 900, repair = null, wantThinking = false }) {
   let cfg = config || settings.get('llm')[job];
   if (!cfg) throw new LlmError(`no settings for job ${job}`, { kind: 'config' });
   if (!providers[cfg.provider]?.configured()) {
@@ -69,28 +70,29 @@ export async function structured({ job, config = null, timeoutMs = null, message
     console.warn(`[llm] ${cfg.provider} is selected for ${job} but not configured: using Sarvam`);
     cfg = settings.SECTIONS.llm.defaults[job] || { provider: 'sarvam', model: 'sarvam-105b', temperature: cfg.temperature ?? 0.3 };
   }
-  if (!timeoutMs) return ask(cfg, { messages, schema, schemaName, maxTokens, repair });
+  if (!timeoutMs) return ask(cfg, { messages, schema, schemaName, maxTokens, repair, wantThinking });
   // The provider call can't be cancelled from here, so it may finish in the background; its result is ignored.
   let timer;
-  const run = ask(cfg, { messages, schema, schemaName, maxTokens, repair });
+  const run = ask(cfg, { messages, schema, schemaName, maxTokens, repair, wantThinking });
   run.catch(() => {});
   return Promise.race([run, new Promise((_, reject) => {
     timer = setTimeout(() => reject(new LlmError(`${cfg.provider} took longer than ${timeoutMs} ms`, { kind: 'timeout' })), timeoutMs);
   })]).finally(() => clearTimeout(timer));
 }
 
-async function ask(cfg, { messages, schema, schemaName, maxTokens, repair }) {
+async function ask(cfg, { messages, schema, schemaName, maxTokens, repair, wantThinking }) {
   const t0 = performance.now();
   let convo = messages, last = null, usage = { input: 0, cached: 0, output: 0, reasoning: 0 }; // input includes the cached part; output includes reasoning
   for (let attempt = 1; attempt <= 2; attempt++) {
     let res;
-    try { res = await callProvider(cfg, convo, { schema, schemaName, maxTokens }); }
+    try { res = await callProvider(cfg, convo, { schema, schemaName, maxTokens, wantThinking }); }
     catch (e) { throw new LlmError(`${cfg.provider} failed: ${e.message}`, { kind: e.name === 'AbortError' ? 'timeout' : 'provider' }); }
     for (const k of Object.keys(usage)) usage[k] += res.usage?.[k] || 0;
     const json = extractJson(res.text);
     const parsed = json ? schema.safeParse(repair ? repair(json) : json) : null;
     if (parsed?.success) {
-      return { data: parsed.data, provider: cfg.provider, model: cfg.model, latencyMs: Math.round(performance.now() - t0), usage, costInr: costInr({ provider: cfg.provider, model: cfg.model, usage, price: cfg.price }), attempts: attempt };
+      return { data: parsed.data, provider: cfg.provider, model: cfg.model, latencyMs: Math.round(performance.now() - t0), usage, costInr: costInr({ provider: cfg.provider, model: cfg.model, usage, price: cfg.price }), attempts: attempt,
+        raw: String(res.text ?? ''), thinking: res.thinking || null }; // raw: the model's answer exactly as it came; thinking: its summary, when shared
     }
     last = json ? parsed.error.issues.slice(0, 4).map((i) => `${i.path.join('.') || 'answer'}: ${i.message}`).join('; ') : 'not valid JSON';
     convo = [...messages, { role: 'assistant', content: String(res.text || '').slice(0, 2000) },

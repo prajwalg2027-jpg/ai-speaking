@@ -206,7 +206,8 @@ export async function chat(messages, { temperature = 0.2, maxTokens = 600, model
   addChat(r.usage, purpose);
   // Reasoning may arrive in a separate field or inline as <think>…</think>; we only want the answer.
   const text = r.choices?.[0]?.message?.content ?? '';
-  if (meta) Object.assign(meta, { model, finish: r.choices?.[0]?.finish_reason ?? null, usage: r.usage ?? null, raw: text.slice(0, 600) });
+  const thinking = [r.choices?.[0]?.message?.reasoning_content, ...[...text.matchAll(/<think>([\s\S]*?)<\/think>/g)].map((m) => m[1])].filter(Boolean).join('\n').trim();
+  if (meta) Object.assign(meta, { model, finish: r.choices?.[0]?.finish_reason ?? null, usage: r.usage ?? null, raw: text.slice(0, 600), thinking: thinking || null });
   return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 }
 

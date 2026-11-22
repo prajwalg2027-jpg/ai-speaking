@@ -8,7 +8,7 @@
 // Which model does it is a setting (Settings › Placement test), so models can be compared: see
 // server/admin/placementLab.js.
 import { z } from 'zod';
-import { structured as defaultStructured } from '../llm/index.js';
+import { structured as defaultStructured, lateSystemAsUser } from '../llm/index.js';
 import { normalizeForCompare } from '../normalize.js';
 
 // The same in every request of every talk, so providers reuse it (see "How a turn is sent" below).
@@ -172,15 +172,14 @@ export const turnMessages = (ctx) => [
 
 /**
  * One turn of thinking. Changes nothing: the same ctx can be given to several models to compare them.
- * → { out: Turn, meta: { provider, model, latencyMs, usage, costInr, attempts } }; throws if the model fails.
+ * → { out: Turn, meta: { provider, model, latencyMs, usage, costInr, attempts, raw, thinking }, messages }; throws if the model fails.
  */
-export async function think(ctx, { config, structured = defaultStructured, timeoutMs = 9000 } = {}) {
-  const r = await structured({
-    job: 'placement', config, schema: Turn, schemaName: 'sakhi_turn', repair: repairTurn, maxTokens: 700, timeoutMs,
-    messages: turnMessages(ctx),
-  });
+export async function think(ctx, { config, structured = defaultStructured, timeoutMs = 9000, wantThinking = false } = {}) {
+  const messages = turnMessages(ctx);
+  const r = await structured({ job: 'placement', config, schema: Turn, schemaName: 'sakhi_turn', repair: repairTurn, maxTokens: 700, timeoutMs, messages, wantThinking });
   const { data, ...meta } = r;
-  return { out: data, meta };
+  // messages: what this provider was sent (the admin's log). Only OpenAI takes the note as a late system message.
+  return { out: data, meta, messages: meta.provider === 'openai' ? messages : lateSystemAsUser(messages) };
 }
 
 const BANNED = /\b(fluency|vocabulary|grammar|coherence|comprehension|pronunciation)\b/i;

@@ -79,12 +79,30 @@ Any provider whose key is on the server can be chosen.
    PROJECT=cool-arch-515210-b0 PROVIDERS=anthropic,gemini ./deploy/llm-keys-setup.sh
    ```
 
-2. **Admin console › Compare models**: pick up to four models. Each runs its own conversation, side by side, from
-   the hello to the level and feedback; they all start with the same picture, line to read and first open
-   question. What you type goes to every conversation; once the models ask different questions, each column has
-   its own box too. For each model you see what Sakhi says, the level it gives, the fix, the speed, the tokens
-   (input, cached, output, thinking) and the cost, and a total for the whole talk. A price can be typed for
-   models the server has no price for. "Use this model for the placement test" saves it.
+2. **Admin console › Compare models**: pick up to four models (it starts with the model in use beside OpenAI's
+   `gpt-6-luna`). Each runs its own conversation, side by side, from the hello to the level and feedback; they
+   all start with the same picture, line to read and first open question.
+   - **Type or speak.** What you type goes to every conversation; once the models ask different questions, each
+     column has its own box too. **Speak** records from your microphone (up to 30 seconds) and Sarvam turns it
+     into words exactly as in the app (`POST /api/admin/placement-lab/transcribe`); only the words are sent on.
+     Sakhi's replies are shown as text, not spoken.
+     On adamspeaks.in the website switches the microphone off for every page except `/admin` (the
+     `Permissions-Policy` header in `website/firebase.json` on the website branch), so the website must be
+     deployed once after that change before Speak works there.
+   - **Per turn** you see what Sakhi says, what the model judged (what happened, the picture, the reading, the
+     level, the fix), the speed, the tokens (input, reused from cache, output, thinking) and the cost.
+   - **View log** (per model) lists every AI call in order: the request exactly as that provider received it,
+     message by message; the thinking, where the provider shares a summary of it (OpenAI and Claude do; the full
+     thinking is never shared); the answer exactly as it came; and what Sakhi then said. A bar shows how much of
+     the input was reused from cache, and each message is marked reused, partly reused or new. Providers report
+     only how many input tokens were reused, not which: reuse always starts at the top of the request, so the
+     marks are worked out from each message's length and are an estimate. "Copy log" copies it all as text.
+   - **Side by side**, under the conversations: level, who decided it, AI calls, total and average time, input
+     tokens, the share reused, output and thinking tokens, and cost, for each model.
+   - **Prices.** Each model's price is shown as you pick it. OpenAI's are its standard list prices for every
+     model, read once from its pricing page (the date is shown; `server/llm/prices.js`); they do not update on
+     their own. Costs are shown in rupees at `USD_INR` (88 unless set). A different price can be typed.
+   - "Use this model for the placement test" saves it. Nothing else on the page is saved.
 3. Settings › Placement test › **Conversation** switches new tests over. Classic switches back.
 
 Notes on providers (`server/llm/`):
@@ -93,7 +111,7 @@ Notes on providers (`server/llm/`):
 - **Gemini** uses Google's OpenAI-compatible endpoint; **OpenAI** its own. Type the model name.
 - None of the three has been run against the real service from this repository (no keys here): the tests use
   stand-ins. Try each on the Compare models page before switching learners to it.
-- Cost shown is an estimate (Sarvam and Claude prices are known to the code; others show "–"). Spending on
+- Cost shown is an estimate (Sarvam, Claude and OpenAI prices are known to the code; others show "–"). Spending on
   providers other than Sarvam is not counted towards the daily budget limit yet.
 - **Privacy**: with a provider other than Sarvam, the text of what learners say is sent to that company's
   servers, outside India. The privacy policy needs to say so before learners are switched to one. Voice

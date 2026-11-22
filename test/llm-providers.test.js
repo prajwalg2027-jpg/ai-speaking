@@ -20,7 +20,7 @@ function startFake(calls, respond) {
       calls.push({ path: req.url, headers: req.headers, body });
       let [code, json, delay = 0] = respond(body, req);
       // OpenAI's Responses API answers in its own shape.
-      if (code === 200 && req.url.endsWith('/responses')) json = { status: 'completed', output: [{ type: 'reasoning', summary: [] }, { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: json.choices[0].message.content }] }],
+      if (code === 200 && req.url.endsWith('/responses')) json = { status: 'completed', output: [{ type: 'reasoning', summary: body.reasoning ? [{ type: 'summary_text', text: 'They answered in English.' }] : [] }, { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: json.choices[0].message.content }] }],
         usage: { input_tokens: 50, input_tokens_details: { cached_tokens: 20 }, output_tokens: 10, output_tokens_details: { reasoning_tokens: 4 } } };
       setTimeout(() => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(json)); }, delay);
     });
@@ -126,6 +126,25 @@ test('OpenAI: the Responses API, with its own URL and key; a late system note is
   assert.deepEqual([b.store, b.max_output_tokens, b.text.format.type, b.text.format.name, b.text.format.strict, 'messages' in b], [false, 2300, 'json_schema', 'a', true, false]);
   assert.deepEqual(JSON.parse(r.text), ANSWER);
   assert.deepEqual(r.usage, { input: 50, cached: 20, output: 10, reasoning: 4 });
+});
+
+test("OpenAI: every model's list price is known, dated names too; the thinking summary is asked for only for the log", async () => {
+  const { usdPrice, knownPrices, costInr } = prices, USD_INR = knownPrices().usdInr;
+  assert.deepEqual(usdPrice('openai', 'gpt-6-luna'), { input: 0.1, cached: 0.01, output: 0.5 });
+  assert.deepEqual(usdPrice('openai', 'gpt-6-luna-2026-10-01'), usdPrice('openai', 'gpt-6-luna'), 'a dated name is the same model');
+  assert.equal(usdPrice('openai', 'no-such-model'), null);
+  assert.ok(Object.keys(knownPrices().openai).length >= 25);
+  // 1,000 input tokens of which 800 were reused, 100 output: (200 × 0.1 + 800 × 0.01 + 100 × 0.5) / 1M dollars.
+  const cost = costInr({ provider: 'openai', model: 'gpt-6-luna', usage: { input: 1000, cached: 800, output: 100 } });
+  assert.ok(Math.abs(cost - ((200 * 0.1 + 800 * 0.01 + 100 * 0.5) / 1e6) * USD_INR) < 1e-9);
+  assert.equal(costInr({ provider: 'openai', model: 'no-such-model', usage: { input: 10, output: 10 } }), null);
+
+  openCalls.length = 0;
+  const cfg = { provider: 'openai', model: 'gpt-x', temperature: 0 };
+  const plain = await llm.structured({ job: 'x', config: cfg, messages, schema: Answer });
+  assert.deepEqual(['reasoning' in openCalls[0].body, plain.thinking, JSON.parse(plain.raw)], [false, null, ANSWER], 'learners\' turns never ask for it');
+  const logged = await llm.structured({ job: 'x', config: cfg, messages, schema: Answer, wantThinking: true });
+  assert.deepEqual([openCalls[1].body.reasoning, logged.thinking], [{ summary: 'auto' }, 'They answered in English.']);
 });
 
 test('structured({ config }) overrides the settings for the job', async () => {

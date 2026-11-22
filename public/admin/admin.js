@@ -405,34 +405,35 @@ async function playground() {
 }
 
 // ---- Compare models (the conversation placement test) ---------------------------------------------
-// Type what a learner says; each model runs its own conversation placement, side by side, end to end
-// (server/admin/placementLab.js). Nothing is saved.
+// Each model runs its own conversation placement, side by side, end to end (server/admin/placementLab.js).
+// Type or speak what a learner says. For every AI call the page keeps the exact request and answer ("View log"),
+// how much of the request was reused from cache, the thinking where the provider shares it, speed and cost.
+// Nothing is saved.
 const LEVEL_WORDS = { 1: 'Beginner', 2: 'Basic', 3: 'Good', 4: 'Very good' };
 const LEARNER_EVENTS = { no_speech: '(said nothing)', skip: '(skipped)', in_hindi: '(asked for Hindi)' };
 let labPicks = null; // { models: [{provider, model, price?}] }: kept for "Start again" and later visits
 
-const levelBadge = (x) => (x.answered === false ? html`<span class="badge">Not an answer</span>`
-  : x.level == null ? html`<span class="muted small">–</span>` : html`<span class="badge on">Level ${x.level} · ${LEVEL_WORDS[x.level] || ''}</span>`);
 const lines = (list) => list.filter(Boolean).map((l) => html`<p>${l}</p>`);
-const tokens = (u) => (u && (u.input || u.output) ? `${n0(u.input)} in${u.cached ? ` (${n0(u.cached)} cached)` : ''} · ${n0(u.output)} out${u.reasoning ? ` (${n0(u.reasoning)} thinking)` : ''}` : '–');
+const tokens = (u) => (u && (u.input || u.output) ? `${n0(u.input)} in${u.cached ? ` (${n0(u.cached)} reused)` : ''} · ${n0(u.output)} out${u.reasoning ? ` (${n0(u.reasoning)} thinking)` : ''}` : '–');
+const reusedPct = (u) => (u?.input ? Math.round((100 * (u.cached || 0)) / u.input) : null);
 const speedCost = (x) => html`<p class="small muted lab-meta">Speed ${ms(x.ms)} · cost ${inr(x.costInr, 3)}<br>Tokens: ${tokens(x.usage)}</p>`;
 /** Adds one AI call to a model's running total for the talk. */
-function addUse(totals, x) {
-  if (!x || x.error || !('ms' in x) || x.ms == null) return;
-  const t = (totals[x.model] ||= { calls: 0, ms: 0, cost: 0, priced: true, input: 0, cached: 0, output: 0, reasoning: 0 });
+function addUse(t, x) {
+  if (!x || x.ms == null) return;
   t.calls++; t.ms += x.ms || 0;
   if (x.costInr == null) t.priced = false; else t.cost += x.costInr;
   for (const k of ['input', 'cached', 'output', 'reasoning']) t[k] += x.usage?.[k] || 0;
 }
-const totalLine = (t) => (t ? html`<h3>The whole talk</h3><p class="small">${t.calls} AI call${t.calls === 1 ? '' : 's'} · ${ms(t.ms)} in all · cost ${t.priced ? inr(t.cost, 3) : '– (add this model\'s price to see it)'}<br>Tokens: ${tokens(t)}</p>` : '');
+const newTotals = () => ({ calls: 0, ms: 0, cost: 0, priced: true, input: 0, cached: 0, output: 0, reasoning: 0 });
+const totalLine = (t) => (t.calls ? html`<h3>The whole talk</h3><p class="small">${t.calls} AI call${t.calls === 1 ? '' : 's'} · ${ms(t.ms)} in all · cost ${t.priced ? inr(t.cost, 3) : '– (add this model\'s price to see it)'}<br>Tokens: ${tokens(t)}</p>` : '');
 
+const STEP_NAMES = { hello: 'Hello', picture: 'Picture', read: 'Reading', open: 'Open question' };
+const stepName = (q) => (q ? `${STEP_NAMES[q.step] || q.step}${q.step === 'open' ? ` ${q.n}` : ''}` : 'Goodbye');
 function progressLine(q) {
-  const parts = [];
-  if (q) parts.push(q.step === 'hello' ? 'Now: asking their name (not counted)'
-    : q.step === 'picture' ? `Now: a picture on their screen (${q.screen}). Type what they call it`
-    : q.step === 'read' ? `Now: a line on their screen to read out loud: "${q.screen}". Type what they read`
-    : `Now: open question ${q.n}`);
-  return parts.join(' · ');
+  return !q ? '' : q.step === 'hello' ? 'Now: asking their name'
+    : q.step === 'picture' ? `Now: a picture on their screen (${q.screen}). Say or type what they call it`
+    : q.step === 'read' ? `Now: a line on their screen to read out loud: "${q.screen}". Say or type what they read`
+    : `Now: open question ${q.n}`;
 }
 
 const HAPPENED = { answered: 'Answered', asked_for_help: 'Asked for help', could_not: "Couldn't do it", something_else: 'Said something else', gave_up: 'Gave up' };
@@ -452,28 +453,130 @@ function labAi(x) {
     ${speedCost(a)}</div>`;
 }
 
+// ---- the microphone: record, then Sarvam turns it into words (as in the app) --------------------------
+/** Mono samples at any rate → 16 kHz (each output sample is the average of the input samples it covers). */
+function to16k(samples, rate) {
+  if (rate === 16000) return samples;
+  const out = new Float32Array(Math.floor((samples.length * 16000) / rate)), step = rate / 16000;
+  for (let i = 0; i < out.length; i++) {
+    const from = Math.floor(i * step), to = Math.min(samples.length, Math.max(from + 1, Math.floor((i + 1) * step)));
+    let sum = 0; for (let j = from; j < to; j++) sum += samples[j];
+    out[i] = sum / (to - from);
+  }
+  return out;
+}
+/** 16 kHz mono samples → a WAV file (16-bit). */
+function wavOf(samples) {
+  const buf = new ArrayBuffer(44 + samples.length * 2), v = new DataView(buf);
+  const text = (at, t) => { for (let i = 0; i < t.length; i++) v.setUint8(at + i, t.charCodeAt(i)); };
+  text(0, 'RIFF'); v.setUint32(4, 36 + samples.length * 2, true); text(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 16000, true); v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); text(36, 'data'); v.setUint32(40, samples.length * 2, true);
+  for (let i = 0; i < samples.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, samples[i])) * 0x7fff, true);
+  return new Blob([buf], { type: 'audio/wav' });
+}
+/** Start recording. → { stop(): Promise<{ wav, seconds }> } */
+async function startRecording() {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+  const ctx = new AudioContext({ sampleRate: 16000 });
+  const src = ctx.createMediaStreamSource(stream), proc = ctx.createScriptProcessor(4096, 1, 1), chunks = [];
+  proc.onaudioprocess = (e) => chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+  src.connect(proc); proc.connect(ctx.destination);
+  return { async stop() {
+    proc.disconnect(); src.disconnect(); for (const t of stream.getTracks()) t.stop();
+    const rate = ctx.sampleRate; await ctx.close();
+    const all = new Float32Array(chunks.reduce((n, c) => n + c.length, 0)); let at = 0;
+    for (const c of chunks) { all.set(c, at); at += c.length; }
+    const s = to16k(all, rate);
+    return { wav: wavOf(s), seconds: s.length / 16000 };
+  } };
+}
+async function transcribe(wav, language) {
+  const token = await bearer();
+  const res = await fetch(`/api/admin/placement-lab/transcribe${language ? `?language=${language}` : ''}`, { method: 'POST', headers: { 'content-type': 'audio/wav', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: wav });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.reason || data.error || res.statusText);
+  return data;
+}
+
+// ---- the log: every AI call's exact request and answer -------------------------------------------------
+const ROLE = (m, i, all) => (m.role === 'assistant' ? 'Sakhi' : m.role === 'system' ? (i === 0 ? 'Fixed instructions' : 'Note for this turn (from the app)') : /^\[Note from the app/.test(m.content) ? 'Note for this turn (from the app)' : i === 1 && all[0].role === 'system' && /^\(/.test(m.content) ? 'Start' : 'Learner');
+/**
+ * Which messages were reused from cache. Providers say only HOW MANY input tokens were reused, not which; reuse
+ * always starts at the top of the request, so each message is marked by where it falls by length. An estimate.
+ */
+function reuseMarks(messages, usage) {
+  const total = messages.reduce((n, m) => n + m.content.length, 0), share = usage?.input ? (usage.cached || 0) / usage.input : 0;
+  let at = 0;
+  return messages.map((m) => { const start = at / total, end = (at += m.content.length) / total; return share <= 0 ? 'new' : end <= share + 0.01 ? 'reused' : start < share ? 'partly' : 'new'; });
+}
+const pretty = (raw) => { try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return raw || ''; } };
+const REUSE_WORDS = { reused: 'reused from cache', partly: 'partly reused', new: 'new, not reused' };
+function logCall(c) {
+  const u = c.ai?.usage, log = c.log;
+  const head = html`<h3>Call ${c.n} · ${c.at}${c.ai ? html` <span class="muted small">${ms(c.ai.ms)} · ${inr(c.ai.costInr, 4)}</span>` : ''}</h3>
+    <p class="small"><strong>Learner:</strong> ${c.learner}${c.heard ? html` <span class="muted">(spoken, ${c.heard.audioSec} s; Sarvam took ${ms(c.heard.ms)} to hear it)</span>` : ''}</p>`;
+  if (!log) return html`<div class="log-call">${head}<p class="small muted">${c.aiFailed ? `The AI did not answer: ${c.aiFailed}. The app's own checks and fixed lines were used.` : 'No AI call on this turn.'}</p>
+    <h4>What Sakhi said</h4><div class="log-box">${lines(c.say)}</div></div>`;
+  const marks = reuseMarks(log.messages, u), pct = reusedPct(u);
+  return html`<div class="log-call">${head}
+    ${u ? html`<div class="log-bar" title="Input tokens: reused from cache and new"><i class="reused" style="flex:${u.cached || 0}"></i><i class="fresh" style="flex:${Math.max(0, (u.input || 0) - (u.cached || 0))}"></i></div>
+      <p class="small">Input ${n0(u.input)} tokens: <strong>${n0(u.cached || 0)} reused from cache${pct != null ? ` (${pct}%)` : ''}</strong>, ${n0((u.input || 0) - (u.cached || 0))} new. Output ${n0(u.output)} tokens${u.reasoning ? `, of which ${n0(u.reasoning)} were thinking` : ''}.${log.attempts > 1 ? ' The first answer was not valid, so the model was asked again (both are counted).' : ''}</p>` : ''}
+    <h4>Request: exactly what was sent</h4>
+    ${log.messages.map((m, i, all) => html`<div class="log-msg ${marks[i]}"><div class="log-role"><span>${ROLE(m, i, all)}</span><span class="log-reuse">${REUSE_WORDS[marks[i]]}</span></div>
+      ${i === 0 && m.role === 'system' ? html`<details><summary class="small">Show the fixed instructions (${n0(m.content.length)} characters, the same on every call)</summary><pre>${m.content}</pre></details>` : html`<pre>${m.content}</pre>`}</div>`)}
+    <h4>Thinking</h4>
+    ${log.thinking ? html`<div class="log-box"><pre>${log.thinking}</pre></div><p class="small muted">A summary from the provider; the full thinking is never shared.</p>`
+      : html`<p class="small muted">${u?.reasoning ? `The model used ${n0(u.reasoning)} thinking tokens, but this provider did not share a summary of them.` : 'None reported for this call.'}</p>`}
+    <h4>Response: exactly what came back</h4><div class="log-box"><pre>${pretty(log.raw)}</pre></div>
+    <h4>What Sakhi said</h4><div class="log-box">${lines(c.say)}</div>
+    ${c.dropped?.length ? html`<p class="small muted">Not said (${c.dropped.join('; ')}). A fixed line was used.</p>` : ''}</div>`;
+}
+/** The same log as plain text, to copy. */
+function logText(model, calls) {
+  return [`${model}: ${calls.length} turns`, ...calls.map((c) => [
+    `\n===== Call ${c.n} · ${c.at}${c.ai ? ` · ${ms(c.ai.ms)} · tokens ${tokens(c.ai.usage)} · cost ${inr(c.ai.costInr, 4)}` : ''} =====`,
+    `Learner: ${c.learner}`,
+    ...(c.log ? [...c.log.messages.map((m, i, all) => `\n--- ${ROLE(m, i, all)} [${m.role}] ---\n${m.content}`), ...(c.log.thinking ? [`\n--- Thinking (summary) ---\n${c.log.thinking}`] : []), `\n--- Response ---\n${pretty(c.log.raw)}`]
+      : [c.aiFailed ? `The AI did not answer: ${c.aiFailed}` : 'No AI call on this turn.']),
+    `\n--- What Sakhi said ---\n${c.say.join('\n')}`,
+  ].join('\n'))].join('\n');
+}
+
 async function models() {
   const info = await api('/placement-lab');
   const provs = [...Object.keys(PROVIDERS).filter((p) => p in info.providers), ...Object.keys(info.providers).filter((p) => !(p in PROVIDERS))];
   const ok = (p) => !!info.providers[p]?.configured;
   const sugg = (p) => info.suggestions?.[p] || [];
-  if (!labPicks?.models) { const b = info.current?.brain || {}; labPicks = { models: [{ provider: ok(b.provider) ? b.provider : provs.find(ok) || 'sarvam', model: b.model || '' }] }; }
+  if (!labPicks?.models) labPicks = { models: (info.defaults?.length ? info.defaults : [{ provider: 'sarvam', model: 'sarvam-105b-conversations' }]).map((m) => ({ ...m })) };
+  // The listed price of a model, in words (US dollars per million tokens; Sarvam's is in rupees).
+  const priceOf = (p, model) => {
+    const pr = info.prices || {}, usd = pr[p]?.[model] || Object.entries(pr[p] || {}).filter(([k]) => model.startsWith(`${k}-`)).sort((a, b) => b[0].length - a[0].length)[0]?.[1];
+    const per = (x, sign) => `${sign}${x.input} input · ${x.cached != null ? `${sign}${x.cached} reused input · ` : ''}${sign}${x.output} output, per million tokens`;
+    if (p === 'sarvam' && pr.sarvamInr) return `Price: ${per(pr.sarvamInr, '₹')}.`;
+    if (usd) return `Price: ${per(usd, '$')}${p === 'openai' ? ` (OpenAI's list price, ${pr.openaiAsOf})` : ''}. Shown in rupees at ₹${pr.usdInr} to the dollar.`;
+    return 'No price is known for this model, so its cost will show as "–". Add one below to see it.';
+  };
 
   show(html`
-    <div class="page-head"><div><h1>Compare models</h1><p class="muted">Each AI model runs its own conversation placement test, side by side, from the first hello to the level and feedback. Type what a learner would say: it goes to every model. Every turn is handled by the model, which also decides the final level. They all get the same picture and the same line to read. Nothing is saved.</p></div></div>
+    <div class="page-head"><div><h1>Compare models</h1><p class="muted">Each AI model runs its own conversation placement test, side by side, from the first hello to the level and feedback. Type or speak what a learner would say: it goes to every model. Every turn is handled by the model, which also decides the final level. They all get the same picture and the same line to read. "View log" shows exactly what was sent and what came back. Nothing is saved.</p></div></div>
     ${provs.map((p) => html`<datalist id="sugg-${p}">${sugg(p).map((m) => html`<option value="${m}">`)}</datalist>`)}
-    <div id="lab"></div>`);
-  const box = $('#lab');
+    <div id="lab"></div>
+    <dialog id="logdlg" class="log-dialog"><div class="log-top"><h2 id="logtitle"></h2><span class="row"><button type="button" id="logcopy">Copy log</button><button type="button" id="logclose" class="primary">Close</button></span></div>
+      <p class="small muted">Shading shows which parts of each request were reused from cache. Providers report only how many input tokens were reused, not which ones; reuse always starts from the top, so the marks are worked out from each part's length and are an estimate.</p>
+      <div id="logbody"></div></dialog>`);
+  const box = $('#lab'), dlg = $('#logdlg');
+  $('#logclose').addEventListener('click', () => dlg.close());
 
   const pickRow = (m, i) => html`<div class="row end pick" data-i="${i}">
     <label class="f">Provider<select data-prov>${provs.map((p) => html`<option value="${p}" ${p === m.provider ? raw('selected') : ''}>${providerName(p)}${ok(p) ? '' : ' (no API key on the server)'}</option>`)}</select></label>
     <label class="f grow">Model<input data-model value="${m.model}" list="sugg-${m.provider}" maxlength="100" autocomplete="off" required></label>
     ${i > 0 ? html`<button type="button" class="link danger" data-remove>Remove</button>` : ''}
-    <details class="lab-price"><summary class="small muted">Price (optional, to show cost for models the server has no price for)</summary>
+    <p class="small muted lab-priceline" data-priceline>${priceOf(m.provider, m.model)}</p>
+    <details class="lab-price"><summary class="small muted">Use a different price for this model</summary>
       <div class="row"><label class="f">Input, $ per 1M tokens<input type="number" min="0" step="any" data-price="input" value="${m.price?.input ?? ''}"></label>
-      <label class="f">Cached input, $ per 1M<input type="number" min="0" step="any" data-price="cached" value="${m.price?.cached ?? ''}"></label>
+      <label class="f">Reused input, $ per 1M<input type="number" min="0" step="any" data-price="cached" value="${m.price?.cached ?? ''}"></label>
       <label class="f">Output, $ per 1M<input type="number" min="0" step="any" data-price="output" value="${m.price?.output ?? ''}"></label></div>
-      <p class="small muted">From the provider's pricing page. Sarvam and Claude prices are already known. Leave empty otherwise.</p></details></div>`;
+      <p class="small muted">Only needed when no price is shown above, or yours differs from the list price.</p></details></div>`;
   const readPick = (row) => {
     const num = (k) => { const v = $(`[data-price="${k}"]`, row).value; return v === '' ? undefined : Number(v); };
     const price = num('input') != null && num('output') != null ? { input: num('input'), output: num('output'), ...(num('cached') != null ? { cached: num('cached') } : {}) } : undefined;
@@ -490,11 +593,16 @@ async function models() {
       <p class="muted small">API keys are added on the server with <code>deploy/llm-keys-setup.sh</code>. This page spends real AI credit.</p>
       <p class="err" id="serr" role="alert"></p>
       <div class="row"><button class="primary" type="submit">Start the conversations</button></div></form>`);
-    for (const sel of $$('[data-prov]', box)) sel.addEventListener('change', () => {
-      const input = $('[data-model]', sel.closest('.pick'));
-      input.setAttribute('list', `sugg-${sel.value}`);
-      if (!sugg(sel.value).includes(input.value)) input.value = sugg(sel.value)[0] || '';
-    });
+    for (const row of $$('.pick', box)) {
+      const sel = $('[data-prov]', row), input = $('[data-model]', row);
+      const reprice = () => { $('[data-priceline]', row).textContent = priceOf(sel.value, input.value.trim()); };
+      sel.addEventListener('change', () => {
+        input.setAttribute('list', `sugg-${sel.value}`);
+        if (!sugg(sel.value).includes(input.value)) input.value = sugg(sel.value)[0] || '';
+        reprice();
+      });
+      input.addEventListener('input', reprice);
+    }
     for (const b of $$('[data-remove]', box)) b.addEventListener('click', () => {
       const i = Number(b.closest('.pick').dataset.i);
       labPicks = readPicks(); labPicks.models.splice(i, 1); setup();
@@ -518,37 +626,62 @@ async function models() {
   }
 
   function talk(start, picks) {
-    const n = start.talks.length;
+    const n = start.talks.length, canHear = !!navigator.mediaDevices?.getUserMedia;
+    const mic = (cls) => (canHear ? html`<button type="button" class="${cls}" data-mic>Speak</button>` : '');
     box.innerHTML = fmt(html`<div class="card section">
       <div class="section-head"><h2>Conversations</h2><button type="button" class="link" id="again">Start again</button></div>
       <div class="lab-cols">${start.talks.map((t, i) => html`<div class="card lab-col" data-i="${i}">
-        <div class="lab-model"><strong>${t.model}</strong></div>
+        <div class="lab-model"><strong>${t.model}</strong>${t.error ? '' : html` <button type="button" class="link" data-log>View log</button>`}</div>
         ${t.error ? html`<p class="err">${t.error}</p>` : html`<div class="lab-log"><div class="bubble tutor"><div class="meta">Sakhi</div>${lines(t.say)}</div></div>
           <p class="small muted lab-progress" data-progress>${progressLine(t.step)}</p>
-          <form class="lab-own" hidden><div class="row end"><label class="f grow">Answer this model's question<input maxlength="2000" autocomplete="off"></label><button type="submit">Send to this one</button></div></form>
+          <form class="lab-own" hidden><div class="row end"><label class="f grow">Answer this model's question<input maxlength="2000" autocomplete="off"></label>${mic('')}<button type="submit">Send to this one</button></div></form>
           <div data-result></div>`}</div>`)}</div>
       <form id="turn" class="lab-input">
         <div class="row end"><label class="f grow">What the learner says (goes to every conversation still going)<input id="said" maxlength="2000" autocomplete="off" placeholder="My name is Ravi"></label>
-          <button class="primary" type="submit">Send to all</button></div>
+          ${mic('')}<button class="primary" type="submit">Send to all</button></div>
         <div class="row lab-events"><button type="button" data-event="no_speech">Says nothing</button><button type="button" data-event="skip">Skips</button><button type="button" data-event="in_hindi">Asks for Hindi</button>
-          <span class="small muted" id="wait" hidden><span class="spin"></span> Waiting for the models. This can take several seconds.</span></div>
+          <span class="small muted" id="wait" hidden><span class="spin"></span> <span id="waitwhat">Waiting for the models. This can take several seconds.</span></span></div>
+        ${canHear ? html`<p class="small muted">Speak: press, say it, press Stop (up to 30 seconds). Sarvam turns it into words, as in the app, and it is sent.</p>` : ''}
         <p class="err" id="terr" role="alert"></p>
-      </form></div>`);
+      </form>
+      <div id="labsum"></div></div>`);
     const form = $('#turn', box), input = $('#said', box);
     const col = (i) => $(`.lab-col[data-i="${i}"]`, box);
-    const state = start.talks.map((t) => ({ over: !!t.error, totals: {} })); // per talk: finished?, and its running totals
+    // Per talk: finished?, its running totals, the step it is on, every call (for the log), and its result.
+    const state = start.talks.map((t) => ({ model: t.model, over: !!t.error, error: t.error, totals: newTotals(), step: t.step, calls: [], done: null }));
     input.focus();
-    const busy = (on) => { for (const el of $$('input, button', box)) if (el.id !== 'again') el.disabled = on; $('#wait', box).hidden = !on; };
+    const busy = (on, what) => { for (const el of $$('input, button', box)) if (el.id !== 'again' && !('log' in el.dataset)) el.disabled = on; $('#wait', box).hidden = !on; if (what) $('#waitwhat', box).textContent = what; };
     $('#again', box).addEventListener('click', () => { labPicks = picks; setup(); });
 
+    function summary() {
+      const rows = state.filter((s) => !s.error && s.totals.calls);
+      $('#labsum', box).innerHTML = rows.length ? fmt(html`<h2>Side by side</h2><div class="table-wrap"><table>
+        <tr><th>Model</th><th>Level</th><th>Decided by</th><th class="num">AI calls</th><th class="num">Time in all</th><th class="num">Average a turn</th><th class="num">Input tokens</th><th class="num">Reused</th><th class="num">Output</th><th class="num">Thinking</th><th class="num">Cost</th></tr>
+        ${rows.map((s) => { const t = s.totals; return html`<tr><td class="lab-model">${s.model}</td><td>${s.done ? `${s.done.level} · ${s.done.name}` : html`<span class="muted">still talking</span>`}</td><td>${s.done?.decidedBy || '–'}</td>
+          <td class="num">${t.calls}</td><td class="num">${ms(t.ms)}</td><td class="num">${ms(t.ms / t.calls)}</td><td class="num">${n0(t.input)}</td><td class="num">${reusedPct(t) == null ? '–' : `${reusedPct(t)}%`}</td>
+          <td class="num">${n0(t.output)}</td><td class="num">${t.reasoning ? n0(t.reasoning) : '–'}</td><td class="num">${t.priced ? inr(t.cost, 3) : '–'}</td></tr>`; })}
+      </table></div><p class="small muted">"Reused" is the share of input tokens the provider took from its cache, at a lower price. "Thinking" tokens are part of the output.</p>`) : '';
+    }
+
+    function showLog(i) {
+      const s = state[i];
+      $('#logtitle').textContent = `${s.model}: every call`;
+      $('#logbody').innerHTML = fmt(s.calls.length ? s.calls.map(logCall) : html`<p class="muted">No turns yet. The log fills as the talk goes on.</p>`);
+      $('#logcopy').onclick = async () => {
+        try { await navigator.clipboard.writeText(logText(s.model, s.calls)); toast('Log copied'); }
+        catch { const r = document.createRange(); r.selectNodeContents($('#logbody')); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); toast('Select and copy: your browser blocked the copy'); }
+      };
+      dlg.showModal();
+    }
+
     function finished(i, x) {
-      const d = x.done, t = state[i].totals[x.model], m = picks.models[i];
+      const d = x.done, m = picks.models[i];
       const list = (title, items) => (items?.length ? html`<h3>${title}</h3><ul class="lab-list">${items.map((y) => html`<li>${y}</li>`)}</ul>` : '');
       const el = $('[data-result]', col(i));
       el.innerHTML = fmt(html`<div class="lab-result"><h2>Level ${d.level} of 4 · ${d.name}</h2>
         <p class="small muted">Decided by ${d.decidedBy || 'the AI'}.</p>
         ${list('Why', d.reasons)}${list('What you did well', d.doingWell)}${list('What we’ll practise next', d.practise)}
-        ${t ? totalLine(t) : ''}
+        ${totalLine(state[i].totals)}
         ${can('settings.edit') ? html`<p><button type="button" data-use>Use this model for the placement test</button></p><p class="err" data-err role="alert"></p>` : ''}</div>`);
       $('[data-use]', el)?.addEventListener('click', async (e) => {
         const btn = e.currentTarget; btn.disabled = true; $('[data-err]', el).textContent = '';
@@ -564,38 +697,75 @@ async function models() {
       });
     }
 
-    async function send(event, message, only) {
+    async function send(event, message, only, heard) {
       const err = $('#terr', box); err.textContent = '';
-      if (event === 'answer' && !message) { err.textContent = 'Type what the learner says.'; return; }
-      busy(true);
+      if (event === 'answer' && !message) { err.textContent = 'Type or say what the learner says.'; return; }
+      busy(true, 'Waiting for the models. This can take several seconds.');
       let r;
-      try { r = await api('/placement-lab/turn', { method: 'POST', body: { labId: start.labId, event, ...(event === 'answer' ? { message } : {}), ...(only != null ? { only } : {}) } }); }
+      try { r = await api('/placement-lab/turn', { method: 'POST', body: { labId: start.labId, event, ...(event === 'answer' ? { message } : {}), ...(heard ? { speechSec: heard.audioSec } : {}), ...(only != null ? { only } : {}) } }); }
       catch (x) { if (box.isConnected) { err.textContent = x.message; busy(false); input.focus(); } return; }
       if (!box.isConnected) return;
       r.talks.forEach((x, i) => {
         if (!x) return;
-        const c = col(i), log = $('.lab-log', c);
+        const c = col(i), log = $('.lab-log', c), s = state[i];
         const turn = document.createElement('div');
-        if (x.error) { turn.innerHTML = fmt(html`<p class="err">${x.error}</p>`); log.append(turn); state[i].over = true; $('.lab-own', c).hidden = true; return; }
-        turn.innerHTML = fmt(html`<div class="bubble learner">${event === 'answer' ? message : html`<span class="muted">${LEARNER_EVENTS[event]}</span>`}<div class="meta">Learner</div></div>
+        if (x.error) { turn.innerHTML = fmt(html`<p class="err">${x.error}</p>`); log.append(turn); s.over = true; $('.lab-own', c).hidden = true; return; }
+        const said = event === 'answer' ? message : LEARNER_EVENTS[event];
+        turn.innerHTML = fmt(html`<div class="bubble learner">${event === 'answer' ? message : html`<span class="muted">${said}</span>`}<div class="meta">Learner${heard ? ` · spoken, ${heard.audioSec} s` : ''}</div></div>
           ${labAi(x)}<div class="bubble tutor"><div class="meta">Sakhi</div>${lines(x.say)}</div>`);
         log.append(turn);
-        if (x.ai) addUse(state[i].totals, { model: x.model, ...x.ai });
-        if (x.done?.ai) addUse(state[i].totals, { model: x.model, ...x.done.ai });
+        s.calls.push({ n: s.calls.length + 1, at: stepName(s.step), learner: said, heard, ai: x.ai, log: x.log, say: x.say, dropped: x.dropped, aiFailed: x.aiFailed });
+        s.step = x.step;
+        if (x.ai) addUse(s.totals, x.ai);
+        if (x.done?.ai) addUse(s.totals, x.done.ai);
         $('[data-progress]', c).textContent = progressLine(x.step);
         // Once the models ask their own questions, each can be answered on its own.
         $('.lab-own', c).hidden = !!x.done || x.step?.step !== 'open';
-        if (x.done) { state[i].over = true; finished(i, x); }
+        if (x.done) { s.over = true; s.done = x.done; finished(i, x); }
       });
+      summary();
       busy(false);
       for (const f of $$('.lab-own input', box)) f.value = '';
       input.value = '';
       if (state.every((s) => s.over)) { form.hidden = true; return; }
       (only != null && !state[only].over ? $('.lab-own input', col(only)) : input).focus();
     }
+
+    // The microphone: press to start, press again to stop; the words are heard by Sarvam and sent.
+    let rec = null, timer = null;
+    async function speak(btn, only) {
+      const err = $('#terr', box); err.textContent = '';
+      if (rec) { // stop, hear, send
+        clearTimeout(timer);
+        const r = rec; rec = null; btn.textContent = 'Speak'; btn.classList.remove('recording');
+        busy(true, 'Sarvam is turning that into words…');
+        try {
+          const { wav, seconds } = await r.stop();
+          if (seconds < 0.4) throw new Error('That was too short. Press Speak, say it, then press Stop.');
+          // The reading step is always English, as in the app.
+          const on = state[only ?? state.findIndex((s) => !s.over)]?.step?.step;
+          const heard = await transcribe(wav, on === 'read' ? 'en-IN' : '');
+          if (!box.isConnected) return;
+          if (!heard.transcript) { busy(false); err.textContent = 'Sarvam heard nothing in that recording. Try again, a little closer to the microphone.'; return; }
+          await send('answer', heard.transcript, only, { audioSec: heard.audioSec, ms: heard.ms });
+        } catch (x) { busy(false); err.textContent = x.message; }
+        return;
+      }
+      try { rec = await startRecording(); }
+      catch (x) { err.textContent = x.name === 'NotAllowedError' ? 'The microphone is blocked for this page. Allow it in the browser (the icon beside the address), then try again. If the browser never asks, the website needs its latest deploy (docs/PLACEMENT.md).' : `Couldn't start the microphone: ${x.message}`; return; }
+      btn.textContent = 'Stop'; btn.classList.add('recording');
+      timer = setTimeout(() => { if (rec) speak(btn, only); }, 28_000); // Sarvam takes up to 30 seconds
+    }
+
     form.addEventListener('submit', (e) => { e.preventDefault(); send('answer', input.value.trim()); });
     for (const b of $$('[data-event]', form)) b.addEventListener('click', () => send(b.dataset.event));
-    for (let i = 0; i < n; i++) $('.lab-own', col(i))?.addEventListener('submit', (e) => { e.preventDefault(); send('answer', $('input', e.target).value.trim(), i); });
+    $('[data-mic]', form)?.addEventListener('click', (e) => speak(e.currentTarget));
+    for (let i = 0; i < n; i++) {
+      const c = col(i);
+      $('.lab-own', c)?.addEventListener('submit', (e) => { e.preventDefault(); send('answer', $('input', e.target).value.trim(), i); });
+      $('.lab-own [data-mic]', c)?.addEventListener('click', (e) => speak(e.currentTarget, i));
+      $('[data-log]', c)?.addEventListener('click', () => showLog(i));
+    }
   }
 
   setup();

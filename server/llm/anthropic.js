@@ -44,7 +44,7 @@ function getClient() {
 }
 
 /** messages in OpenAI shape → { text (the JSON string), usage: { input, output, reasoning } } */
-export async function anthropicChat(messages, { model, maxTokens = 900, schema, schemaName = 'answer' }) {
+export async function anthropicChat(messages, { model, maxTokens = 900, schema, schemaName = 'answer', wantThinking = false }) {
   // The first system message is the system prompt. A later one (a note for one turn) goes in as a user message
   // marked as coming from the app, so the system prompt and the talk before it stay the same from turn to turn.
   const system = messages[0]?.role === 'system' ? messages[0].content : '';
@@ -57,6 +57,8 @@ export async function anthropicChat(messages, { model, maxTokens = 900, schema, 
     messages: messages.map((m) => ({ role: m.role, content: String(m.content ?? '') })),
     // Reuse the part of the request that repeats from the last turn (the instructions and the talk so far).
     cache_control: { type: 'ephemeral' },
+    // The thinking itself is never returned; a readable summary of it can be (for the admin's log).
+    ...(wantThinking ? { thinking: { type: 'adaptive', display: 'summarized' } } : {}),
     output_config: {
       effort: process.env.ANTHROPIC_EFFORT || 'low',
       ...(schema ? { format: { type: 'json_schema', schema: claudeSchema(z.toJSONSchema(schema)) } } : {}),
@@ -85,5 +87,6 @@ export async function anthropicChat(messages, { model, maxTokens = 900, schema, 
   const u = res.usage || {};
   const input = u.input_tokens == null ? null : u.input_tokens + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
   // Claude's output_tokens include thinking; the API doesn't split it out, so reasoning is unknown.
-  return { text, usage: { input, cached: u.cache_read_input_tokens ?? null, output: u.output_tokens ?? null, reasoning: null } };
+  const thinking = res.content.filter((b) => b.type === 'thinking').map((b) => b.thinking).filter(Boolean).join('\n').trim();
+  return { text, thinking: thinking || null, usage: { input, cached: u.cache_read_input_tokens ?? null, output: u.output_tokens ?? null, reasoning: null } };
 }

@@ -203,3 +203,23 @@ td.row { gap: 12px; }
 .lab-own { margin: 8px 0; }
 .lab-result h2 { margin-top: 12px; }
 
+/* Compare models: the microphone, prices, the log */
+.lab-priceline { flex-basis: 100%; margin: 0; }
+button.recording { background: var(--critical); border-color: var(--critical); color: #fff; }
+.lab-model { display: flex; gap: 10px; align-items: baseline; justify-content: space-between; flex-wrap: wrap; }
+#labsum h2 { margin-top: 18px; }
+.log-dialog { width: min(980px, 96vw); max-height: 92vh; padding: 18px 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--ink); }
+.log-dialog::backdrop { background: rgba(0, 0, 0, .45); }
+.log-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; position: sticky; top: -18px; background: var(--surface); padding: 6px 0; z-index: 1; }
+.log-top h2 { margin: 0; overflow-wrap: anywhere; }
+.log-call { border-top: 1px solid var(--border); padding: 14px 0; }
+.log-call h3 { margin: 0 0 6px; } .log-call h4 { margin: 14px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); }
+.log-call pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.log-box { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; } .log-box p { margin: 0 0 4px; }
+.log-msg { border-left: 4px solid var(--axis); background: var(--surface-2); border-radius: 0 8px 8px 0; padding: 8px 12px; margin: 6px 0; }
+.log-msg.reused { border-left-color: var(--good-fill); } .log-msg.partly { border-left-color: var(--warning); } .log-msg.new { border-left-color: var(--series-2); }
+.log-role { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 12px; font-weight: 600; color: var(--ink-2); margin-bottom: 4px; }
+.log-reuse { font-weight: 400; }
+.log-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--surface-2); margin: 6px 0; }
+.log-bar .reused { background: var(--good-fill); } .log-bar .fresh { background: var(--series-2); }
+

@@ -15,6 +15,8 @@ const PROVIDERS = {
 
 // Models that refused a temperature (newer OpenAI models accept only their default): not sent to them again.
 const noTemperature = new Set();
+// Models that refused a request for a summary of their thinking (they don't think, or the account can't see it).
+const noThinking = new Set();
 
 async function chatCompletions(p, messages, { model, temperature, maxTokens, schema, schemaName }) {
   const base = process.env[p.base] || p.defaultBase;
@@ -47,7 +49,7 @@ async function chatCompletions(p, messages, { model, temperature, maxTokens, sch
 }
 
 /** OpenAI's Responses API. messages: [{ role: 'system'|'user'|'assistant', content }] (system notes may come late). */
-async function responses(p, messages, { model, temperature, maxTokens, schema, schemaName }) {
+async function responses(p, messages, { model, temperature, maxTokens, schema, schemaName, wantThinking = false }) {
   const base = process.env[p.base] || p.defaultBase;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20_000);
@@ -60,6 +62,8 @@ async function responses(p, messages, { model, temperature, maxTokens, schema, s
           model, store: false,
           input: messages.map((m) => ({ role: m.role, content: String(m.content ?? '') })),
           ...(noTemperature.has(`${p.label}/${model}`) ? {} : { temperature }),
+          // The model's thinking isn't shared, but a summary of it can be (for the admin's log).
+          ...(wantThinking && !noThinking.has(`${p.label}/${model}`) ? { reasoning: { summary: 'auto' } } : {}),
           // Thinking counts towards this limit on models that think first, so leave room for it.
           max_output_tokens: maxTokens + 2000,
           text: { format: schema ? { type: 'json_schema', name: schemaName, strict: true, schema: z.toJSONSchema(schema, { target: 'draft-7' }) } : { type: 'json_object' } },
@@ -69,16 +73,18 @@ async function responses(p, messages, { model, temperature, maxTokens, schema, s
       if (!res.ok) {
         const body = (await res.text()).slice(0, 400);
         if (res.status === 400 && /temperature/i.test(body) && !noTemperature.has(`${p.label}/${model}`)) { noTemperature.add(`${p.label}/${model}`); continue; }
+        if (res.status === 400 && wantThinking && /reasoning|summary/i.test(body) && !noThinking.has(`${p.label}/${model}`)) { noThinking.add(`${p.label}/${model}`); continue; }
         throw new Error(`${p.label} ${res.status}: ${body.slice(0, 300)}`);
       }
       const j = await res.json();
+      const thinking = (j.output || []).filter((o) => o.type === 'reasoning').flatMap((o) => o.summary || []).map((x) => x.text).filter(Boolean).join('\n').trim();
       const parts = (j.output || []).filter((o) => o.type === 'message').flatMap((o) => o.content || []);
       const refused = parts.find((c) => c.type === 'refusal');
       if (refused) throw new Error(`${p.label} declined to answer: ${String(refused.refusal || '').slice(0, 200)}`);
       const text = parts.filter((c) => c.type === 'output_text').map((c) => c.text).join('');
       if (!text) throw new Error(`${p.label} gave no answer${j.status === 'incomplete' ? ` (${j.incomplete_details?.reason || 'incomplete'})` : ''}`);
       const u = j.usage || {};
-      return { text, usage: { input: u.input_tokens ?? null, cached: u.input_tokens_details?.cached_tokens ?? null, output: u.output_tokens ?? null, reasoning: u.output_tokens_details?.reasoning_tokens ?? null } };
+      return { text, thinking: thinking || null, usage: { input: u.input_tokens ?? null, cached: u.input_tokens_details?.cached_tokens ?? null, output: u.output_tokens ?? null, reasoning: u.output_tokens_details?.reasoning_tokens ?? null } };
     }
   } finally { clearTimeout(timer); }
 }

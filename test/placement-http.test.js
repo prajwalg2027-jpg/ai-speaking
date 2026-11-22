@@ -53,6 +53,10 @@ test('comparing models: each runs its own conversation end to end; a model witho
   const info = await get('/api/admin/placement-lab');
   assert.deepEqual([info.providers.sarvam.configured, info.providers.anthropic.configured], [true, false]);
   assert.ok(info.suggestions.anthropic.includes('claude-haiku-5-5'));
+  // What the page starts with: the model in use beside OpenAI's small one, and every known price.
+  assert.deepEqual(info.defaults, [{ provider: 'sarvam', model: settings.get('placement').brain.model }, { provider: 'openai', model: 'gpt-6-luna' }]);
+  assert.deepEqual(info.prices.openai['gpt-6-luna'], { input: 0.1, cached: 0.01, output: 0.5 });
+  assert.ok(Object.keys(info.prices.openai).length >= 25 && info.prices.openaiAsOf && info.prices.usdInr > 0 && info.prices.sarvamInr.input > 0);
   assert.equal((await post('/api/admin/placement-lab/start', { models: [{ provider: 'anthropic', model: 'claude-haiku-5-5' }] })).status, 400, 'at least one model needs its key');
   const lab = (await post('/api/admin/placement-lab/start', { models: [
     { provider: 'sarvam', model: 'sarvam-105b-conversations' },
@@ -67,8 +71,17 @@ test('comparing models: each runs its own conversation end to end; a model witho
   assert.deepEqual([t[0].step.step, t[1].step.step, t[2]], ['picture', 'picture', null], 'the model without a key has no talk');
   assert.deepEqual([t[0].ai.happened, t[0].ai.ms >= 0, t[0].ai.usage.input > 0], ['answered', true, true], 'the hello is the AI too');
   assert.equal(t[0].step.screen, t[1].step.screen, 'the same picture in every talk');
+  // The log: the request exactly as it was sent, and the answer as it came.
+  const sent = t[0].log.messages;
+  assert.deepEqual(sent.map((m) => m.role), ['system', 'user', 'assistant', 'user', 'user'], 'for Sarvam the note goes last, as a user message');
+  assert.match(sent[0].content, /^You are Sakhi/);
+  assert.deepEqual([sent[1].content, sent[3].content], ['(The call begins.)', 'My name is Ravi']);
+  assert.match(sent[4].content, /^\[Note from the app, not said by the learner\][\s\S]*STEP: HELLO/);
+  assert.deepEqual([JSON.parse(t[0].log.raw).name, t[0].log.attempts, t[0].log.thinking], ['Ravi', 1, null]);
+  const first = sent;
   t = await type(WORDS[t[0].step.screen]);
   assert.deepEqual([t[0].ai.picture, t[0].step.step], ['named', 'read']);
+  assert.deepEqual(t[0].log.messages.slice(0, 4), first.slice(0, 4), 'the next request repeats the one before and adds to it');
   assert.equal(t[0].step.screen, t[1].step.screen, 'the same line to read');
   t = await type(t[0].step.screen);
   assert.deepEqual([t[0].ai.reading, t[0].step], ['well', { step: 'open', n: 1, level: 2 }]);
@@ -89,4 +102,20 @@ test('comparing models: each runs its own conversation end to end; a model witho
   t = await type('I think it is good because I can read my book on the bus every day');
   assert.equal(t[0].done.level, 3);
   assert.equal((await post('/api/admin/placement-lab/turn', { labId: lab.labId, message: 'more' })).status, 409, 'every conversation has finished');
+});
+
+test('comparing models: a spoken turn is heard by Sarvam, as in the app', async () => {
+  const wav = Buffer.alloc(44 + 32000 * 2); // two seconds, 16 kHz, 16-bit, one channel
+  const hear = async (body, query = '') => { const r = await fetch(`${base}/api/admin/placement-lab/transcribe${query}`, { method: 'POST', headers: { 'content-type': 'audio/wav' }, body }); return { status: r.status, json: await r.json() }; };
+  const before = mock.calls.filter((c) => c.path === '/speech-to-text').length;
+  const r = await hear(wav, '?language=en-IN');
+  assert.equal(r.status, 200);
+  assert.deepEqual([r.json.transcript, r.json.audioSec, r.json.ms >= 0], ['my name is ravi i like tea', 2, true]);
+  assert.equal(mock.calls.filter((c) => c.path === '/speech-to-text').length - before, 1);
+  assert.equal((await hear(Buffer.alloc(100))).status, 400, 'an empty recording');
+  assert.equal((await hear(Buffer.alloc(1_300_000))).status, 413, 'longer than Sarvam takes');
+  // The spoken length travels with the turn.
+  const lab = (await post('/api/admin/placement-lab/start', { models: [{ provider: 'sarvam', model: 'sarvam-105b' }] })).json;
+  const t = (await post('/api/admin/placement-lab/turn', { labId: lab.labId, message: r.json.transcript, speechSec: r.json.audioSec })).json.talks;
+  assert.equal(t[0].step.step, 'picture');
 });

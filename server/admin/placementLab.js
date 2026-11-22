@@ -6,18 +6,24 @@
 // the cost, and at the end the level it decided and its feedback.
 // Nothing is saved.
 //
-//   GET  /api/admin/placement-lab           → { providers: { name: { configured } }, current, suggestions }
+//   GET  /api/admin/placement-lab           → { providers: { name: { configured } }, current, suggestions, prices, defaults }
 //   POST /api/admin/placement-lab/start     { models: [{provider, model, temperature?, price?}, ..up to 4] }
 //                                           → { labId, talks: [{ model, say, step } | { model, error }] }
-//   POST /api/admin/placement-lab/turn      { labId, message?, event?, only?: index of one talk }
-//                                           → { talks: [ null (not asked) | { model, say, step, ai?, aiFailed?, done? } ] }
+//   POST /api/admin/placement-lab/transcribe  (a WAV recording; ?language=en-IN for the reading step)
+//                                           → { transcript, audioSec, ms }: Sarvam's speech-to-text, as in the app
+//   POST /api/admin/placement-lab/turn      { labId, message?, event?, speechSec?, only?: index of one talk }
+//                                           → { talks: [ null (not asked) | { model, say, step, ai?, aiFailed?, log?, done? } ] }
+// log: the exact request (every message) and the model's answer as it came, with its thinking where the provider
+// shares a summary of it.
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import * as settings from '../settings.js';
 import { providers } from '../llm/index.js';
 import { listModels } from '../llm/models.js';
+import { knownPrices } from '../llm/prices.js';
+import * as sarvam from '../sarvam.js';
 import * as conversation from '../placement/conversation.js';
-import { readJson, send, fail } from '../http.js';
+import { readJson, readBody, send, fail } from '../http.js';
 
 const Model = z.strictObject({
   provider: z.enum(['sarvam', 'openai', 'anthropic', 'gemini']),
@@ -32,6 +38,7 @@ const Turn = z.strictObject({
   message: z.string().max(2000).default(''),
   event: z.enum(['answer', 'no_speech', 'skip', 'in_hindi', 'repeat']).default('answer'),
   only: z.number().int().min(0).max(3).optional(),
+  speechSec: z.number().min(0).max(600).optional(), // how long they spoke, when it came from the microphone
 });
 function parse(schema, body) {
   const r = schema.safeParse(body);
@@ -54,15 +61,17 @@ async function takeTurn(talk, input, deps) {
   if (!s) return { model: label(talk.model), error: 'This conversation has ended. Start again.' };
   const trace = { list: [], add(step, data) { this.list.push({ step, ...data }); } };
   let turn;
-  try { turn = await conversation.handleTurn(s, input, trace, { config: talk.model, summaryConfig: talk.model, structured: deps.structured, timeoutMs: 20_000 }); }
+  try { turn = await conversation.handleTurn(s, input, trace, { config: talk.model, summaryConfig: talk.model, structured: deps.structured, timeoutMs: 20_000, detail: true }); }
   catch (e) { return { model: label(talk.model), error: e.message }; }
   const find = (step) => trace.list.find((x) => x.step === step);
-  const brain = find('brain'), failed = find('brain-failed'), sum = find('summary'), guard = trace.list.filter((x) => x.step === 'guard');
+  const brain = find('brain'), failed = find('brain-failed'), sum = find('summary'), exchange = find('exchange'), guard = trace.list.filter((x) => x.step === 'guard');
   return {
     model: label(talk.model), say: turn.say.map((l) => l.text), step: stepOf(s),
     // What the AI judged on this turn, with its speed, tokens and cost.
     ...(brain ? { ai: { ms: brain.ms, costInr: brain.costInr, usage: brain.usage, happened: brain.happened, picture: brain.picture, reading: brain.reading, level: brain.level, evidence: brain.evidence, tip: brain.tip, finish: brain.finish } } : {}),
     ...(failed ? { aiFailed: failed.why } : {}),
+    // The exact request and the answer as it came (and the thinking, when the provider shares a summary).
+    ...(exchange ? { log: { messages: exchange.messages, raw: exchange.raw, thinking: exchange.thinking, attempts: exchange.attempts } } : {}),
     ...(guard.length ? { dropped: guard.map((g) => `${g.dropped}: ${g.why}`) } : {}),
     ...(turn.done ? { done: {
       level: turn.done.level, name: turn.done.name, decidedBy: turn.done.decidedBy, reasons: turn.done.reasons, doingWell: turn.done.doingWell, practise: turn.done.practise,
@@ -81,6 +90,9 @@ export async function handlePlacementLab(req, res, url, deps = {}) {
     return send(res, 200, {
       providers: Object.fromEntries(Object.entries(providers).map(([k, v]) => [k, { configured: v.configured() }])),
       current: settings.get('placement'), suggestions: await listModels(), // every model each provider offers now
+      prices: knownPrices(), // US dollars per million tokens, for the models whose price is known
+      // What the page compares unless told otherwise: the model in use, and OpenAI's small fast model beside it.
+      defaults: [settings.get('placement').brain, { provider: 'openai', model: 'gpt-6-luna' }].filter((m, i, a) => a.findIndex((x) => x.provider === m.provider && x.model === m.model) === i).map(({ provider, model }) => ({ provider, model })),
     }), true;
   }
 
@@ -102,12 +114,24 @@ export async function handlePlacementLab(req, res, url, deps = {}) {
     return send(res, 200, { labId, talks: out }), true;
   }
 
+  if (m === 'POST' && p === '/api/admin/placement-lab/transcribe') {
+    // What a learner says into the microphone, turned into words by Sarvam exactly as in the app.
+    const wav = await readBody(req, 1_200_000); // Sarvam takes up to 30 seconds (16 kHz, 16-bit, one channel)
+    if (wav.length < 2000) throw fail(400, 'That recording is empty. Hold the microphone button and speak.');
+    const language = url.searchParams.get('language');
+    const t0 = performance.now();
+    let r;
+    try { r = await sarvam.transcribe(wav, language === 'en-IN' ? { language_code: 'en-IN' } : {}); }
+    catch (e) { throw fail(502, `Speech-to-text failed: ${e.message}`); }
+    return send(res, 200, { transcript: r.transcript.trim(), languageCode: r.languageCode, audioSec: +((wav.length - 44) / 32000).toFixed(1), ms: Math.round(performance.now() - t0) }), true;
+  }
+
   if (m === 'POST' && p === '/api/admin/placement-lab/turn') {
     const b = parse(Turn, await readJson(req));
     const lab = labs.get(b.labId);
     if (!lab) throw fail(404, 'That comparison has ended (they last two hours). Start a new one.');
     lab.at = Date.now();
-    const input = { event: b.event, transcript: b.event === 'answer' ? b.message.trim() : '', speechSec: 0 };
+    const input = { event: b.event, transcript: b.event === 'answer' ? b.message.trim() : '', speechSec: b.speechSec || 0 };
     if (b.event === 'answer' && !input.transcript) throw fail(400, 'Type what the learner says.');
     // Every talk that is still going (or just the one asked for) takes the turn, at the same time.
     const talks = await Promise.all(lab.talks.map((talk, i) => {
