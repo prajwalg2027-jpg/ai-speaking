@@ -40,6 +40,11 @@ Sakhi says and makes every judgement:
   way: "I go market yesterday" → "Oh, you went to the market yesterday!", never "that's wrong");
 - **when to finish**, and the **final level** with its reason and the feedback.
 
+What Sakhi says on a turn comes in two parts, `reply` (her reaction to what they said) and `question` (what she
+asks next). They are spoken one straight after the other, as a single turn, and the fixed instructions tell the
+model so plainly: `question` picks up from where `reply` ended (it does not start afresh, react again or repeat
+it), and `reply` holds no question at all.
+
 Code (`server/placement/conversation.js`) does only this:
 
 - keeps the order of the steps and what is on the screen;
@@ -49,7 +54,8 @@ Code (`server/placement/conversation.js`) does only this:
   matched, how many English words were spoken, how many questions are left;
 - stops Sakhi giving away the picture's word before they answer, or reading the line out herself (such a line is
   dropped and a fixed one used);
-- keeps a name only if the learner said it, and a fix only if it quotes their own words.
+- keeps a name only if the learner said it, and a fix only if it quotes their own words;
+- leaves out any question the model put in `reply` anyway, so she asks one thing, once (in `question`).
 
 Levels: **1 Beginner** · **2 Basic** (knows words, simple sentences) · **3 Good** (connected sentences, the
 past, reasons) · **4 Very good** (explains opinions and ideas at length, few mistakes). Every result is saved with

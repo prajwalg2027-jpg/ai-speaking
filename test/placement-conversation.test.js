@@ -136,6 +136,20 @@ test('every turn goes to the AI: hello, picture, reading, open questions, and th
   assert.ok(!brain.BRAIN_SYSTEM.includes('Asha'), 'nothing about one learner is in the fixed instructions');
 });
 
+test('the fixed instructions: "reply" and "question" are one spoken turn, and "reply" asks nothing', async () => {
+  const told = brain.BRAIN_SYSTEM;
+  assert.match(told, /"reply" and "question" are spoken one straight after the other, as a single turn/);
+  assert.match(told, /"question" picks up from where "reply" ended\. It does not start afresh, does not greet or react again, and does not repeat anything "reply" already said/);
+  assert.match(told, /- reply: [^\n]*It must contain no question: not one question mark\. Everything you ask goes in "question"\./);
+  // The app's net for a model that asks in its reply anyway: the question there is left out, moving on or staying.
+  const { go } = await toOpen([
+    T({ level: 2, reply: 'You made tea! Do you like tea?', question: 'Who do you live with?' }),
+    T({ happened: 'asked_for_help', reply: 'No problem. Who is at home with you?', question: 'Who lives in your home?' }),
+  ]);
+  assert.equal(say(await go('I made tea for my family today')), 'You made tea! | Who do you live with?');
+  assert.equal(say(await go('sorry repeat please')), 'No problem. | Who lives in your home?');
+});
+
 test('something unexpected: a steer back once, then on; "I can\'t see it" skips the step without counting it', async () => {
   const { s, ai, go } = start([
     T({ happened: 'something_else', reply: 'Ha, I like pizza too!', question: 'And what should I call you?' }),

@@ -278,7 +278,7 @@ export function earlyReply(s, ctx, part) {
   const q = s.q, reply = clean(part.reply, nameSaid(ctx, part) || s.profile.name);
   if (!reply) return null;
   const kept = (step, from) => safeToSay(step, reply, '', () => {}, from).reply === reply;
-  if (stays(ctx, part)) return kept(q) ? linesOf(reply) : null;
+  if (stays(ctx, part)) return kept(q) ? linesOf(withoutQuestions(reply)) : null;
   // Moving on (or finishing). The picture is the one coming step whose word a reply could give away; the line to
   // read next isn't chosen yet, so a reply that happens to hold four of its words in a row is dropped later
   // (its voice was then started for nothing: rare, and harmless).
@@ -311,7 +311,8 @@ async function advance(s, ctx, out, input, note, opts, ai) {
     if (h === 'asked_for_help') q.helps++; else q.steers++;
     note('plan', { next: 'the same step again', why: h, helps: q.helps, steers: q.steers });
     ({ reply, question } = safeToSay(q, reply, question, note));
-    return respond(s, linesOf(reply), question ? linesOf(question, 0.95) : fixedAsk(q, true), { heard });
+    // Her reply never holds a question (the fixed instructions say so; this is the net): what she asks follows it.
+    return respond(s, linesOf(withoutQuestions(reply)), question ? linesOf(question, 0.95) : fixedAsk(q, true), { heard });
   }
   const answered = h === 'answered', skipped = h === 'could_not';
   const entry = { item: q.item || null, variantLevel: q.target ?? 1, neededHindi: q.helps > 0, languageCode: input.languageCode || null, skipped: !answered, transcript: ctx.spoke ? transcript : null };
