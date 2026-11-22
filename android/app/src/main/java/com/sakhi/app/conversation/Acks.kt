@@ -2,16 +2,22 @@ package com.sakhi.app.conversation
 
 import com.sakhi.app.net.Turn
 
-/** The quick reactions played while Sakhi's reply is prepared (shared/assessment.js PHRASES.backchannels). */
-val BACKCHANNELS = listOf("Okay.", "Right.", "I see.", "Hmm, okay.", "Got it.")
+/**
+ * The quick reactions played while Sakhi's reply is prepared (shared/assessment.js PHRASES.backchannels).
+ * Listening sounds, not words: "Okay." can sound like a verdict on the answer; "Mm-hmm." only says "I heard you".
+ */
+val BACKCHANNELS = listOf("Mm-hmm.", "Mhm.", "Hmm.", "Aha.", "Uh-huh.", "Achha.")
+
+/** How often a quick reaction is played when there is room for one (people don't react to every answer). */
+const BACKCHANNEL_CHANCE = 0.5
 
 private val ACK = Regex(
-    "^\\s*(?:okay|ok|alright|all right|right|got it|i see|hmm+|mm-?hmm|achha|great|nice|good|thanks|thank you)" +
+    "^\\s*(?:okay|ok|alright|all right|right|got it|i see|hmm+|mm-?hmm|mhm|aha|uh-?huh|achha|great|nice|good|thanks|thank you)" +
         "(?:[,\\s]+(?:okay|thanks|thank you|got it))?\\s*[.!]+\\s+",
     RegexOption.IGNORE_CASE,
 )
 
-/** After a quick "Okay.", drop the reply's own opening "Okay!" so it isn't said twice (and move the card cue). */
+/** After a quick "Mm-hmm.", drop the reply's own opening "Okay!" so the two don't pile up (and move the card cue). */
 fun dropRepeatedAck(turn: Turn): Turn {
     val first = turn.say.firstOrNull() ?: return turn
     if (first.lang != "en-IN") return turn

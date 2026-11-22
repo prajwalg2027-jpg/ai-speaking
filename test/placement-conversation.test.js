@@ -267,7 +267,7 @@ test('the AI fails: the talk carries on with the app\'s own checks and fixed lin
   // One failure in the middle of a good talk: only that turn uses the fixed lines.
   const x = await toOpen([new Error('timeout'), T({ level: 3, reply: 'I see.', finish: true, final: FINAL(3) })]);
   t = await x.go('I woke up early and made breakfast for my family then I went to the office by bus');
-  assert.equal(t.say[0].text, 'Okay.');
+  assert.equal(t.say[0].text, 'Got it.');
   assert.deepEqual([x.s.ratings[0].level, t.task.id], [3, 'c2'], 'the level from the number of words; a question from the bank');
   t = await x.go('I think phones are good and bad both because people talk less now');
   assert.deepEqual([t.done.level, t.done.decidedBy], [3, 'the AI']);

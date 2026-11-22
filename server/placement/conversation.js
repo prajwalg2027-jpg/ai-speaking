@@ -36,7 +36,7 @@ const READ = { en: 'Please read this sentence out loud.', hi: 'स्क्र�
 const SAY = { meet: 'Nice to meet you!', yes: "Yes, that's right!", thanks: 'Thank you!', noProblem: 'No problem.' };
 const called = (word) => `In English, this is called '${word}'.`;
 const levelLine = (level) => `Thank you! Your English is at level ${level} of 4, ${LEVELS[level].name}.`;
-const ACK = { en: 'Okay.', hi: 'ठीक है।' };
+const ACK = { en: 'Got it.', hi: 'ठीक है।' };
 const INDIC = /[ऀ-ൿ]/;
 // One at random; with a seed (the admin's model comparison), the same one in every talk.
 const pick = (list, seed = null) => list[seed == null ? Math.floor(Math.random() * list.length) : seed % list.length];
