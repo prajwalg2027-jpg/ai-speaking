@@ -77,7 +77,7 @@ function remember(key, buf, pin) {
     pcmCache.delete(k); cachedBytes -= b.length;
   }
 }
-const pending = new Map();   // key → Promise of a generation in progress
+const pending = new Map();   // key → { job: Promise of a generation in progress, parts: the audio so far, listeners }
 
 // Fixed lines saved to the voice store (server/voicecache.js) this run, so each is written once.
 const kept = new Set();
@@ -106,10 +106,23 @@ export async function streamSpeech(text, { lang = 'en-IN', pace = 1.0, pin = fal
     const b = await voiceStore.load(key);
     if (b?.length) { remember(key, b, pin); kept.add(key); addVoice(text.length, { cached: true }); onChunk(b); return { cached: true, bytes: b.length, firstByteMs: 0, stored: true }; }
   }
-  if (pending.has(key)) { await pending.get(key).catch(() => {}); if (pcmCache.has(key)) return streamSpeech(text, { lang, pace }, onChunk); }
+  // Someone is already generating this line (her reaction, started before the turn was finished): join it. The
+  // audio so far is handed over at once and the rest as it comes, so starting early never makes anyone wait.
+  if (pending.has(key)) {
+    const p = pending.get(key);
+    let got = 0;
+    const hear = (b) => { got += b.length; onChunk(b); };
+    for (const b of p.parts) hear(b);
+    p.listeners.add(hear);
+    try { const all = await p.job; addVoice(text.length, { cached: true }); return { cached: true, joined: true, bytes: all.length, firstByteMs: 0 }; }
+    catch (e) { if (got) throw e; /* nothing heard yet: generate it ourselves, below */ }
+    finally { p.listeners.delete(hear); }
+    if (pcmCache.has(key)) return streamSpeech(text, { lang, pace, pin }, onChunk);
+  }
 
   const t0 = performance.now();
   let firstByteMs = null;
+  const entry = { job: null, parts: [], listeners: new Set() };
   const job = (async () => {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 20_000);
@@ -129,19 +142,22 @@ export async function streamSpeech(text, { lang = 'en-IN', pace = 1.0, pin = fal
       }
       if (!res.ok) throw new Error(`Sarvam /text-to-speech/stream ${res.status}: ${(await res.text()).slice(0, 300)}`);
       addVoice(text.length, { cached: false }); // billed per character sent
-      const parts = [];
+      const parts = entry.parts;
       for await (const chunk of res.body) {
         const b = Buffer.from(chunk);
         firstByteMs ??= Math.round(performance.now() - t0);
         parts.push(b);
         onChunk(b);
+        for (const hear of entry.listeners) { try { hear(b); } catch { /* that listener went away */ } }
       }
       const all = Buffer.concat(parts);
       if (all.length) { remember(key, all, pin); if (pin) keep(key, all); }
       return all;
     } finally { clearTimeout(timer); }
   })();
-  pending.set(key, job);
+  entry.job = job;
+  job.catch(() => {}); // listeners that joined handle a failure themselves
+  pending.set(key, entry);
   try { const all = await job; return { cached: false, bytes: all.length, firstByteMs }; }
   finally { pending.delete(key); }
 }

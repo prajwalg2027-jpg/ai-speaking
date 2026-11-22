@@ -40,3 +40,19 @@ test("lines the AI writes in a conversation are never stored (they may contain a
   await new Promise((r) => setTimeout(r, 50));
   assert.equal((await readdir(join(dir, 'voice'))).length, 3);
 });
+
+test('a second listener joins a line that is being generated: one Sarvam call, the audio from its start', async () => {
+  const s = await import('../server/sarvam.js?start=4');
+  const before = ttsCalls();
+  const heard = { first: 0, second: 0 };
+  // Her reaction's voice is started early; the app asks for the same line a moment later.
+  const early = s.streamSpeech('That sounds lovely, Asha.', { lang: 'en-IN', pace: 1 }, (c) => { heard.first += c.length; });
+  await new Promise((r) => setTimeout(r, 5)); // the first half has arrived; the second comes 10 ms after it
+  const joined = await s.streamSpeech('That sounds lovely, Asha.', { lang: 'en-IN', pace: 1 }, (c) => { heard.second += c.length; });
+  await early;
+  assert.deepEqual([heard.first, heard.second, joined.joined, joined.bytes], [9600, 9600, true, 9600]);
+  assert.equal(ttsCalls() - before, 1, 'generated once');
+  const again = await s.streamSpeech('That sounds lovely, Asha.', { lang: 'en-IN', pace: 1 });
+  assert.equal(again.cached, true);
+});
+

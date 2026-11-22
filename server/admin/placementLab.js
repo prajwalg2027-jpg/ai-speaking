@@ -71,7 +71,7 @@ async function takeTurn(talk, input, deps) {
   return {
     model: label(talk.model), say: turn.say.map((l) => l.text), step: stepOf(s),
     // What the AI judged on this turn, with its speed, tokens and cost.
-    ...(brain ? { ai: { ms: brain.ms, costInr: brain.costInr, usage: brain.usage, effort: brain.effort, happened: brain.happened, picture: brain.picture, reading: brain.reading, level: brain.level, evidence: brain.evidence, tip: brain.tip, finish: brain.finish } } : {}),
+    ...(brain ? { ai: { ms: brain.ms, firstTextMs: brain.firstTextMs, replyMs: brain.replyMs, costInr: brain.costInr, usage: brain.usage, effort: brain.effort, happened: brain.happened, picture: brain.picture, reading: brain.reading, level: brain.level, evidence: brain.evidence, tip: brain.tip, finish: brain.finish } } : {}),
     ...(failed ? { aiFailed: failed.why } : {}),
     // The exact request and the answer as it came (and the thinking, when the provider shares a summary).
     ...(exchange ? { log: logOf(exchange) } : {}),

@@ -1,19 +1,41 @@
 // The conversation placement over HTTP (the app's API), and the admin's model comparison, against the mock AI.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import { startMockRest } from './mock-sarvam-rest.js';
 
-let server, base, mock, settings;
+let server, base, mock, settings, openai;
+// A stand-in for OpenAI's Responses API that streams: the mock AI's answer, a little at a time, after a pause
+// at the point where Sakhi's reply is written (as if the model were still writing her question).
+const stream = { pauseMs: 0, atReply: null };
 before(async () => {
   mock = await startMockRest();
-  Object.assign(process.env, { SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url });
+  openai = createServer(async (req, res) => {
+    let body = ''; for await (const c of req) body += c;
+    if (req.url.endsWith('/models')) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ data: [{ id: 'gpt-6-luna' }] })); }
+    const b = JSON.parse(body);
+    const r = await fetch(`${mock.url}/v1/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messages: b.input }) });
+    const text = (await r.json()).choices[0].message.content;
+    const done = { status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }], usage: { input_tokens: 2000, input_tokens_details: { cached_tokens: 1500 }, output_tokens: 120, output_tokens_details: { reasoning_tokens: 30 } } };
+    if (!b.stream) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify(done)); }
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    const cut = text.indexOf('"question"');
+    const say = (t) => res.write(`data: ${JSON.stringify({ type: 'response.output_text.delta', delta: t })}\n\n`);
+    say(text.slice(0, cut));
+    await new Promise((ok) => setTimeout(ok, stream.pauseMs));
+    stream.atReply?.();
+    say(text.slice(cut));
+    res.end(`data: ${JSON.stringify({ type: 'response.completed', response: done })}\n\n`);
+  });
+  await new Promise((ok) => openai.listen(0, '127.0.0.1', ok));
+  Object.assign(process.env, { SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url, OPENAI_API_KEY: 'openai-test-key', OPENAI_BASE_URL: `http://127.0.0.1:${openai.address().port}` });
   delete process.env.ANTHROPIC_API_KEY;
   settings = await import('../server/settings.js');
   ({ server } = await import('../server/index.js'));
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${server.address().port}`;
 });
-after(() => { server.close(); mock.close(); });
+after(() => { server.close(); mock.close(); openai.close(); });
 const post = async (path, body) => { const r = await fetch(`${base}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) }); return { status: r.status, json: await r.json() }; };
 const get = async (path) => (await fetch(`${base}${path}`)).json();
 const WORDS = { '🐶': 'dog', '🏠': 'house', '🍌': 'banana', '🐟': 'fish', '🍞': 'bread' }; // the level 1 pictures
@@ -120,3 +142,25 @@ test('comparing models: a spoken turn is heard by Sarvam, as in the app', async 
   const t = (await post('/api/admin/placement-lab/turn', { labId: lab.labId, message: r.json.transcript, speechSec: r.json.audioSec })).json.talks;
   assert.equal(t[0].step.step, 'picture');
 });
+
+test("a model that streams: Sakhi's voice for her reply is being made before the turn's answer is finished", async () => {
+  await settings.set('placement', { ...settings.get('placement'), mode: 'conversation', brain: { provider: 'openai', model: 'gpt-6-luna', temperature: 0.6 } }, 'test');
+  try {
+    const start = (await post('/api/session')).json;
+    const voiceCalls = () => mock.calls.filter((c) => c.path === '/text-to-speech/stream').length;
+    const before = voiceCalls();
+    // While the model is "still writing her question": has her reply's voice been asked for already?
+    let early = null;
+    stream.pauseMs = 60; stream.atReply = () => { early = voiceCalls() - before; };
+    const t = (await post('/api/session/turn', { sessionId: start.sessionId, event: 'answer', transcript: 'My name is Ravi', speechSec: 2 })).json;
+    stream.pauseMs = 0; stream.atReply = null;
+    assert.equal(t.say[0].text, 'Nice to meet you, Ravi!');
+    assert.equal(early, 1, 'her reply went to the voice before the answer was complete');
+    // The app then asks for that line: nothing new is generated.
+    const line = t.say[0];
+    const voice = await fetch(`${base}/api/tts/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: line.text, lang: line.lang, pace: line.pace, sessionId: start.sessionId }) });
+    assert.deepEqual([voice.status, (await voice.arrayBuffer()).byteLength], [200, 9600]);
+    assert.equal(voiceCalls() - before, 1, 'generated once');
+  } finally { await settings.reset('placement', 'test'); }
+});
+

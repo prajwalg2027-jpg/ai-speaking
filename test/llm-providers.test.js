@@ -22,6 +22,17 @@ function startFake(calls, respond) {
       // OpenAI's Responses API answers in its own shape.
       if (code === 200 && req.url.endsWith('/responses')) json = { status: 'completed', output: [{ type: 'reasoning', summary: body.reasoning ? [{ type: 'summary_text', text: 'They answered in English.' }] : [] }, { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: json.choices[0].message.content }] }],
         usage: { input_tokens: 50, input_tokens_details: { cached_tokens: 20 }, output_tokens: 10, output_tokens_details: { reasoning_tokens: 4 } } };
+      // Asked to stream: the same answer as server-sent events, its text in small pieces, cut at awkward places.
+      if (code === 200 && body.stream && body.model !== 'gpt-breaks') {
+        const text = json.output[1].content[0].text, events = [{ type: 'response.created', response: { status: 'in_progress' } }];
+        for (let i = 0; i < text.length; i += 9) events.push({ type: 'response.output_text.delta', delta: text.slice(i, i + 9) });
+        events.push(body.model === 'gpt-fails' ? { type: 'response.failed', response: { error: { message: 'The model is overloaded.' } } } : { type: 'response.completed', response: json });
+        const wire = events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        for (let i = 0; i < wire.length; i += 37) res.write(wire.slice(i, i + 37));
+        return res.end();
+      }
+      if (code === 200 && body.stream) { res.writeHead(200, { 'content-type': 'text/event-stream' }); return res.end('event: response.created\ndata: {"type":"response.created"}\n\n'); }
       setTimeout(() => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(json)); }, delay);
     });
     s.listen(0, '127.0.0.1', () => ok(s));
@@ -38,6 +49,8 @@ before(async () => {
   openFake = await startFake(openCalls, (b) => (b.model === 'gpt-fixed-temp' && 'temperature' in b
     // A model that only accepts its default temperature (OpenAI's words).
     ? [400, { error: { message: "Unsupported value: 'temperature' does not support 0.6 with this model. Only the default (1) value is supported.", type: 'invalid_request_error', param: 'temperature', code: 'unsupported_value' } }]
+    : b.model === 'gpt-no-stream' && b.stream
+    ? [400, { error: { message: "Unsupported parameter: 'stream' is not supported with this model.", type: 'invalid_request_error', param: 'stream' } }]
     : b.model === 'gpt-no-effort' && b.reasoning?.effort
     // A model that doesn't think (OpenAI's words).
     ? [400, { error: { message: "Unsupported parameter: 'reasoning.effort' is not supported with this model.", type: 'invalid_request_error', param: 'reasoning.effort', code: 'unsupported_parameter' } }]
@@ -171,6 +184,34 @@ test('how hard to think: sent to OpenAI and Claude when asked; a model that refu
   await claude('medium'); await claude('none'); await claude();
   assert.deepEqual(claudeCalls.map((c) => c.body.output_config.effort), ['medium', 'low', 'low'], 'Claude has no "none": its usual low');
   assert.deepEqual([llm.takesEffort('openai'), llm.takesEffort('anthropic'), llm.takesEffort('sarvam'), llm.takesEffort('gemini')], [true, true, false, false]);
+});
+
+test('OpenAI: with onText the answer is streamed, its text handed over as it is written', async () => {
+  openCalls.length = 0;
+  const ask = (model, onText) => llm.structured({ job: 'x', config: { provider: 'openai', model, temperature: 0 }, messages, schema: Answer, onText });
+  const seen = [];
+  const r = await ask('gpt-x', (text) => seen.push(text));
+  assert.equal(openCalls[0].body.stream, true);
+  assert.deepEqual(r.data, ANSWER);
+  assert.deepEqual(r.usage, { input: 50, cached: 20, output: 10, reasoning: 4 }, 'the same counts as without streaming');
+  assert.ok(seen.length >= 3 && seen.every((t, i) => i === 0 || (t.startsWith(seen[i - 1]) && t.length > seen[i - 1].length)), 'the text only grows');
+  assert.equal(seen.at(-1), JSON.stringify(ANSWER));
+  assert.ok(r.firstTextMs >= 0 && r.firstTextMs <= r.latencyMs);
+  // Not asked for: not streamed. Other providers are never streamed.
+  assert.equal('stream' in (await ask('gpt-x').then(() => openCalls.at(-1).body)), false);
+  const gem = await llm.structured({ job: 'x', config: { provider: 'gemini', model: 'gemini-x', temperature: 0 }, messages, schema: Answer, onText: () => assert.fail('Gemini is not streamed') });
+  assert.deepEqual([gem.data, 'stream' in openCalls.at(-1).body, gem.firstTextMs], [ANSWER, false, null]);
+  assert.deepEqual([llm.streams('openai'), llm.streams('sarvam'), llm.streams('anthropic')], [true, false, false]);
+  // A listener that throws doesn't spoil the answer.
+  assert.deepEqual((await ask('gpt-x', () => { throw new Error('listener'); })).data, ANSWER);
+  // A model that won't stream is asked again without, and that is remembered.
+  openCalls.length = 0;
+  assert.deepEqual((await ask('gpt-no-stream', () => {})).data, ANSWER);
+  await ask('gpt-no-stream', () => {});
+  assert.deepEqual(openCalls.map((c) => !!c.body.stream), [true, false, false]);
+  // The stream fails, or stops before the answer is finished.
+  await assert.rejects(ask('gpt-fails', () => {}), (e) => e.kind === 'provider' && /The model is overloaded/.test(e.message));
+  await assert.rejects(ask('gpt-breaks', () => {}), (e) => e.kind === 'provider' && /stopped before the answer was finished/.test(e.message));
 });
 
 test('structured({ config }) overrides the settings for the job', async () => {

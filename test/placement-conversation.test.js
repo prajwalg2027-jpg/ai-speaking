@@ -19,11 +19,13 @@ before(async () => {
 /** A stand-in AI: answers each call from the list, in order; keeps what it was asked. */
 function fakeAI(turns) {
   const asked = [];
-  const structured = async ({ job, schema, messages, repair, effort, config }) => {
-    asked.push({ job, user: messages.at(-1).content, messages, effort, model: config?.model }); // user: the note for the turn (the last message)
+  const structured = async ({ job, schema, messages, repair, effort, config, onText }) => {
+    asked.push({ job, user: messages.at(-1).content, messages, effort, model: config?.model, streamed: !!onText });
     const next = turns.shift();
     if (!next) throw new Error('the AI is down');
     if (next instanceof Error) throw next;
+    // A provider that streams hands the answer over as it is written, a few letters at a time.
+    if (onText) { const text = JSON.stringify(next); for (let i = 5; i < text.length + 5; i += 5) onText(text.slice(0, i)); }
     return { data: schema.parse(repair ? repair(next) : next), provider: 'fake', model: 'fake-1', latencyMs: 5, usage: {}, costInr: 0.01, attempts: 1 };
   };
   return { structured, asked };
@@ -348,7 +350,7 @@ test('thinking: light on each turn, more for the final level; an early ending by
   assert.deepEqual(x.ai.asked.map((a) => a.effort), ['low', 'medium']);
   assert.match(x.ai.asked[1].user, /- answered: move on: you have heard enough to be sure of their level\. Finish now\./);
   assert.deepEqual(talkOf(x.ai.asked[1]), talkOf(x.ai.asked[0]), 'the same talk: only the note differs');
-  assert.deepEqual([t.done.level, t.done.reasons[0], t.say[0].text], [3, 'A careful look.', 'Tea for everyone, how kind!'], 'the careful answer is the one used');
+  assert.deepEqual([t.done.level, t.done.reasons[0], t.say[0].text], [3, 'A careful look.', 'You made tea!'], 'the careful level and feedback; her reply stays as first given');
 
   // The last question allowed: the app knows it is the end, so it is one call, with more thought from the start.
   x = await toOpen([
@@ -381,6 +383,60 @@ test('thinking: light on each turn, more for the final level; an early ending by
   // Settings saved before these two existed still load, with the usual values.
   const old = { mode: 'conversation', brain: LUNA.config, summary: LUNA.config, maxQuestions: 2 };
   assert.deepEqual(settings.SECTIONS.placement.schema.parse(old), { ...old, turnEffort: 'low', finalEffort: 'medium' });
+});
+
+test('a model that streams: her reply is known, and its voice can start, before the rest of the answer is written', async () => {
+  const early = [];
+  const LUNA = { config: { provider: 'openai', model: 'gpt-6-luna', temperature: 0.6 }, onReply: (lines) => early.push(lines.map((l) => l.text)) };
+  const x = start([
+    T({ name: 'Asha', reply: 'Lovely to meet you, Asha!', question: "There's a picture on your screen. What is it called in English?" }),
+    T({ happened: 'asked_for_help', reply: 'No problem, take your time. It is a dog!', question: 'What do you see in the picture?' }),
+    T({ happened: 'asked_for_help', reply: 'No problem, take your time.', question: 'What do you see in the picture?' }),
+    T({ picture: 'named', reply: 'Yes, a dog! Do you have one?', question: 'Now please read the line on your screen.' }),
+    T({ reading: 'well', reply: 'Thank you, Asha.', question: 'What did you do this morning?' }),
+    T({ level: 2, reply: 'आपने चाय बनाई! You made tea.', finish: true, final: FINAL(2) }),
+  ], LUNA);
+  const reaction = (t) => t.say.slice(0, t.cue.line).map((l) => l.text);
+  let t = await x.go('My name is Asha');
+  assert.deepEqual(early, [['Lovely to meet you, Asha!']], 'the name they said is kept, as in the turn itself');
+  assert.deepEqual(reaction(t), early[0]);
+  // Staying on the picture: a reply that gives the word away is not started (it will be dropped) ...
+  t = await x.go('sorry repeat');
+  assert.equal(early.length, 1);
+  assert.doesNotMatch(say(t), /dog/);
+  // ... one that doesn't, is.
+  t = await x.go('sorry what');
+  assert.deepEqual([early.length, early[1], reaction(t)], [2, ['No problem, take your time.'], ['No problem, take your time.']]);
+  // Moving on: once they have answered she may say the word; a question in her reaction is left out, as in the turn.
+  t = await x.go('It is a dog');
+  assert.deepEqual([early[2], reaction(t)], [['Yes, a dog!'], ['Yes, a dog!']]);
+  t = await x.go(LINE2);
+  assert.deepEqual(early[3], ['Thank you, Asha.']);
+  // The last turn: her reply is on its way while the level and feedback are still being written. Hindi and
+  // English go to their own voices.
+  t = await x.go('I made tea for my family');
+  assert.deepEqual(early[4], ['आपने चाय बनाई!', 'You made tea.']);
+  assert.deepEqual(t.say.slice(0, 2).map((l) => l.text), early[4]);
+  // Every turn is streamed. (The seventh call is the level and feedback asked again with more thought: its
+  // words aren't spoken, so there is nothing to start early.)
+  assert.deepEqual(x.ai.asked.map((a) => a.streamed), [true, true, true, true, true, true, false]);
+
+  // A provider that doesn't stream is asked the plain way.
+  const plain = start([T({ name: 'Asha', reply: 'Hello, Asha!', question: 'What is this picture called in English?' })], { onReply: () => assert.fail('not streamed') });
+  await plain.go('My name is Asha');
+  assert.equal(plain.ai.asked[0].streamed, false);
+});
+
+test('reading an answer while it is still being written: the fields up to the reply', () => {
+  const whole = JSON.stringify(T({ evidence: 'They said "reply": yes, and {more}', tip: { said: 'I go', better: 'I went' }, name: 'Asha', reply: 'Oh, you went to the "big" market!', question: 'Why?' }));
+  const upTo = (n) => brain.fieldsUpTo(whole.slice(0, n), 'reply');
+  const end = whole.indexOf('market!"') + 'market!"'.length; // just past the reply's closing quote
+  assert.equal(upTo(end - 1), null, 'not until the reply is finished');
+  assert.deepEqual(upTo(end), { happened: 'answered', picture: null, reading: null, level: null, evidence: 'They said "reply": yes, and {more}', tip: { said: 'I go', better: 'I went' }, name: 'Asha', reply: 'Oh, you went to the "big" market!' });
+  assert.deepEqual(upTo(whole.length), upTo(end), 'the same however much more has arrived');
+  assert.equal(brain.fieldsUpTo('', 'reply'), null);
+  assert.equal(brain.fieldsUpTo('Sorry, I cannot', 'reply'), null);
+  assert.equal(brain.fieldsUpTo('{"tip": {"reply": "inside"}, "rep', 'reply'), null, 'only the answer\'s own field counts');
 });
 
 test('the switch: classic stays the default; conversation when chosen; each test keeps its kind', async () => {

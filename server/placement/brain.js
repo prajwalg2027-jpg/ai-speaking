@@ -192,13 +192,53 @@ export const turnMessages = (ctx) => [
 ];
 
 /**
- * One turn of thinking. Changes nothing: the same ctx can be given to several models to compare them.
- * → { out: Turn, meta: { provider, model, latencyMs, usage, costInr, attempts, raw, thinking }, messages }; throws if the model fails.
+ * From the start of a JSON answer that is still being written: the fields up to and including `key`, as soon as
+ * that field's text is complete. null until then.
  */
-export async function think(ctx, { config, structured = defaultStructured, timeoutMs = 9000, wantThinking = false, effort = null } = {}) {
+export function fieldsUpTo(text, key) {
+  let depth = 0, inText = false, escaped = false, start = -1, current = null, value = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inText) {
+      if (escaped) escaped = false;
+      else if (c === '\\') escaped = true;
+      else if (c === '"') {
+        inText = false;
+        if (depth !== 1) continue;
+        if (!value) { try { current = JSON.parse(text.slice(start, i + 1)); } catch { current = null; } continue; }
+        value = false;
+        if (current === key) { try { return JSON.parse(`${text.slice(0, i + 1)}}`); } catch { return null; } }
+      }
+    } else if (c === '"') { inText = true; start = i; }
+    else if (c === '{' || c === '[') depth++;
+    else if (c === '}' || c === ']') depth--;
+    else if (depth === 1 && c === ':') value = true;
+    else if (depth === 1 && c === ',') value = false;
+  }
+  return null;
+}
+
+/**
+ * One turn of thinking. Changes nothing: the same ctx can be given to several models to compare them.
+ * → { out: Turn, meta: { provider, model, latencyMs, usage, costInr, attempts, raw, thinking, firstTextMs, replyMs }, messages }; throws if the model fails.
+ * onReply(part, ms): with a provider that streams, called once, as soon as her reply is written and before her
+ * question and the rest are: part is the turn so far (what happened, the judgements, the name, the reply).
+ */
+export async function think(ctx, { config, structured = defaultStructured, timeoutMs = 9000, wantThinking = false, effort = null, onReply = null } = {}) {
   const messages = turnMessages(ctx);
-  const r = await structured({ job: 'placement', config, schema: Turn, schemaName: 'sakhi_turn', repair: repairTurn, maxTokens: 700, timeoutMs, messages, wantThinking, effort });
+  const t0 = performance.now();
+  let replyMs = null;
+  const onText = onReply && ((text) => {
+    if (replyMs != null) return;
+    const part = fieldsUpTo(text, 'reply');
+    if (!part) return;
+    replyMs = Math.round(performance.now() - t0);
+    const turn = Turn.safeParse(repairTurn(part)); // the fields still to come read as empty
+    if (turn.success) onReply(turn.data, replyMs);
+  });
+  const r = await structured({ job: 'placement', config, schema: Turn, schemaName: 'sakhi_turn', repair: repairTurn, maxTokens: 700, timeoutMs, messages, wantThinking, effort, onText });
   const { data, ...meta } = r;
+  meta.replyMs = replyMs;
   // messages: what this provider was sent (the admin's log). Only OpenAI takes the note as a late system message.
   return { out: data, meta, messages: meta.provider === 'openai' ? messages : lateSystemAsUser(messages) };
 }

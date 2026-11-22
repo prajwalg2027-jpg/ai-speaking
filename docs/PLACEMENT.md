@@ -123,6 +123,38 @@ The level and feedback come in the answer to the last turn, so "the final evalua
 
 The Compare models page shows the thinking level on every call and lists the second call in the log.
 
+## Streaming: Sakhi starts sooner
+
+**Her voice has always been streamed**: the app asks for one line at a time and plays the sound as Sarvam makes
+it (`/api/tts/stream`), so she starts speaking before the line is fully generated. What was not streamed was the
+AI's answer: the server waited for the whole of it before anything could be spoken.
+
+With an **OpenAI** model (the Responses API, `stream: true`) the answer is now read as it is written. Its fields
+come in a fixed order, and her reply is written before her question and before the final level and feedback.
+So, as soon as the reply is complete:
+
+1. the server works out the lines she will say for it (the same rules as the turn itself: names, the picture's
+   word, the line to read), and
+2. starts making their voice, while the model is still writing the rest.
+
+By the time the app has the turn and asks for her first line, the sound is ready or well on its way; the app
+joins it from its first byte (a line being made is shared, never made twice). Nothing changes in the app.
+
+What this buys, per turn: roughly the time the model spends on everything after the reply (short on an ordinary
+turn; a second or more on the last turn, where the level and feedback are written), up to the time her voice
+takes to start. The model's thinking before it writes anything is not shortened by streaming: that is what the
+thinking level above is for.
+
+Limits, so nobody is surprised:
+- The app still waits for the whole turn before it plays anything. Playing her reply while the rest is still
+  being written needs the turn itself to reach the app in pieces: a change to the app and to
+  `/api/session/turn`, not made yet.
+- Only OpenAI models are streamed. Sarvam, Claude and Gemini answer in one piece, as before.
+- If her reply is dropped afterwards (a guard, or an answer that had to be asked for again), the voice started
+  early is not used: a few characters of voice spent for nothing. Rare.
+- The Compare models page shows, for each call, when the first words of the answer arrived and when her reply
+  was ready, and the average in the side-by-side table. It does not play sound.
+
 ## Choosing the AI model
 
 Set in Settings › Placement test: the model for **each turn** does the whole talk, the level and feedback

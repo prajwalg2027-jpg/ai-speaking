@@ -6,7 +6,8 @@ import * as conversation from './conversation.js';
 
 export const getSession = (id) => classic.getSession(id) || conversation.getSession(id);
 export const startSession = () => (settings.get('placement').mode === 'conversation' ? conversation.startSession() : classic.startSession());
-export const handleTurn = (s, input, trace) => (s.mode === 'conversation' ? conversation.handleTurn(s, input, trace) : classic.handleTurn(s, input, trace));
+/** opts.onReply(lines): conversation only, with a model that streams: her reaction's lines before the turn is finished. */
+export const handleTurn = (s, input, trace, opts = {}) => (s.mode === 'conversation' ? conversation.handleTurn(s, input, trace, opts) : classic.handleTurn(s, input, trace));
 /** The fixed lines of both tests (generated ahead; always allowed to be spoken). */
 export function scriptedLines() {
   const all = [...classic.scriptedLines(), ...conversation.scriptedLines()];

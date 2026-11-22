@@ -419,15 +419,16 @@ let labPicks = null; // { models: [{provider, model, price?}] }: kept for "Start
 const lines = (list) => list.filter(Boolean).map((l) => html`<p>${l}</p>`);
 const tokens = (u) => (u && (u.input || u.output) ? `${n0(u.input)} in${u.cached ? ` (${n0(u.cached)} reused)` : ''} · ${n0(u.output)} out${u.reasoning ? ` (${n0(u.reasoning)} thinking)` : ''}` : '–');
 const reusedPct = (u) => (u?.input ? Math.round((100 * (u.cached || 0)) / u.input) : null);
-const speedCost = (x) => html`<p class="small muted lab-meta">Speed ${ms(x.ms)} · cost ${inr(x.costInr, 3)}${x.effort && x.effort !== 'default' ? ` · thinking: ${x.effort}` : ''}<br>Tokens: ${tokens(x.usage)}</p>`;
+const speedCost = (x) => html`<p class="small muted lab-meta">Speed ${ms(x.ms)}${x.replyMs != null ? ` (her reply was ready at ${ms(x.replyMs)})` : ''} · cost ${inr(x.costInr, 3)}${x.effort && x.effort !== 'default' ? ` · thinking: ${x.effort}` : ''}<br>Tokens: ${tokens(x.usage)}</p>`;
 /** Adds one AI call to a model's running total for the talk. */
 function addUse(t, x) {
   if (!x || x.ms == null) return;
   t.calls++; t.ms += x.ms || 0;
+  if (x.replyMs != null) { t.replies++; t.replyMs += x.replyMs; }
   if (x.costInr == null) t.priced = false; else t.cost += x.costInr;
   for (const k of ['input', 'cached', 'output', 'reasoning']) t[k] += x.usage?.[k] || 0;
 }
-const newTotals = () => ({ calls: 0, ms: 0, cost: 0, priced: true, input: 0, cached: 0, output: 0, reasoning: 0 });
+const newTotals = () => ({ replies: 0, replyMs: 0, calls: 0, ms: 0, cost: 0, priced: true, input: 0, cached: 0, output: 0, reasoning: 0 });
 const totalLine = (t) => (t.calls ? html`<h3>The whole talk</h3><p class="small">${t.calls} AI call${t.calls === 1 ? '' : 's'} · ${ms(t.ms)} in all · cost ${t.priced ? inr(t.cost, 3) : '– (add this model\'s price to see it)'}<br>Tokens: ${tokens(t)}</p>` : '');
 
 const STEP_NAMES = { hello: 'Hello', picture: 'Picture', read: 'Reading', open: 'Open question' };
@@ -518,7 +519,7 @@ const pretty = (raw) => { try { return JSON.stringify(JSON.parse(raw), null, 2);
 const REUSE_WORDS = { reused: 'reused from cache', partly: 'partly reused', new: 'new, not reused' };
 function logCall(c) {
   const u = c.ai?.usage, log = c.log;
-  const head = html`<h3>Call ${c.n} · ${c.at}${c.ai ? html` <span class="muted small">${ms(c.ai.ms)} · ${inr(c.ai.costInr, 4)}${c.ai.effort && c.ai.effort !== 'default' ? ` · thinking: ${c.ai.effort}` : ''}</span>` : ''}</h3>
+  const head = html`<h3>Call ${c.n} · ${c.at}${c.ai ? html` <span class="muted small">${ms(c.ai.ms)} · ${inr(c.ai.costInr, 4)}${c.ai.effort && c.ai.effort !== 'default' ? ` · thinking: ${c.ai.effort}` : ''}${c.ai.firstTextMs != null ? ` · first words of the answer at ${ms(c.ai.firstTextMs)}` : ''}${c.ai.replyMs != null ? ` · her reply ready at ${ms(c.ai.replyMs)}` : ''}</span>` : ''}</h3>
     <p class="small"><strong>Learner:</strong> ${c.learner}${c.heard ? html` <span class="muted">(spoken, ${c.heard.audioSec} s; Sarvam took ${ms(c.heard.ms)} to hear it)</span>` : ''}</p>`;
   if (!log) return html`<div class="log-call">${head}<p class="small muted">${c.aiFailed ? `The AI did not answer: ${c.aiFailed}. The app's own checks and fixed lines were used.` : 'No AI call on this turn.'}</p>
     <h4>What Sakhi said</h4><div class="log-box">${lines(c.say)}</div></div>`;
@@ -662,11 +663,11 @@ async function models() {
     function summary() {
       const rows = state.filter((s) => !s.error && s.totals.calls);
       $('#labsum', box).innerHTML = rows.length ? fmt(html`<h2>Side by side</h2><div class="table-wrap"><table>
-        <tr><th>Model</th><th>Level</th><th>Decided by</th><th class="num">AI calls</th><th class="num">Time in all</th><th class="num">Average a turn</th><th class="num">Input tokens</th><th class="num">Reused</th><th class="num">Output</th><th class="num">Thinking</th><th class="num">Cost</th></tr>
+        <tr><th>Model</th><th>Level</th><th>Decided by</th><th class="num">AI calls</th><th class="num">Time in all</th><th class="num">Average a turn</th><th class="num">Reply ready, average</th><th class="num">Input tokens</th><th class="num">Reused</th><th class="num">Output</th><th class="num">Thinking</th><th class="num">Cost</th></tr>
         ${rows.map((s) => { const t = s.totals; return html`<tr><td class="lab-model">${s.model}</td><td>${s.done ? `${s.done.level} · ${s.done.name}` : html`<span class="muted">still talking</span>`}</td><td>${s.done?.decidedBy || '–'}</td>
-          <td class="num">${t.calls}</td><td class="num">${ms(t.ms)}</td><td class="num">${ms(t.ms / t.calls)}</td><td class="num">${n0(t.input)}</td><td class="num">${reusedPct(t) == null ? '–' : `${reusedPct(t)}%`}</td>
+          <td class="num">${t.calls}</td><td class="num">${ms(t.ms)}</td><td class="num">${ms(t.ms / t.calls)}</td><td class="num">${t.replies ? ms(t.replyMs / t.replies) : '–'}</td><td class="num">${n0(t.input)}</td><td class="num">${reusedPct(t) == null ? '–' : `${reusedPct(t)}%`}</td>
           <td class="num">${n0(t.output)}</td><td class="num">${t.reasoning ? n0(t.reasoning) : '–'}</td><td class="num">${t.priced ? inr(t.cost, 3) : '–'}</td></tr>`; })}
-      </table></div><p class="small muted">"Reused" is the share of input tokens the provider took from its cache, at a lower price. "Thinking" tokens are part of the output.</p>`) : '';
+      </table></div><p class="small muted">"Reused" is the share of input tokens the provider took from its cache, at a lower price. "Thinking" tokens are part of the output. "Reply ready" is for models whose answer is streamed (OpenAI): how soon Sakhi's reply was written, which is when her voice starts being made, before the rest of the answer arrives.</p>`) : '';
     }
 
     function showLog(i) {

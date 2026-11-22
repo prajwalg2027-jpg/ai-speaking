@@ -25,7 +25,7 @@ import { makeLedger } from '../costs.js';
 import { speechSeconds } from '../sarvam.js';
 import { stripInventedNames, fixContractions } from '../tutor.js';
 import * as settings from '../settings.js';
-import { takesEffort } from '../llm/index.js';
+import { takesEffort, streams } from '../llm/index.js';
 import { normalizeForCompare } from '../normalize.js';
 import { think, summarize, plainSummary, usableFinal, tipIsTheirs, learnerLine, cutOffLine } from './brain.js';
 import { nextStep, placementLevel, missedLevel, qualifies, READ_OK, OPEN_START } from './level.js';
@@ -85,6 +85,7 @@ export function startSession({ lab = false, seed = null } = {}) {
     profile: { name: null, facts: [], language: null },
     q: { step: 'hello', text: HELLO.en, helps: 0, steers: 0 },
     picture: null, read: null, // what the AI judged on those two steps
+    vocab: pick(BANK.vocab[1], seed), // the picture they will be shown, chosen now so a reply can be checked against it early
     done: false, result: null, prev: null, ledger: makeLedger(),
   };
   sessions.set(s.id, s);
@@ -195,7 +196,8 @@ function plainTurn(s, ctx) {
 /**
  * One learner turn. Every turn goes to the AI (brain.js); the app only replays her last question on "repeat".
  * input: { event: 'answer'|'no_speech'|'live_failed'|'skip'|'repeat'|'in_hindi', transcript?, languageCode?, speechSec?, timing?, interrupted? }
- * opts (tests and the model comparison): { config, summaryConfig, structured, timeoutMs, detail }
+ * opts: { config, summaryConfig, structured, timeoutMs, detail } (tests and the model comparison);
+ *       onReply(lines): her reaction's lines, as soon as they are known (a provider that streams): see askAI below
  */
 export async function handleTurn(s, input, trace, opts = {}) {
   s.at = Date.now();
@@ -232,10 +234,17 @@ export async function handleTurn(s, input, trace, opts = {}) {
   // One call to the AI. as: the name it goes by in the trace.
   const askAI = async (c, effort, as) => {
     const t0 = performance.now();
-    const r = await think(c, { config, structured: opts.structured, wantThinking: !!opts.detail, effort, ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) });
+    // With a provider that streams: her reaction is known before the rest of the answer is written, so its
+    // voice can be started (opts.onReply) while the model is still writing her question.
+    const onReply = as === 'brain' && streams(config.provider) ? (part, ms) => {
+      const lines = earlyReply(s, c, part);
+      note('early-reply', { ms, lines: lines?.map((l) => l.text) ?? null });
+      if (lines?.length) opts.onReply?.(lines);
+    } : null;
+    const r = await think(c, { config, structured: opts.structured, wantThinking: !!opts.detail, effort, onReply, ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) });
     // The whole request and the answer as it came, only where someone will read them (the model comparison).
     if (opts.detail) note(as === 'brain' ? 'exchange' : 'final-exchange', { messages: r.messages, raw: r.meta.raw ?? null, thinking: r.meta.thinking ?? null, attempts: r.meta.attempts });
-    note(as, { model: `${r.meta.provider}/${r.meta.model}`, ms: Math.round(performance.now() - t0), costInr: r.meta.costInr ?? null, usage: r.meta.usage, effort, at: c.step, ...r.out });
+    note(as, { model: `${r.meta.provider}/${r.meta.model}`, ms: Math.round(performance.now() - t0), firstTextMs: r.meta.firstTextMs ?? null, replyMs: r.meta.replyMs ?? null, costInr: r.meta.costInr ?? null, usage: r.meta.usage, effort: takesEffort(config.provider) ? effort : null, at: c.step, ...r.out });
     return r.out;
   };
   // How hard the model thinks: lightly on a turn (speed), more for the final level and feedback (care).
@@ -247,15 +256,34 @@ export async function handleTurn(s, input, trace, opts = {}) {
   }
   // The AI chose to end the talk on a turn it only thought about lightly: the same turn again with more thought,
   // told to finish, so the final level and feedback always get the care set for them. (One more call, only then.)
+  // The turn itself stays as first answered (her reply may already be on its way to being spoken).
   const ends = (o) => o.finish && ['read', 'open'].includes(ctx.step) && !stays(ctx, o);
   if (ai && ends(out) && !ctx.mustFinish && P.finalEffort !== P.turnEffort && takesEffort(config.provider)) {
     try {
       const again = await askAI({ ...ctx, mustFinish: true, onward: 'you have heard enough to be sure of their level. Finish now.' }, P.finalEffort, 'final-evaluation');
-      if (again.final && ends(again)) out = again;
-      else note('plan', { next: 'keep the first answer', why: 'the final evaluation did not finish the talk' });
+      if (again.final) out = { ...out, final: again.final };
+      else note('plan', { next: "keep the first answer's level", why: 'the final evaluation gave no level' });
     } catch (e) { note('final-evaluation-failed', { why: e.message, using: "the turn's own answer" }); }
   }
   return advance(s, ctx, out, input, note, opts, ai);
+}
+
+/** A name is only kept if they said it (in English letters it must be in their words). */
+const nameSaid = (ctx, out) => (out.name && ctx.spoke && (INDIC.test(ctx.transcript) || ctx.transcript.toLowerCase().includes(out.name.toLowerCase())) ? out.name : null);
+/**
+ * Her reaction as it will be said, worked out as soon as the reply is written (before her question, and before
+ * it is known whether the talk ends). null when it can't be known yet: a reply the guards may drop.
+ */
+export function earlyReply(s, ctx, part) {
+  const q = s.q, reply = clean(part.reply, nameSaid(ctx, part) || s.profile.name);
+  if (!reply) return null;
+  const kept = (step, from) => safeToSay(step, reply, '', () => {}, from).reply === reply;
+  if (stays(ctx, part)) return kept(q) ? linesOf(reply) : null;
+  // Moving on (or finishing). The picture is the one coming step whose word a reply could give away; the line to
+  // read next isn't chosen yet, so a reply that happens to hold four of its words in a row is dropped later
+  // (its voice was then started for nothing: rare, and harmless).
+  const next = q.step === 'hello' ? { step: 'picture', v: s.vocab } : { step: 'open' };
+  return kept(next, q) ? linesOf(withoutQuestions(reply)) : null;
 }
 
 /** What the turn is taken as: silence can't be an answer. */
@@ -273,8 +301,7 @@ async function advance(s, ctx, out, input, note, opts, ai) {
   const before = { ratings: s.ratings.length, answers: s.answers.length, q: { ...q }, transcript, speechSec: (input.joinTo?.speechSec || 0) + (input.speechSec || 0) };
   s.prev = null; // only the turn just before can be carried on
   s.history.push({ who: 'learner', text: learnerLine(ctx.spoke ? 'answer' : input.event === 'answer' ? 'live_failed' : input.event, ctx.said) });
-  // A name is only kept if they said it (in English letters it must be in their words).
-  if (out.name && ctx.spoke && (INDIC.test(transcript) || transcript.toLowerCase().includes(out.name.toLowerCase()))) s.profile.name = out.name;
+  if (nameSaid(ctx, out)) s.profile.name = out.name;
   let reply = clean(out.reply, s.profile.name), question = clean(out.question, s.profile.name);
   const heard = ctx.spoke ? transcript : undefined;
   const h = happenedIn(ctx, out);
@@ -291,7 +318,7 @@ async function advance(s, ctx, out, input, note, opts, ai) {
   let next;
 
   if (q.step === 'hello') {
-    const v = pick(BANK.vocab[1], s.seed);
+    const v = s.vocab;
     next = { step: 'picture', v, item: v.id, text: v.say, target: 1, card: pictureCard(v), helps: 0, steers: 0 };
   } else if (q.step === 'picture') {
     const result = answered ? (out.picture || (ctx.hit ? 'named' : 'not_named')) : skipped ? 'skipped' : 'not_named';

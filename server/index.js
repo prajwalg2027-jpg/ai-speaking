@@ -92,7 +92,11 @@ async function handleSessionTurn(req, res) {
       spanSec: Number(body.timing.spanSec), voicedSec: Number(body.timing.voicedSec) || 0,
       pauses: (Array.isArray(body.timing.pauses) ? body.timing.pauses : []).slice(0, 200).map(Number).filter(Number.isFinite),
     } : null,
-  }, trace));
+  }, trace, {
+    // A model that streams: her reaction is known before the turn is finished, so its voice is generated now.
+    // By the time the app asks for the line it is ready, or well on its way (the app joins it).
+    onReply: (lines) => { for (const l of lines) sarvam.streamSpeech(l.text, { lang: l.lang, pace: l.pace }).catch(() => {}); },
+  }));
   send(res, 200, withTeamData(turn, trace, s));
   accounts.afterTurn(s, { event: body.event }); // saved after the reply, so it adds no delay
 }
