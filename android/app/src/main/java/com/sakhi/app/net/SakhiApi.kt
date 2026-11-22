@@ -3,6 +3,10 @@ package com.sakhi.app.net
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -29,9 +33,41 @@ class VoiceStream(val sampleRate: Int, val cached: Boolean, val body: InputStrea
 class SakhiApi(private val client: OkHttpClient, private val baseUrl: () -> String) {
     private val jsonType = "application/json".toMediaType()
 
+    private companion object { const val NDJSON = "application/x-ndjson" }
+
     suspend fun status(): ServerStatus = get("/api/config")
     suspend fun startSession(): Turn = post("/api/session", "{}")
-    suspend fun turn(req: TurnRequest): Turn = post("/api/session/turn", SakhiJson.encodeToString(req))
+    /**
+     * Sends the learner's turn and returns Sakhi's.
+     *
+     * The app asks for the turn in parts. A server that can send Sakhi's reaction before the rest of her turn is
+     * written does so, and [onReply] is called with those lines at once, so they can be spoken while the rest is
+     * still being worked out. The turn returned at the end is whole: its lines begin with the ones given to
+     * [onReply]. A server that answers in one piece (an older one, or a turn with nothing to send early) just
+     * returns the turn, and [onReply] is never called.
+     */
+    suspend fun turn(req: TurnRequest, onReply: (List<Line>) -> Unit = {}): Turn = withContext(Dispatchers.IO) {
+        val request = request("/api/session/turn").header("Accept", "$NDJSON, application/json")
+            .post(SakhiJson.encodeToString(req).toRequestBody(jsonType)).build()
+        client.newCall(request).execute().use { res ->
+            if (!res.isSuccessful) throw refusal(res.code, res.body.string(), "Server error")
+            if (res.header("Content-Type")?.startsWith(NDJSON) != true) return@use SakhiJson.decodeFromString<Turn>(res.body.string())
+            // One JSON object a line: {"part":"reply","say":[..]} (not always), then {"part":"turn", ..the turn..}.
+            val source = res.body.source()
+            var turn: Turn? = null
+            while (true) {
+                val line = source.readUtf8Line() ?: break
+                if (line.isBlank()) continue
+                val part = SakhiJson.parseToJsonElement(line).jsonObject
+                when (part["part"]?.jsonPrimitive?.content) {
+                    "reply" -> onReply(SakhiJson.decodeFromJsonElement<TurnReply>(part).say)
+                    "error" -> throw refusal(part["status"]?.jsonPrimitive?.intOrNull ?: 500, line, "Server error")
+                    else -> turn = SakhiJson.decodeFromJsonElement<Turn>(part)
+                }
+            }
+            turn ?: throw IOException("The server's answer ended before Sakhi's turn was complete")
+        }
+    }
 
     // The signed-in customer.
     suspend fun me(): Me = get("/api/me")

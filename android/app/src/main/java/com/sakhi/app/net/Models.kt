@@ -49,6 +49,9 @@ data class Turn(
     val done: Result? = null,
 )
 
+/** Sakhi's reaction, sent ahead of the rest of her turn (see [SakhiApi.turn]). */
+@Serializable data class TurnReply(val say: List<Line> = emptyList())
+
 @Serializable data class Timing(val spanSec: Double, val voicedSec: Double, val pauses: List<Double>)
 
 @Serializable data class Interrupted(val index: Int, val heardSec: Double)

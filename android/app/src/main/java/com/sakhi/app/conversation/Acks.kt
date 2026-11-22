@@ -1,5 +1,6 @@
 package com.sakhi.app.conversation
 
+import com.sakhi.app.net.Line
 import com.sakhi.app.net.Turn
 
 /** The quick reactions played while Sakhi's reply is prepared (shared/assessment.js PHRASES.backchannels). */
@@ -22,6 +23,9 @@ fun dropRepeatedAck(turn: Turn): Turn {
     val cue = turn.cue?.let { if (it.line == 0) it.copy(word = maxOf(0, it.word - cut)) else it }
     return turn.copy(say = listOf(first.copy(text = rest)) + turn.say.drop(1), cue = cue)
 }
+
+/** The same for lines that came ahead of their turn (no card cue falls inside them). */
+fun dropRepeatedAck(lines: List<Line>): List<Line> = dropRepeatedAck(Turn("", say = lines)).say
 
 /** Cut the quiet lead-in and tail from a 16-bit PCM clip (little-endian bytes), keeping 40 ms either side. */
 fun trimSilence(pcm: ByteArray, sampleRate: Int, quiet: Int = 500): ByteArray {

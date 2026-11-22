@@ -209,6 +209,8 @@ function plainTurn(s, ctx) {
  * input: { event: 'answer'|'no_speech'|'live_failed'|'skip'|'repeat'|'in_hindi', transcript?, languageCode?, speechSec?, timing?, interrupted? }
  * opts: { config, summaryConfig, structured, timeoutMs, detail, efforts: { turn, final }, speed } (tests and the model comparison);
  *       onReply(lines): her reaction's lines, as soon as they are known (a provider that streams): see askAI below
+ *       commit(lines) → true: those lines have gone to the app, which is already saying them. From then on they
+ *         ARE her reaction for this turn, whatever the rest of the answer turns out to be.
  */
 export async function handleTurn(s, input, trace, opts = {}) {
   s.at = Date.now();
@@ -244,6 +246,7 @@ export async function handleTurn(s, input, trace, opts = {}) {
   const E = { turn: opts.efforts?.turn ?? P.turnEffort, final: opts.efforts?.final ?? P.finalEffort };
   const fast = (opts.speed ?? P.speed) === 'fast'; // OpenAI's Fast mode, for the models that have it
   // One call to the AI. as: the name it goes by in the trace.
+  let said = null; // her reaction, once it has gone to the app
   const askAI = async (c, effort, as) => {
     const t0 = performance.now();
     // With a provider that streams: her reaction is known before the rest of the answer is written, so its
@@ -251,7 +254,11 @@ export async function handleTurn(s, input, trace, opts = {}) {
     const onReply = as === 'brain' && streams(config.provider) ? (part, ms) => {
       const lines = earlyReply(s, c, part);
       note('early-reply', { ms, lines: lines?.map((l) => l.text) ?? null });
-      if (lines?.length) opts.onReply?.(lines);
+      if (!lines?.length) return;
+      opts.onReply?.(lines);
+      if (!opts.commit) return;
+      s.saying = lines.map((l) => l.text); // her voice may say them from now: the app asks for them before the turn is finished
+      if (opts.commit(lines)) said = lines;
     } : null;
     const r = await think(c, { config, structured: opts.structured, wantThinking: !!opts.detail, effort, onReply, fast, ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) });
     // The whole request and the answer as it came, only where someone will read them (the model comparison).
@@ -277,7 +284,7 @@ export async function handleTurn(s, input, trace, opts = {}) {
       else note('plan', { next: "keep the first answer's level", why: 'the final evaluation gave no level' });
     } catch (e) { note('final-evaluation-failed', { why: e.message, using: "the turn's own answer" }); }
   }
-  return advance(s, ctx, out, input, note, opts, ai);
+  return advance(s, ctx, out, input, note, opts, ai, said);
 }
 
 /** A name is only kept if they said it (in English letters it must be in their words). */
@@ -306,8 +313,11 @@ function stays(ctx, out) {
   return (h === 'asked_for_help' && ctx.stayFor.asked_for_help) || (h === 'something_else' && ctx.stayFor.something_else);
 }
 
-/** Apply the AI's turn: remember what it judged, then stay on the step, move to the next, or finish. */
-async function advance(s, ctx, out, input, note, opts, ai) {
+/**
+ * Apply the AI's turn: remember what it judged, then stay on the step, move to the next, or finish.
+ * said: her reaction's lines when they have already gone to the app (see handleTurn's commit): used as they are.
+ */
+async function advance(s, ctx, out, input, note, opts, ai, said = null) {
   const q = s.q, transcript = ctx.transcript;
   // What the app recorded before this answer, in case they turn out to be still finishing it (see handleTurn).
   const before = { ratings: s.ratings.length, answers: s.answers.length, q: { ...q }, transcript, speechSec: (input.joinTo?.speechSec || 0) + (input.speechSec || 0) };
@@ -325,7 +335,7 @@ async function advance(s, ctx, out, input, note, opts, ai) {
     note('plan', { next: 'the same step again', why: h, helps: q.helps, steers: q.steers });
     ({ reply, question } = safeToSay(q, reply, question, note));
     // Her reply never holds a question (the fixed instructions say so; this is the net): what she asks follows it.
-    return respond(s, linesOf(withoutQuestions(reply)), question ? linesOf(question, 0.95) : fixedAsk(q, true), { heard });
+    return respond(s, said || linesOf(withoutQuestions(reply)), question ? linesOf(question, 0.95) : fixedAsk(q, true), { heard });
   }
   const answered = h === 'answered', skipped = h === 'could_not';
   const entry = { item: q.item || null, variantLevel: q.target ?? 1, neededHindi: q.helps > 0, languageCode: input.languageCode || null, skipped: !answered, transcript: ctx.spoke ? transcript : null };
@@ -349,7 +359,7 @@ async function advance(s, ctx, out, input, note, opts, ai) {
     s.answers.push({ ...entry, questionId: 'read', kind: 'read', features: { readAccuracy: ctx.accuracy || 0 }, scores: { pronunciation: +((ctx.accuracy || 0) * 4).toFixed(2) }, judged: result, evidence: out.evidence });
     s.recorded = `reading ${result}`;
     note('judged', { on: 'reading', result, appMatched: ctx.accuracy });
-    if (out.finish) return finish(s, reply, out.final, heard, note, opts, ai);
+    if (out.finish) return finish(s, reply, out.final, heard, note, opts, ai, said);
     const open = pick(BANK.open, s.seed);
     next = { step: 'open', n: 1, text: question || open.simple, target: OPEN_START, helps: 0, steers: 0, fixed: question ? null : [line(open.simple), line(open.hindi, 0.95)] };
   } else {
@@ -369,7 +379,7 @@ async function advance(s, ctx, out, input, note, opts, ai) {
       s.recorded = `open question ${q.n} not answered`;
       note('judged', { on: `open question ${q.n}`, missed: true, why: h });
     }
-    if (out.finish || ctx.mustFinish) return finish(s, reply, out.final, heard, note, opts, ai);
+    if (out.finish || ctx.mustFinish) return finish(s, reply, out.final, heard, note, opts, ai, said);
     const target = Math.min(4, (s.ratings.at(-1).level || 2) + 1);
     next = { step: 'open', n: q.n + 1, text: question || bankQuestion(target), target, helps: 0, steers: 0 };
   }
@@ -378,7 +388,7 @@ async function advance(s, ctx, out, input, note, opts, ai) {
   ({ reply, question } = safeToSay(next, reply, question, note, q));
   const ask = question ? linesOf(question) : next.fixed || fixedAsk(next);
   if (!question) note('plan', { next: 'a fixed line', why: ai ? 'the AI gave no usable line' : 'the AI did not answer' });
-  return respond(s, linesOf(withoutQuestions(reply)), ask, { heard });
+  return respond(s, said || linesOf(withoutQuestions(reply)), ask, { heard });
 }
 
 /**
@@ -396,7 +406,7 @@ function safeToSay(q, reply, question, note, from = null) {
 }
 
 /** The end: the AI's level and feedback (final), or the app's own rule and plain feedback when it gave none. */
-async function finish(s, reply, final, heard, note, opts, ai) {
+async function finish(s, reply, final, heard, note, opts, ai, spoken = null) { // spoken: her reaction's lines, if they have already gone to the app
   const facts = [
     s.picture && `Picture: ${s.picture.result.replace('_', ' ')}.`,
     s.read && `Reading: ${s.read.result}${s.read.accuracy != null ? ` (the app matched ${Math.round(s.read.accuracy * 100)}% of the line)` : ''}.`,
@@ -429,7 +439,7 @@ async function finish(s, reply, final, heard, note, opts, ai) {
   note('plan', { next: 'finish', level, name: L.name, decidedBy: by, why: reasons });
   // The level in fixed words; then what went well and what's next. Beginners hear the Hindi line too.
   const closing = [line(levelLine(level)), ...linesOf(clean(sum.closing, s.profile.name)), ...(level <= 2 ? [line(L.hindi, 0.95)] : [])];
-  return respond(s, [...linesOf(withoutQuestions(reply)), ...closing], [], { heard, done: s.result });
+  return respond(s, [...(spoken || linesOf(withoutQuestions(reply))), ...closing], [], { heard, done: s.result });
 }
 
 /** What the learner heard of Sakhi's last turn before talking over it (text), what they did not (rest), and whether they heard her question. */
