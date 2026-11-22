@@ -18,7 +18,7 @@ before(async () => {
 function fakeAI(turns) {
   const asked = [];
   const structured = async ({ job, schema, messages, repair }) => {
-    asked.push({ job, user: messages[1].content });
+    asked.push({ job, user: messages.at(-1).content, messages }); // user: the note for the turn (the last message)
     const next = turns.shift();
     if (!next) throw new Error('the AI is down');
     if (next instanceof Error) throw next;
@@ -168,7 +168,16 @@ test('a strong speaker: three open questions, level 4, feedback from their own w
   t = await answer(s, 'I think it depends on the school because some children already play a lot, but in cities they sit all day so yes it should be taught properly', ai);
   assert.match(ai.asked[1].user, /LEARNER'S NAME: Asha/);
   assert.match(ai.asked[1].user, /If their answer is level 3: finish\./, 'two answers at level 3 would end it');
-  assert.match(ai.asked[0].user, /Sakhi: Nice to meet you, Asha!/, 'the AI sees the whole talk so far');
+  // The request: fixed instructions, then the talk as real turns, the learner's words, and a note for this turn.
+  const sent = ai.asked[0].messages;
+  assert.deepEqual([sent[0].role, sent[1].role, sent[1].content, sent[2].role, sent.at(-2).role, sent.at(-1).role], ['system', 'user', '(The call begins.)', 'assistant', 'user', 'system']);
+  assert.match(sent[2].content, /^Hi, my name is Sakhi\. What is your name\?\n/, "Sakhi's lines of one turn are one message");
+  assert.ok(sent.some((m) => m.role === 'assistant' && m.content.startsWith('Nice to meet you, Asha!')), 'the AI sees the whole talk so far');
+  assert.equal(sent.at(-2).content, 'I work in an office and today morning I go to gym before my office because I like to stay fit');
+  for (let i = 2; i < sent.length - 1; i++) assert.notEqual(sent[i].role, sent[i - 1].role, 'the roles alternate');
+  // The next request repeats this one (all but its note) and only adds to it: that part can be cached.
+  const before = JSON.stringify(sent.slice(0, -1)).slice(0, -1), after = JSON.stringify(ai.asked[1].messages);
+  assert.ok(after.startsWith(before), 'the talk only grows');
   assert.equal(t.task.level, 4);
   t = await answer(s, 'Honestly I would change the fixed timings, because people work better when they can choose their hours and it also reduces the traffic for everyone', ai);
   assert.equal(t.done.level, 4);
@@ -208,7 +217,8 @@ test('"sorry?" gets help and the same question; the third time she moves on, and
   assert.equal(t.task.id, 'c2', 'the same question');
   assert.match(ai.asked[1].user, /If they did not answer: help them, then ask the CURRENT QUESTION again/);
   t = await convo.handleTurn(s, { event: 'no_speech' }, null, { structured: ai.structured });
-  assert.match(ai.asked[2].user, /THE LEARNER SAID NOTHING/);
+  assert.match(ai.asked[2].user, /They said nothing \(silence\)/);
+  assert.equal(ai.asked[2].messages.at(-2).content, '(said nothing)', 'silence is kept as a turn, so the talk still alternates');
   assert.equal(t.task.id, 'c2');
   t = await answer(s, 'I do not know', ai);
   assert.match(ai.asked[3].user, /If they did not answer: tell them kindly that it's fine, then finish\./, 'missing it would make level 3 twice');

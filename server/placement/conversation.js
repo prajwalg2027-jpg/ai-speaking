@@ -23,7 +23,7 @@ import { makeLedger } from '../costs.js';
 import { speechSeconds } from '../sarvam.js';
 import { stripInventedNames, fixContractions } from '../tutor.js';
 import * as settings from '../settings.js';
-import { think, summarize, plainSummary, tipIsTheirs } from './brain.js';
+import { think, summarize, plainSummary, tipIsTheirs, learnerLine } from './brain.js';
 import { nextStep, placementLevel, missedLevel, clampLevel, qualifies, READ_OK, OPEN_START } from './level.js';
 
 const HELLO = { en: 'Hi, my name is Sakhi. What is your name?', hi: 'नमस्ते, मेरा नाम सखी है। आपका नाम क्या है?' };
@@ -123,7 +123,7 @@ function fixedStep(s, input, note, opts) {
   const asks = spoke && !(acc >= 0.3) ? detectClarification(t) : null; // "sorry?", "Hindi mein", "I don't know"…
   const gaveUp = input.event === 'skip' || asks === 'dont_know';
   const answered = spoke && !asks;
-  if (spoke) s.history.push({ who: 'learner', text: t });
+  s.history.push({ who: 'learner', text: learnerLine(spoke ? 'answer' : input.event === 'answer' ? 'live_failed' : input.event, t) });
   const heard = spoke ? t : undefined;
   if (!answered && !gaveUp && q.tries < 1) {
     // Not an answer yet: once more, slower, with the Hindi (or "I couldn't hear that" if nothing came through).
@@ -203,10 +203,10 @@ export async function handleTurn(s, input, trace, opts = {}) {
   const note = (step, data) => trace?.add(step, data);
   if (s.done) return respond(s, [], [], { done: s.result });
   if (!['answer', 'no_speech', 'live_failed', 'skip', 'repeat', 'in_hindi'].includes(input.event)) throw Object.assign(new Error(`unknown event "${input.event}"`), { status: 400 });
-  if (input.event === 'repeat') { note('plan', { next: 'the question again, slower' }); return respond(s, [], s.q.step === 'open' ? linesOf(s.q.text, 0.85) : askAgain(s.q)); }
+  if (input.event === 'repeat') { note('plan', { next: 'the question again, slower' }); s.history.push({ who: 'learner', text: learnerLine('repeat') }); return respond(s, [], s.q.step === 'open' ? linesOf(s.q.text, 0.85) : askAgain(s.q)); }
   if (s.q.step !== 'open') return fixedStep(s, input, note, opts);
   if (input.event === 'live_failed' || (input.event === 'answer' && isUnintelligible(input.transcript))) {
-    if (++s.q.unheard <= 2) { note('plan', { next: 'ask again', why: `didn't hear an answer (${s.q.unheard} of 3)` }); return respond(s, [line(PHRASES.didntHear, 0.95)]); }
+    if (++s.q.unheard <= 2) { note('plan', { next: 'ask again', why: `didn't hear an answer (${s.q.unheard} of 3)` }); s.history.push({ who: 'learner', text: learnerLine('live_failed') }); return respond(s, [line(PHRASES.didntHear, 0.95)]); }
     note('plan', { next: 'move on', why: "couldn't hear an answer three times" });
     return advance(s, { ...buildCtx(s, { event: 'skip' }), event: 'skip' }, { answered: false, level: null, evidence: '', tip: null, name: null, reply: PHRASES.moveOn, question: '' }, input, note, opts);
   }
@@ -246,7 +246,7 @@ export async function handleTurn(s, input, trace, opts = {}) {
 async function advance(s, ctx, out, input, note, opts) {
   const q = s.q, transcript = ctx.transcript.trim();
   const before = { ratings: s.ratings.length, answers: s.answers.length, history: s.history.length, q: { ...q }, transcript, speechSec: input.speechSec || 0 };
-  if (transcript) s.history.push({ who: 'learner', text: transcript });
+  s.history.push({ who: 'learner', text: learnerLine(ctx.event, transcript) });
   // A name is only kept if they said it (in English letters it must be in their words).
   if (out.name && (INDIC.test(transcript) || transcript.toLowerCase().includes(out.name.toLowerCase()))) s.profile.name = out.name;
   const reply = clean(out.reply, s.profile.name), question = clean(out.question, s.profile.name);

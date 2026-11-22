@@ -102,6 +102,31 @@ Notes on providers (`server/llm/`):
   servers, outside India. The privacy policy needs to say so before learners are switched to one. Voice
   recordings and speech-to-text stay with Sarvam.
 
+## How a turn is sent to the AI
+
+One request per open answer, the same for every provider. The messages only ever grow, so each request repeats
+the one before it and adds the new turn; providers reuse ("cache") the repeated part at a lower price:
+
+```
+system     Sakhi's fixed instructions (the same in every request of every talk)
+user       (The call begins.)
+assistant  Hi, my name is Sakhi. What is your name? …        ┐ the talk so far, as real turns,
+user       My name is Ravi                                    │ exactly as it happened
+assistant  Nice to meet you, Ravi! Look at the picture. …     ┘ ((said nothing), (skipped…) for silences)
+…
+user       I live in Pune with my family                      ← what the learner just said
+system     NOTE FOR THIS TURN: the question's level, what was measured, what to do next
+```
+
+The note is never kept in the talk, so it never disturbs the repeated part. OpenAI gets exactly this through its
+**Responses API** (`POST /responses`, `input` + `text.format`, `store: false`). Claude, Gemini and Sarvam take
+system instructions only at the start, so for them the note goes in as a last user message marked "[Note from
+the app, not said by the learner]"; Claude is also told to cache the repeated part. The Compare models page
+shows how many input tokens were cached on each turn. Caching only starts once a request is long enough (about
+a thousand tokens for OpenAI), so the first open answer of a talk may show none.
+
+The closing feedback is one more, small request of its own.
+
 ## What the conversation does not measure
 
 No listening task and no harder word puzzles, and reading only decides who goes on to the open questions (the

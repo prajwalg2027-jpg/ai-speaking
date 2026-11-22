@@ -30,13 +30,21 @@ function extractJson(text) {
   try { return JSON.parse(t.slice(start, end + 1)); } catch { return null; }
 }
 
+/**
+ * A system message after the first one (a note for one turn, see placement/brain.js) is kept as it is for
+ * OpenAI's Responses API. The others take system instructions only at the start, so there it becomes a user
+ * message marked as coming from the app.
+ */
+export const lateSystemAsUser = (messages) => messages.map((m, i) => (i > 0 && m.role === 'system'
+  ? { role: 'user', content: `[Note from the app, not said by the learner]\n${m.content}` } : m));
+
 async function callProvider(job, messages, { schema, schemaName, maxTokens }) {
   if (job.provider === 'openai') return openaiChat(messages, { model: job.model, temperature: job.temperature, maxTokens, schema, schemaName });
-  if (job.provider === 'gemini') return geminiChat(messages, { model: job.model, temperature: job.temperature, maxTokens, schema, schemaName });
+  if (job.provider === 'gemini') return geminiChat(lateSystemAsUser(messages), { model: job.model, temperature: job.temperature, maxTokens, schema, schemaName });
   // Current Claude models reject temperature, so it isn't passed.
   if (job.provider === 'anthropic') return anthropicChat(messages, { model: job.model, maxTokens, schema, schemaName });
   const meta = {};
-  const text = await sarvam.chat(messages, { model: job.model, temperature: job.temperature, maxTokens, json: true, meta, purpose: 'tutor' });
+  const text = await sarvam.chat(lateSystemAsUser(messages), { model: job.model, temperature: job.temperature, maxTokens, json: true, meta, purpose: 'tutor' });
   const u = meta.usage || {};
   return { text, usage: { input: u.prompt_tokens ?? null, cached: u.prompt_tokens_details?.cached_tokens ?? null, output: u.completion_tokens ?? null, reasoning: u.completion_tokens_details?.reasoning_tokens ?? null } };
 }

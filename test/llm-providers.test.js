@@ -18,13 +18,16 @@ function startFake(calls, respond) {
       let raw = ''; for await (const c of req) raw += c;
       const body = raw ? JSON.parse(raw) : {};
       calls.push({ path: req.url, headers: req.headers, body });
-      const [code, json, delay = 0] = respond(body, req);
+      let [code, json, delay = 0] = respond(body, req);
+      // OpenAI's Responses API answers in its own shape.
+      if (code === 200 && req.url.endsWith('/responses')) json = { status: 'completed', output: [{ type: 'reasoning', summary: [] }, { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: json.choices[0].message.content }] }],
+        usage: { input_tokens: 50, input_tokens_details: { cached_tokens: 20 }, output_tokens: 10, output_tokens_details: { reasoning_tokens: 4 } } };
       setTimeout(() => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(json)); }, delay);
     });
     s.listen(0, '127.0.0.1', () => ok(s));
   });
 }
-const lastUser = (b) => JSON.stringify(b.messages.at(-1).content);
+const lastUser = (b) => JSON.stringify((b.messages || b.input).at(-1).content);
 const claudeMessage = (model, extra) => ({ id: 'msg_1', type: 'message', role: 'assistant', model, stop_details: null, usage: { input_tokens: 1000, output_tokens: 200 }, ...extra });
 
 before(async () => {
@@ -111,13 +114,18 @@ test('Gemini: its own base URL and key, max_tokens', async () => {
   assert.equal(body.response_format.type, 'json_schema');
 });
 
-test('OpenAI still goes to its own URL with its own key', async () => {
+test('OpenAI: the Responses API, with its own URL and key; a late system note is kept as one', async () => {
   openCalls.length = 0;
   const { openaiChat } = await import('../server/llm/openai.js');
-  await openaiChat(messages, { model: 'gpt-x', temperature: 0, maxTokens: 300, schema: Answer, schemaName: 'a' });
-  assert.equal(openCalls[0].path, '/openai/chat/completions');
+  const talk = [...messages, { role: 'assistant', content: 'Oh, you went to school!' }, { role: 'user', content: 'yes' }, { role: 'system', content: 'NOTE FOR THIS TURN' }];
+  const r = await openaiChat(talk, { model: 'gpt-x', temperature: 0, maxTokens: 300, schema: Answer, schemaName: 'a' });
+  assert.equal(openCalls[0].path, '/openai/responses');
   assert.equal(openCalls[0].headers.authorization, 'Bearer openai-test-key');
-  assert.equal(openCalls[0].body.max_completion_tokens, 300);
+  const b = openCalls[0].body;
+  assert.deepEqual(b.input.map((m) => m.role), ['system', 'user', 'assistant', 'user', 'system']);
+  assert.deepEqual([b.store, b.max_output_tokens, b.text.format.type, b.text.format.name, b.text.format.strict, 'messages' in b], [false, 2300, 'json_schema', 'a', true, false]);
+  assert.deepEqual(JSON.parse(r.text), ANSWER);
+  assert.deepEqual(r.usage, { input: 50, cached: 20, output: 10, reasoning: 4 });
 });
 
 test('structured({ config }) overrides the settings for the job', async () => {
@@ -184,4 +192,20 @@ test('the model menus: each provider is asked for its models; only chat models; 
     process.env.GEMINI_BASE_URL = `${base}/broken`;
     assert.deepEqual((await listModels({ fresh: true })).gemini, [], 'the list fails: nothing to offer, and the name can still be typed');
   } finally { Object.assign(process.env, old); fake.closeAllConnections(); fake.close(); }
+});
+
+test('a note for one turn (a late system message): a user message from the app for Claude, Gemini and Sarvam', async () => {
+  const talk = [...messages, { role: 'assistant', content: 'Oh, you went to school!' }, { role: 'user', content: 'yes' }, { role: 'system', content: 'NOTE FOR THIS TURN' }];
+  assert.deepEqual(llm.lateSystemAsUser(talk).map((m) => m.role), ['system', 'user', 'assistant', 'user', 'user']);
+  assert.match(llm.lateSystemAsUser(talk).at(-1).content, /^\[Note from the app, not said by the learner\]\nNOTE FOR THIS TURN$/);
+  claudeCalls.length = 0;
+  await anthropic.anthropicChat(talk, { model: 'claude-haiku-5-5', maxTokens: 300, schema: Answer });
+  const b = claudeCalls[0].body;
+  assert.equal(b.system, 'You are a kind English tutor.', 'the system prompt stays the same from turn to turn');
+  assert.deepEqual(b.messages.map((m) => m.role), ['user', 'assistant', 'user', 'user']);
+  assert.match(b.messages.at(-1).content, /Note from the app/);
+  assert.deepEqual(b.cache_control, { type: 'ephemeral' }, 'the repeated part is reused');
+  openCalls.length = 0;
+  await llm.structured({ job: 'placement', config: { provider: 'gemini', model: 'gemini-x', temperature: 0.5 }, messages: talk, schema: Answer });
+  assert.deepEqual(openCalls[0].body.messages.map((m) => m.role), ['system', 'user', 'assistant', 'user', 'user']);
 });

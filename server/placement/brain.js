@@ -14,6 +14,7 @@ export const BRAIN_SYSTEM = `You are Sakhi, a warm, encouraging English tutor on
 HOW YOU TALK
 - Like a person on a phone call: short sentences, everyday words, contractions (what's, I'm, don't). A voice reads your words aloud, so no lists, emojis, brackets or symbols.
 - Match the learner. If their English is weak, or they answered in Hindi, use very simple English and add Hindi (Devanagari script, the polite आप form) so they surely understand; say the question in simple English and then in Hindi. If their English is comfortable, use natural English and no Hindi.
+- The talk so far is given as real turns: yours are what you said aloud, the learner's are what they said (from speech recognition). A line in brackets, like (said nothing), is what they did instead of speaking.
 - If they ask you to repeat, slow down, or talk in Hindi or another Indian language, just do it, kindly.
 - Use their name only if they told you their name. Never guess one.
 
@@ -73,17 +74,42 @@ export function repairTurn(j) {
 const LEVEL_WORDS = { 1: 'a level 1 question', 2: 'a level 2 question', 3: 'a level 3 question', 4: 'a level 4 question' };
 const stepWords = (step) => (step.done ? 'finish. Leave "question" empty: Sakhi closes the talk herself.' : `ask ${LEVEL_WORDS[step.target]}.`);
 
+// How a turn is sent to the model. The messages only ever GROW, so each request repeats the one before it and
+// adds the new turn. Providers reuse ("cache") the repeated part at a lower price, and models talk more
+// naturally when they are given real turns than a pasted transcript:
+//   system     Sakhi's fixed instructions (BRAIN_SYSTEM), the same in every request of every talk
+//   user       "(The call begins.)"
+//   assistant  what Sakhi said        ┐ the talk so far, turn by turn, exactly as it happened
+//   user       what the learner said  ┘
+//   …
+//   user       what the learner just said
+//   system     a short note for THIS turn only (the question's level, what was measured, what to do next).
+//              It is never kept in the talk, so it never disturbs the repeated part.
+const START = '(The call begins.)';
+const EVENT_TEXT = { no_speech: '(said nothing)', in_hindi: '(asked for the question in Hindi)', skip: '(skipped this question)', repeat: '(asked to hear it again)', live_failed: '(could not be heard)' };
+/** The learner's turn as it is kept in the talk: their words, or what they did instead. */
+export const learnerLine = (event, transcript = '') => (event === 'answer' && transcript.trim() ? transcript.trim() : EVENT_TEXT[event] || EVENT_TEXT.live_failed);
+
+/** The talk as chat turns: Sakhi's lines of one turn are one message; the roles alternate. */
+export function talkTurns(history) {
+  const out = [{ role: 'user', content: START }];
+  for (const h of history) {
+    const role = h.who === 'sakhi' ? 'assistant' : 'user', last = out[out.length - 1];
+    if (last.role === role && last.content !== START) last.content += `\n${h.text}`; else out.push({ role, content: h.text });
+  }
+  return out;
+}
+
 /**
- * The message for one turn. ctx (built by the session, see conversation.js):
+ * The note for one turn. ctx (built by the session, see conversation.js):
  *   history [{who, text}], question { text, target }, event, transcript, measured { englishWords, wpm, longPauses },
  *   name, afterLevel { 1..4: step }, notAnswered: { help: true } | { step }
  */
-export function turnMessage(ctx) {
-  const said = {
-    answer: `THE LEARNER JUST SAID: "${ctx.transcript}"`,
-    no_speech: 'THE LEARNER SAID NOTHING (silence). They may not have understood. "answered" is false.',
-    in_hindi: 'THE LEARNER TAPPED "IN HINDI": they want the question in Hindi. "answered" is false.',
-    skip: 'THE LEARNER CHOSE TO SKIP THIS QUESTION. "answered" is false.',
+export function turnNote(ctx) {
+  const what = {
+    no_speech: 'They said nothing (silence). They may not have understood. "answered" is false.',
+    in_hindi: 'They tapped "in Hindi": they want the question in Hindi. "answered" is false.',
+    skip: 'They chose to skip this question. "answered" is false.',
   }[ctx.event];
   const m = ctx.measured;
   const next = [
@@ -93,14 +119,22 @@ export function turnMessage(ctx) {
       : `- If they did not answer: tell them kindly that it's fine, then ${stepWords(ctx.notAnswered.step)}`,
   ];
   return [
-    `CONVERSATION SO FAR:\n${ctx.history.slice(-12).map((h) => `${h.who === 'sakhi' ? 'Sakhi' : 'Learner'}: ${h.text}`).join('\n') || '(nothing yet)'}`,
+    'NOTE FOR THIS TURN (from the app, not from the learner). The learner\'s last message is their reply to:',
     `CURRENT QUESTION (level ${ctx.question.target}): "${ctx.question.text}"`,
-    said,
+    what,
     ctx.event === 'answer' && m ? `MEASURED FROM THEIR VOICE: ${m.englishWords} English words${m.wpm ? `, about ${Math.round(m.wpm)} words a minute` : ''}${m.longPauses ? `, ${m.longPauses} long pause${m.longPauses > 1 ? 's' : ''}` : ''}.` : '',
     `LEARNER'S NAME: ${ctx.name || 'not known (use no name)'}`,
     `NEXT:\n${next.join('\n')}`,
+    'Reply with ONLY the JSON object.',
   ].filter(Boolean).join('\n\n');
 }
+
+/** Everything sent for one turn (see above). */
+export const turnMessages = (ctx) => [
+  { role: 'system', content: BRAIN_SYSTEM }, ...talkTurns(ctx.history),
+  { role: 'user', content: learnerLine(ctx.event, ctx.transcript) },
+  { role: 'system', content: turnNote(ctx) },
+];
 
 /**
  * One turn of thinking. Changes nothing: the same ctx can be given to several models to compare them.
@@ -109,7 +143,7 @@ export function turnMessage(ctx) {
 export async function think(ctx, { config, structured = defaultStructured, timeoutMs = 9000 } = {}) {
   const r = await structured({
     job: 'placement', config, schema: Turn, schemaName: 'sakhi_turn', repair: repairTurn, maxTokens: 500, timeoutMs,
-    messages: [{ role: 'system', content: BRAIN_SYSTEM }, { role: 'user', content: turnMessage(ctx) }],
+    messages: turnMessages(ctx),
   });
   const { data, ...meta } = r;
   return { out: data, meta };

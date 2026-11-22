@@ -45,11 +45,13 @@ export function startMockRest({ transcript = 'my name is ravi i like tea' } = {}
       }
       // The conversation placement's brain: a level from the number of words, the question NEXT asks for, one fix.
       else if (/first chat with them/.test(sys)) {
-        const said = user.match(/THE LEARNER JUST SAID: "([\s\S]*?)"\n/)?.[1] ?? null;
+        // The request: system, the talk as turns, the learner's words, then the note for this turn (the last message).
+        const note = msgs.at(-1).content, last = msgs.at(-2)?.content || '';
+        const said = /^\(.*\)$/.test(last) ? null : last;
         const words = said ? (said.match(/[A-Za-z']+/g) || []).length : 0;
         const answered = said != null && !/\b(sorry|repeat|don't understand|did not understand|hindi)\b/i.test(said);
         const level = !answered ? null : words < 4 ? 1 : words < 12 ? 2 : words < 28 ? 3 : 4;
-        const next = answered ? user.match(new RegExp(`If their answer is level ${level}: (.*)`))?.[1] : user.match(/If they did not answer: (.*)/)?.[1];
+        const next = answered ? note.match(new RegExp(`If their answer is level ${level}: (.*)`))?.[1] : note.match(/If they did not answer: (.*)/)?.[1];
         const lvl = next?.match(/level (\d) question/)?.[1];
         const question = !next || /finish/.test(next) ? '' : /CURRENT QUESTION again/.test(next) ? 'Let me ask again, more simply. आसान शब्दों में: आप क्या करते हैं?' : `Here is a level ${lvl} question: why do you like it?`;
         content = JSON.stringify({ answered, level, evidence: answered ? `${words} words` : '', tip: /\bI go\b/.test(said || '') ? { said: 'I go', better: 'I went' } : null,
