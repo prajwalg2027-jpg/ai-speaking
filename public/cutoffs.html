@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Level cut-offs</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anek+Latin:wght@400;500;600;700&display=swap" />
+  <style>
+    :root { --bg: #fbf6f2; --card: #fff; --ink: #2a1f1a; --muted: #7a6a60; --line: #ecdcd2; --accent: #c4552f; --bad: #b3261e; --ok: #2f7d5b; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #0d1a1c; --card: #13262a; --ink: #eef4f3; --muted: #95aaa8; --line: #24403f; --accent: #ef8a5f; --bad: #ff8a80; --ok: #7fd4a8; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.45 'Anek Latin', system-ui, sans-serif; }
+    main { max-width: 760px; margin: 0 auto; padding: 24px 16px 120px; }
+    h1 { font-size: 28px; margin: 0 0 4px; }
+    h2 { font-size: 18px; margin: 28px 0 8px; }
+    p.lead, .note { color: var(--muted); margin: 0 0 12px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 4px 16px; }
+    .row { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; padding: 12px 0; border-top: 1px solid var(--line); align-items: center; }
+    .row:first-child { border-top: 0; }
+    .row label { font-weight: 600; }
+    .row .help { grid-column: 1; color: var(--muted); font-size: 14px; }
+    .row .ctl { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 8px; align-items: center; }
+    input[type=number] { width: 92px; font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); text-align: right; }
+    .changed input { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
+    .was { font-size: 12px; color: var(--muted); min-width: 64px; }
+    .reset { border: 0; background: none; color: var(--accent); cursor: pointer; font: inherit; font-size: 13px; visibility: hidden; }
+    .changed .reset { visibility: visible; }
+    .try { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 14px 0; }
+    .try output { font-weight: 700; }
+    .scale { position: relative; height: 34px; margin: 4px 0 14px; border-radius: 8px; overflow: hidden; display: flex; font-size: 12px; }
+    .scale span { display: flex; align-items: center; justify-content: center; color: #fff; }
+    .errors { color: var(--bad); font-weight: 600; }
+    .bar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--card); border-top: 1px solid var(--line); padding: 12px 16px; }
+    .bar div { max-width: 760px; margin: 0 auto; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .bar .count { color: var(--muted); margin-right: auto; }
+    button.main { background: var(--accent); color: #fff; border: 0; border-radius: 10px; padding: 10px 16px; font: inherit; font-weight: 600; cursor: pointer; }
+    button.main:disabled { opacity: .45; cursor: not-allowed; }
+    button.sec, label.sec { background: none; color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 9px 14px; font: inherit; cursor: pointer; }
+    @media (max-width: 520px) { .row { grid-template-columns: 1fr; } .row .ctl { grid-column: 1; grid-row: auto; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Level cut-offs</h1>
+  <p class="lead">These numbers decide which level a learner is placed at. Change any of them, then download the file and give it to Claude. Nothing here changes the app until the file is put in.</p>
+  <p class="note">Every skill is scored from 1 (weak) to 4 (strong). The skills are averaged into one <b>overall score</b>, which is shown in the team view's log at the end of each conversation as “adjusted score”.</p>
+
+  <h2>Try a score</h2>
+  <div class="card">
+    <div class="try">
+      <label for="tryScore">Overall score</label>
+      <input type="number" id="tryScore" step="0.05" min="0" max="5" value="2.8" />
+      <span>→ <output id="tryOut"></output></span>
+    </div>
+    <div class="scale" id="scale"></div>
+  </div>
+
+  <div id="sections"></div>
+  <p class="errors" id="errors"></p>
+</main>
+<div class="bar"><div>
+  <span class="count" id="count">No changes</span>
+  <label class="sec">Open a file<input type="file" id="open" accept=".json,application/json" hidden /></label>
+  <button class="sec" id="resetAll" type="button">Reset all</button>
+  <button class="main" id="download" type="button">Download file</button>
+</div></div>
+
+<script type="module">
+const FIELDS = [
+  { h: 'Level cut-offs', note: 'The overall score a learner needs for each level.' },
+  { k: 'levelCutoffs.level4', label: 'Level 4 (Very good)', help: 'Overall score needed for Level 4.', step: 0.05 },
+  { k: 'levelCutoffs.level3', label: 'Level 3 (Good)', help: 'Overall score needed for Level 3.', step: 0.05 },
+  { k: 'levelCutoffs.level2', label: 'Level 2 (Basic)', help: 'Overall score needed for Level 2. Below this is Level 1 (Beginner).', step: 0.05 },
+  { k: 'difficultyBonus', label: 'Harder-question bonus', help: 'Added to the overall score for each step the questions were above level 2 (taken away for easier ones). 0 turns it off.', step: 0.05 },
+
+  { h: 'Checks that can lower the level' },
+  { k: 'level4Talk', label: 'Level 4 talk check', help: 'In the opinion question and its follow-up, “joining ideas” and “word range” must both reach this, or Level 4 becomes Level 3.', step: 0.05 },
+  { k: 'readAccuracyCap', label: 'Read-aloud minimum', help: 'Share of the sentence read correctly (0.6 = 60%). Below this, the level is at most 2.', step: 0.05, min: 0, max: 1 },
+  { k: 'hindiHelpCap', label: 'Hindi help limit', help: 'Asking for Hindi instructions this many times keeps the level at most 2.', step: 1, min: 1 },
+
+  { h: 'First-answer guess', note: 'After the first answer, Sakhi guesses a level to choose how hard the next questions are. The final level is worked out again at the end.' },
+  { k: 'firstGuess.level4Score', label: 'Start at level 4 from', help: 'Average of word range, grammar, fluency and joining ideas in the first answer.', step: 0.05 },
+  { k: 'firstGuess.level4Words', label: '…and at least this many words', help: 'The first answer must also be this long to start at level 4.', step: 1, min: 0 },
+  { k: 'firstGuess.level3Score', label: 'Start at level 3 from', help: 'Below this, the next questions start at level 2.', step: 0.05 },
+
+  { h: 'How much the AI judge counts', note: 'Each skill mixes the AI judge’s score with measured numbers (word counts, pauses, speed). 1 = only the AI judge, 0 = only the measured numbers.' },
+  { k: 'judgeWeight.comprehension', label: 'Understanding', step: 0.05, min: 0, max: 1 },
+  { k: 'judgeWeight.vocabulary', label: 'Word range', step: 0.05, min: 0, max: 1 },
+  { k: 'judgeWeight.grammar', label: 'Grammar', step: 0.05, min: 0, max: 1 },
+  { k: 'judgeWeight.fluency', label: 'Fluency', step: 0.05, min: 0, max: 1 },
+  { k: 'judgeWeight.pronunciation', label: 'Pronunciation (read-aloud)', step: 0.05, min: 0, max: 1 },
+  { k: 'judgeWeight.coherence', label: 'Joining ideas', step: 0.05, min: 0, max: 1 },
+];
+const get = (o, k) => k.split('.').reduce((x, p) => x?.[p], o);
+const set = (o, k, v) => { const ps = k.split('.'); const last = ps.pop(); ps.reduce((x, p) => (x[p] ??= {}), o)[last] = v; };
+const $ = (id) => document.getElementById(id);
+
+const original = await fetch('/shared/scoring-config.json', { cache: 'no-store' }).then((r) => r.json());
+let cfg = structuredClone(original);
+
+function render() {
+  let html = '', open = false;
+  for (const f of FIELDS) {
+    if (f.h) { if (open) html += '</div>'; html += `<h2>${f.h}</h2>${f.note ? `<p class="note">${f.note}</p>` : ''}<div class="card">`; open = true; continue; }
+    html += `<div class="row" data-k="${f.k}"><label for="f-${f.k}">${f.label}</label>${f.help ? `<span class="help">${f.help}</span>` : ''}
+      <span class="ctl"><input type="number" id="f-${f.k}" step="${f.step}" ${f.min != null ? `min="${f.min}"` : ''} ${f.max != null ? `max="${f.max}"` : ''} value="${get(cfg, f.k)}" />
+      <span class="was">was ${get(original, f.k)}</span><button class="reset" type="button">Reset</button></span></div>`;
+  }
+  $('sections').innerHTML = html + '</div>';
+  refresh();
+}
+
+function refresh() {
+  let changed = 0;
+  for (const row of document.querySelectorAll('.row')) {
+    const diff = get(cfg, row.dataset.k) !== get(original, row.dataset.k);
+    row.classList.toggle('changed', diff); changed += diff;
+  }
+  $('count').textContent = changed ? `${changed} change${changed === 1 ? '' : 's'}` : 'No changes';
+  const c = cfg.levelCutoffs, errs = [];
+  if (!(c.level4 > c.level3 && c.level3 > c.level2)) errs.push('The level cut-offs must go up: Level 2 < Level 3 < Level 4.');
+  for (const f of FIELDS) if (f.k && !Number.isFinite(get(cfg, f.k))) errs.push(`“${f.label}” needs a number.`);
+  for (const f of FIELDS) if (f.k && ((f.min != null && get(cfg, f.k) < f.min) || (f.max != null && get(cfg, f.k) > f.max))) errs.push(`“${f.label}” must be between ${f.min ?? '…'} and ${f.max ?? '…'}.`);
+  $('errors').innerHTML = errs.join('<br>');
+  $('download').disabled = errs.length > 0;
+  // The level bands on a 1–4.5 line, and the tried score.
+  const lo = 0.5, hi = 4.5, pct = (v) => Math.max(0, Math.min(100, ((v - lo) / (hi - lo)) * 100));
+  const bands = [[lo, c.level2, 'L1', '#8a7d76'], [c.level2, c.level3, 'L2', '#c98b4a'], [c.level3, c.level4, 'L3', '#3f8f86'], [c.level4, hi, 'L4', '#c4552f']];
+  $('scale').innerHTML = bands.map(([a, b, t, col]) => `<span style="width:${Math.max(0, pct(b) - pct(a))}%;background:${col}">${t}</span>`).join('');
+  const s = Number($('tryScore').value);
+  const lvl = s >= c.level4 ? 4 : s >= c.level3 ? 3 : s >= c.level2 ? 2 : 1;
+  $('tryOut').textContent = `Level ${lvl} (${['Beginner', 'Basic', 'Good', 'Very good'][lvl - 1]})${lvl === 4 ? ', if the talk check passes' : ''}`;
+}
+
+$('sections').addEventListener('input', (e) => {
+  const row = e.target.closest('.row'); if (!row) return;
+  set(cfg, row.dataset.k, e.target.value === '' ? NaN : Number(e.target.value)); refresh();
+});
+$('sections').addEventListener('click', (e) => {
+  if (!e.target.classList.contains('reset')) return;
+  const k = e.target.closest('.row').dataset.k; set(cfg, k, get(original, k)); render();
+});
+$('tryScore').addEventListener('input', refresh);
+$('resetAll').addEventListener('click', () => { cfg = structuredClone(original); render(); });
+$('open').addEventListener('change', async (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  try { const loaded = JSON.parse(await file.text()); cfg = structuredClone(original); for (const f of FIELDS) if (f.k && Number.isFinite(get(loaded, f.k))) set(cfg, f.k, get(loaded, f.k)); render(); }
+  catch { $('errors').textContent = 'That file could not be read.'; }
+  e.target.value = '';
+});
+$('download').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify({ ...cfg, editedAt: new Date().toISOString() }, null, 2) + '\n'], { type: 'application/json' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'scoring-config.json' });
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+render();
+</script>
+</body>
+</html>

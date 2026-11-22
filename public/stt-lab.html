@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Sakhi STT Lab</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    :root { --live: #0d8f68; --rest: #2b67dc; --warn: #b45309; --bad: #c62828; }
+    @media (prefers-color-scheme: dark) { :root { --live: #3ccf9d; --rest: #6ea4ff; --warn: #f6ad55; --bad: #ff8a80; } }
+    body { overflow-y: auto; }
+    .lab { max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px;
+      padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(28px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+    h1 { font-size: 24px; margin: 0; letter-spacing: -0.01em; }
+    h2 { font-size: 17px; margin: 0; }
+    .lede { margin: 0; color: var(--muted); font-size: 14.5px; line-height: 1.5; max-width: 80ch; }
+    section.box { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+    label.f { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--muted); min-width: 0; }
+    label.f code { font-size: 11px; opacity: .8; }
+    label.c { display: flex; align-items: center; gap: 7px; font-size: 14px; }
+    select, input[type=text], input[type=number], textarea { font: inherit; font-size: 14px; padding: 7px 9px; border-radius: 9px; border: 1px solid var(--line);
+      background: var(--bg); color: var(--fg); min-width: 0; width: 100%; }
+    textarea { min-height: 54px; resize: vertical; }
+    button { font: inherit; font-size: 14px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; }
+    button.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); font-weight: 600; }
+    button.rec { background: #d93b3b; border-color: #d93b3b; color: #fff; }
+    button:disabled { opacity: .45; cursor: default; }
+    button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--o3); outline-offset: 1px; }
+    .stats { font: 12.5px/1.5 ui-monospace, Menlo, monospace; color: var(--muted); }
+    .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; border-top: 4px solid var(--rest); }
+    .card.live { border-top-color: var(--live); }
+    .card .head { display: flex; gap: 8px; align-items: center; }
+    .card .head input { font-weight: 600; }
+    .card details summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+    .result { font-size: 13.5px; line-height: 1.45; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 10px; min-width: 0; overflow-wrap: anywhere; }
+    .result .tx { font-size: 15px; }
+    .result .err { color: var(--bad); }
+    .metrics { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; font-size: 12.5px; }
+    .metrics dt { color: var(--muted); } .metrics dd { margin: 0; font-variant-numeric: tabular-nums; }
+    .result pre { font: 11.5px/1.4 ui-monospace, Menlo, monospace; white-space: pre-wrap; max-height: 240px; overflow: auto; background: var(--bg); padding: 8px; border-radius: 8px; margin: 4px 0 0; }
+    .tablewrap { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; min-width: 760px; font-size: 13.5px; }
+    th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; font-variant-numeric: tabular-nums; }
+    th { font-size: 12px; color: var(--muted); font-weight: 500; }
+    .pill { font: 600 10.5px ui-monospace, Menlo, monospace; padding: 2px 6px; border-radius: 5px; color: #fff; }
+    .pill.live { background: var(--live); } .pill.rest { background: var(--rest); }
+    .note { font-size: 12.5px; color: var(--warn); }
+  </style>
+</head>
+<body>
+  <main class="lab">
+    <header class="row" style="justify-content: space-between">
+      <h1>Speech-to-text lab</h1>
+      <div class="row"><a href="/mic-test.html">Mic test</a><a href="/">App</a></div>
+    </header>
+    <p class="lede">Record once, then run the same audio through as many Sarvam configurations as you like, in parallel. <b style="color:var(--live)">Live</b> streams the audio over Sarvam's realtime WebSocket, as the app does. <b style="color:var(--rest)">Send at once</b> uploads the finished recording in one request, optionally with pauses trimmed to cut the billed seconds. Fields left on "default" aren't sent, so Sarvam uses its own default.</p>
+
+    <section class="box" aria-labelledby="h-audio">
+      <h2 id="h-audio">1 · Audio</h2>
+      <div class="row">
+        <button type="button" id="rec" class="primary">● Record</button>
+        <label class="c"><input type="checkbox" id="aec" checked> Echo cancellation</label>
+        <label class="c"><input type="checkbox" id="ns" checked> Noise suppression</label>
+        <label class="c"><input type="checkbox" id="agc" checked> Auto volume</label>
+        <span>or</span>
+        <label class="c">Load a file <input type="file" id="file" accept="audio/*"></label>
+      </div>
+      <label class="f">What was said (optional, for accuracy)
+        <select id="preset">
+          <option value="">Type your own, or pick a sentence…</option>
+          <option>Every morning I take the bus to work, and it is always crowded.</option>
+          <option>Vikram's van went west on Wednesday with seven heavy bags.</option>
+          <option>I paid two hundred and fifty rupees for three thick notebooks.</option>
+          <option>Although the weather was terrible, we decided to continue our journey.</option>
+          <option>कल मैं market गया था and I bought fresh vegetables.</option>
+        </select>
+        <textarea id="expected" placeholder="The exact words spoken"></textarea>
+      </label>
+      <div class="stats" id="audioStats">No audio yet.</div>
+      <div class="row"><button type="button" id="playOrig" disabled>▶ Original</button><button type="button" id="playTrim" disabled>▶ Trimmed</button></div>
+    </section>
+
+    <section class="box" aria-labelledby="h-trim">
+      <h2 id="h-trim">2 · Trim pauses (for configurations that use trimmed audio)</h2>
+      <div class="grid">
+        <label class="c"><input type="checkbox" id="trimEdges" checked> Cut silence at start and end</label>
+        <label class="f">Shorten pauses longer than (ms)<input type="number" id="maxPause" value="400" min="100" max="3000" step="50"></label>
+        <label class="f">Keep around speech (ms)<input type="number" id="pad" value="120" min="0" max="500" step="10"></label>
+        <label class="f">Silence threshold (dBFS, blank = auto)<input type="number" id="thr" placeholder="auto" min="-90" max="-10" step="1"></label>
+        <label class="f">End-of-turn wait on the phone for "send at once" (ms)<input type="number" id="eot" value="1200" min="0" max="5000" step="100"></label>
+      </div>
+      <div class="stats" id="trimStats"></div>
+    </section>
+
+    <section class="box" aria-labelledby="h-cfg">
+      <div class="row" style="justify-content: space-between">
+        <h2 id="h-cfg">3 · Configurations</h2>
+        <div class="row">
+          <select id="addPreset" aria-label="Add a configuration"></select>
+          <button type="button" id="add">+ Add</button>
+          <button type="button" id="run" class="primary" disabled>Run all</button>
+        </div>
+      </div>
+      <div class="cards" id="cards"></div>
+    </section>
+
+    <section class="box" aria-labelledby="h-sum" id="summaryBox" hidden>
+      <div class="row" style="justify-content: space-between"><h2 id="h-sum">4 · Comparison</h2><button type="button" id="copy">Copy results</button></div>
+      <div class="tablewrap"><table id="summary"></table></div>
+      <p class="lede">Cost uses Sarvam's speech-to-text price of ₹30 per hour of audio received. "Wait after last word" for Live is measured at 1× speed (real time). For "send at once" it's the on-device end-of-turn wait plus the measured upload and transcription time.</p>
+    </section>
+  </main>
+  <script type="module" src="/stt-lab.js"></script>
+</body>
+</html>

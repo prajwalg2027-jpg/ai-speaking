@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Sakhi Mic Test</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    :root { --ok: #0d8f68; --warn: #b45309; --on: #2b67dc; --off: #8a4fd6; }
+    @media (prefers-color-scheme: dark) { :root { --ok: #3ccf9d; --warn: #f6ad55; --on: #6ea4ff; --off: #b794f6; } }
+    body { overflow-y: auto; }
+    .lab { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px;
+      padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+    .lab h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+    .lab p { margin: 0; color: var(--muted); font-size: 14.5px; line-height: 1.5; }
+    .steps { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 6px; font-size: 15px; line-height: 1.45; }
+    .setup { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+    .setup label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+    .setup select, .setup input[type=text] { font: inherit; font-size: 15px; padding: 9px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+    .check { flex-direction: row !important; align-items: center; gap: 8px !important; color: var(--fg) !important; font-size: 14px !important; }
+    .item { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+    .item .say { font-size: 18px; line-height: 1.4; font-family: Georgia, "Times New Roman", serif; }
+    .item .how { font-size: 12.5px; color: var(--warn); }
+    .takes { display: grid; gap: 8px; }
+    .take { display: grid; grid-template-columns: 92px 1fr; gap: 6px 10px; align-items: start; border-top: 1px solid var(--line); padding-top: 8px; }
+    .tag { font: 600 11px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .04em; padding: 5px 7px; border-radius: 6px; text-align: center; color: #fff; }
+    .tag.on { background: var(--on); } .tag.off { background: var(--off); } .tag.raw { background: var(--muted); }
+    .take .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
+    .take button { font: inherit; font-size: 14px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; }
+    .take button.rec { background: #d93b3b; color: #fff; border-color: #d93b3b; }
+    .take button:disabled { opacity: .45; cursor: default; }
+    .meter { flex: 1 1 80px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; min-width: 60px; }
+    .meter b { display: block; height: 100%; width: 0; background: var(--ok); }
+    .res { grid-column: 2; font-size: 13px; line-height: 1.45; min-width: 0; overflow-wrap: anywhere; }
+    .res .acc { font-weight: 650; }
+    .res .tx { font-style: italic; }
+    .res .m { color: var(--muted); font: 12px ui-monospace, Menlo, monospace; }
+    .summary { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+    .summary table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .summary th, .summary td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+    .summary th { font-size: 12px; color: var(--muted); font-weight: 500; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .actions button { font: inherit; font-size: 14px; padding: 9px 16px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
+  </style>
+</head>
+<body>
+  <main class="lab">
+    <h1>Mic test: phone audio processing on vs off</h1>
+    <p><a href="/stt-lab.html">STT lab</a> · <a href="/">App</a></p>
+    <ol class="steps">
+      <li>Pick where you are.</li>
+      <li>Each sentence has two record buttons: <b style="color:var(--on)">processing ON</b> (the phone's noise suppression and auto volume) and <b style="color:var(--off)">processing OFF</b>. Tap one, read the sentence at your normal distance from the phone, then tap <b>Stop</b>. Do the same with the other button.</li>
+      <li>When you're done, tap <b>Copy results</b> at the bottom and paste them to Claude.</li>
+    </ol>
+    <p>Echo cancellation stays on in both, as in the app. The order alternates so practice doesn't favour one side. Accuracy is what matters: how much of the sentence Sarvam heard correctly.</p>
+    <div class="setup">
+      <label>Where are you?
+        <select id="env">
+          <option>Quiet room</option><option>Fan or AC on</option><option>TV or people talking</option><option>Street or vehicle</option><option>Other</option>
+        </select>
+      </label>
+      <label>Phone model (optional)<input id="phone" type="text" placeholder="e.g. Redmi Note 13"></label>
+      <label class="check"><input id="raw" type="checkbox"> Also test with echo cancellation off (raw mic)</label>
+    </div>
+    <div id="items"></div>
+    <section class="summary" id="summary" hidden></section>
+    <div class="actions">
+      <button type="button" id="copy">Copy results</button>
+      <button type="button" id="reset">Start over</button>
+    </div>
+  </main>
+  <script type="module" src="/mic-test.js"></script>
+</body>
+</html>

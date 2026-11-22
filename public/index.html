@@ -3,35 +3,88 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Sakhi · English Coach</title>
+  <title>Adam</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anek+Latin:wght@400;500;600;700&family=Anek+Devanagari:wght@400;500;600;700&family=Anek+Gurmukhi:wght@400;500;600&family=Anek+Tamil:wght@400;500;600&family=Anek+Bangla:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <main class="app" data-state="idle">
-    <header class="top">
-      <span class="brand">Sakhi</span>
-      <span class="progress" id="progress" aria-live="polite"></span>
-    </header>
+  <!-- The customer view (mobile) is the default. /?internal=1 adds the team view: logs, cost and help chips. -->
+  <div class="split">
+    <main class="app" data-theme="light" data-session="idle" data-state="idle">
+      <header class="app-header">
+        <span class="logo" aria-hidden="true"></span><span class="wordmark">Adam</span>
+        <button type="button" class="cost internal-only" id="cost" hidden aria-expanded="false" aria-controls="costDetail" title="Sarvam API cost of this conversation (estimate)">
+          <span id="costTotal">Cost ₹0.00</span>
+          <span class="cost-parts" id="costParts"></span>
+        </button>
+      </header>
+      <div class="cost-detail internal-only" id="costDetail" hidden></div>
 
-    <section class="stage">
-      <div class="orb-wrap">
-        <button class="orb" id="orb" aria-label="Start talking"><span class="orb-core"></span></button>
+      <div class="body">
+        <div id="convo" aria-live="polite"></div>
+
+        <div class="notice-row" id="noticeRow">
+          <div class="notice-clip">
+            <div class="notice" role="alert">
+              <span class="notice-icon" aria-hidden="true"><i></i><i></i><i></i></span>
+              <div class="notice-text">
+                <span class="notice-title">I couldn’t connect to the speech service. Tap the bubble to try again.</span>
+                <span class="notice-sub" lang="hi" id="noticeSub">कनेक्शन नहीं हो पाया। गोले को छूकर फिर कोशिश करें।</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-row" id="cardRow">
+          <div class="card-clip">
+            <div id="card" data-kind="emoji" data-step="none">
+              <span class="back back-1"></span><span class="back back-2"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="orb-row">
+          <button id="orb" type="button" aria-label="Start talking with Sakhi">
+            <span class="orb-box">
+              <span class="level-ring" aria-hidden="true"></span>
+              <span class="orb-breathe" data-anim></span>
+            </span>
+          </button>
+        </div>
+
+        <div class="result-row" id="resultRow">
+          <div class="result-clip"><section id="result" aria-live="polite"></section></div>
+        </div>
+
+        <div id="hint" role="status"></div>
+
+        <footer class="chips internal-only" id="chips" hidden>
+          <button data-act="done" class="primary"><span class="ic">✓</span><span class="lb">Done speaking</span><span class="sub" data-native="done">बोल लिया</span></button>
+          <button data-act="repeat"><span class="ic">↻</span><span class="lb">Repeat</span><span class="sub" data-native="repeat">दोबारा सुनें</span></button>
+          <button data-act="in_hindi"><span class="ic">अ</span><span class="lb">Hindi mein</span><span class="sub" data-native="hindi">हिंदी में</span></button>
+          <button data-act="skip"><span class="ic">→</span><span class="lb">Skip</span><span class="sub" data-native="skip">आगे बढ़ें</span></button>
+        </footer>
+
+        <div class="spacer"></div>
+
+        <div class="mic-error" id="micError" hidden>
+          <div class="mic-circle" aria-hidden="true"><span class="mic-capsule"></span></div>
+          <h2>I need microphone access to talk with you.</h2>
+          <p class="hi" lang="hi">बात करने के लिए माइक की अनुमति चाहिए।</p>
+          <p class="reassure">I only listen while the orb says “Your turn”. Nothing is saved without asking you.</p>
+          <div class="mic-buttons">
+            <button type="button" class="btn-primary" id="micAllow">Allow microphone</button>
+            <button type="button" class="btn-secondary" id="micHow">How to turn it on</button>
+            <p class="mic-how" id="micHowText" hidden>Tap the lock or “i” icon next to the address bar, open Permissions (or Site settings), set Microphone to Allow, then come back and tap “Allow microphone”.</p>
+          </div>
+        </div>
       </div>
-      <p class="bot-line" id="botLine" aria-live="polite">Tap the bubble to start</p>
-      <div class="card" id="card" hidden></div>
-      <p class="you-line" id="youLine" aria-live="polite"></p>
-      <p class="hint" id="hint"></p>
-    </section>
-
-    <section class="result" id="result" hidden></section>
-
-    <footer class="chips" id="chips" hidden>
-      <button data-act="repeat">🔁 Repeat</button>
-      <button data-act="in_hindi">अ Hindi mein</button>
-      <button data-act="done">✓ Done speaking</button>
-      <button data-act="skip">Skip →</button>
-    </footer>
-  </main>
+    </main>
+    <aside class="logs internal-only" id="logs" aria-label="Developer log" hidden></aside>
+  </div>
+  <button type="button" class="logs-open internal-only" id="logsOpen" hidden>Show log</button>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

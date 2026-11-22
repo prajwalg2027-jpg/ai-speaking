@@ -1,0 +1,26 @@
+{
+ "sessionId": "1ac47f10-271f-4d66-9a6b-8021c0e10f69",
+ "say": [
+  {
+   "text": "Playing cricket every evening sounds like a good routine. What do you enjoy most about playing cricket? आप क्रिकेट खेलते समय सबसे ज़्यादा क्या पसंद करते हैं?",
+   "lang": "hi-IN",
+   "pace": 1
+  }
+ ],
+ "card": null,
+ "cue": {
+  "line": 0,
+  "word": 9
+ },
+ "learnerLanguage": null,
+ "listen": {
+  "silenceMs": 1400,
+  "language": "auto"
+ },
+ "task": {
+  "id": "q1_intro_followup",
+  "level": 2,
+  "kind": "open"
+ },
+ "heard": "In my free time I play cricket with my friends near my house every evening."
+}

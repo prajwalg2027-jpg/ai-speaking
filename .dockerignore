@@ -1,0 +1,9 @@
+.git
+.github
+node_modules
+android
+docs
+test
+.env
+*.md
+public/review

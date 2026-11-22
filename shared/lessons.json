@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "note": "Lessons for the learning module. Synced into the database when the server starts (a lesson whose content changed gets version + 1). Exercise answers are compared after lower-casing and removing punctuation; an exercise with no accepted answers (or an answer that isn't one of them, for fill_blank and transform) is judged by the tutor.",
+  "lessons": [
+    {
+      "id": "past-simple-regular",
+      "category": "grammar",
+      "title": "Talking about yesterday",
+      "level": 1,
+      "objective": "Use the past simple of regular verbs (worked, played, called) to talk about yesterday.",
+      "concepts": ["past_simple"],
+      "summary": "For finished actions in the past, add -ed to most verbs: work → worked, play → played, call → called.",
+      "explanation": "When something happened and finished in the past — yesterday, last week, in 2020 — we use the past simple. For most verbs, just add -ed. If the verb ends in -e, add only -d (live → lived). The verb is the same for I, you, he, she, we and they.",
+      "examples": ["Yesterday I worked from home.", "She called her mother last night.", "We watched a film on Sunday.", "They lived in Pune for two years."],
+      "exercises": [
+        { "kind": "fill_blank", "prompt": "Yesterday I ___ (walk) to the market.", "accepted": ["walked"], "concept": "past_simple", "explanation": "Add -ed to walk: walked." },
+        { "kind": "fill_blank", "prompt": "Last Sunday we ___ (play) cricket.", "accepted": ["played"], "concept": "past_simple", "explanation": "Add -ed to play: played." },
+        { "kind": "choose", "prompt": "Which sentence is correct?", "options": ["She call me yesterday.", "She called me yesterday.", "She calling me yesterday."], "accepted": ["She called me yesterday."], "concept": "past_simple", "explanation": "Yesterday is finished, so we use the past simple: called." },
+        { "kind": "transform", "prompt": "Change to the past: \"I clean my room.\"", "accepted": ["I cleaned my room", "I cleaned my room yesterday"], "concept": "past_simple", "explanation": "clean → cleaned." },
+        { "kind": "free_response", "prompt": "Write one sentence about something you did yesterday, using a regular verb (like worked, cooked, watched).", "accepted": [], "concept": "past_simple", "explanation": "Use a verb ending in -ed for a finished action." }
+      ]
+    },
+    {
+      "id": "past-simple-irregular",
+      "category": "grammar",
+      "title": "Went, ate, saw: irregular past",
+      "level": 2,
+      "objective": "Use common irregular past forms (went, ate, saw, had, came, took, bought) correctly.",
+      "concepts": ["past_irregular"],
+      "summary": "Some common verbs don't take -ed in the past: go → went, eat → ate, see → saw, have → had, come → came, buy → bought.",
+      "explanation": "Many everyday verbs have their own past form instead of -ed. We say \"I went\", not \"I goed\". These must be learnt one by one, but you already use the most common ones every day: went, ate, saw, had, came, took, bought, made, gave, got.",
+      "examples": ["I went to the office by bus.", "We ate dosa for breakfast.", "He bought a new phone last month.", "They came home late."],
+      "exercises": [
+        { "kind": "fill_blank", "prompt": "Last night we ___ (go) to a wedding.", "accepted": ["went"], "concept": "past_irregular", "explanation": "go → went." },
+        { "kind": "fill_blank", "prompt": "I ___ (eat) idli this morning.", "accepted": ["ate"], "concept": "past_irregular", "explanation": "eat → ate." },
+        { "kind": "choose", "prompt": "Which sentence is correct?", "options": ["He buyed a car.", "He bought a car.", "He was buy a car."], "accepted": ["He bought a car."], "concept": "past_irregular", "explanation": "buy → bought (not buyed)." },
+        { "kind": "transform", "prompt": "Change to the past: \"She takes the train.\"", "accepted": ["She took the train"], "concept": "past_irregular", "explanation": "take → took." },
+        { "kind": "free_response", "prompt": "Write a sentence about your last holiday using went, saw or ate.", "accepted": [], "concept": "past_irregular", "explanation": "Use an irregular past form." }
+      ]
+    },
+    {
+      "id": "third-person-s",
+      "category": "grammar",
+      "title": "He works, she lives",
+      "level": 1,
+      "objective": "Add -s to the verb after he, she, it (and one person or thing) in the present simple.",
+      "concepts": ["third_person_s"],
+      "summary": "In the present simple, after he, she, it or one person, the verb takes -s: I work → he works.",
+      "explanation": "For habits and facts we use the present simple. With I, you, we and they, the verb stays the same. With he, she, it — or one person like \"my brother\" — add -s (works, lives) or -es (watches, goes). have becomes has.",
+      "examples": ["My brother works in a bank.", "She lives near the station.", "He watches the news every night.", "My mother has two sisters."],
+      "exercises": [
+        { "kind": "fill_blank", "prompt": "My sister ___ (work) in a hospital.", "accepted": ["works"], "concept": "third_person_s", "explanation": "One person (my sister) → works." },
+        { "kind": "fill_blank", "prompt": "He ___ (go) to the gym every day.", "accepted": ["goes"], "concept": "third_person_s", "explanation": "go → goes after he." },
+        { "kind": "choose", "prompt": "Which sentence is correct?", "options": ["She have a car.", "She has a car.", "She haves a car."], "accepted": ["She has a car."], "concept": "third_person_s", "explanation": "have → has after she." },
+        { "kind": "transform", "prompt": "Change \"I drink tea\" so it starts with \"My father\".", "accepted": ["My father drinks tea"], "concept": "third_person_s", "explanation": "drink → drinks after one person." },
+        { "kind": "free_response", "prompt": "Write one sentence about what a family member does every day.", "accepted": [], "concept": "third_person_s", "explanation": "Remember the -s after he, she or one person." }
+      ]
+    },
+    {
+      "id": "articles-a-an-the",
+      "category": "grammar",
+      "title": "A, an and the",
+      "level": 2,
+      "objective": "Choose a, an or the correctly in everyday sentences.",
+      "concepts": ["articles"],
+      "summary": "a/an = one of many, first mention (a before consonant sounds, an before vowel sounds); the = a specific one we both know.",
+      "explanation": "Use a or an when you talk about one thing for the first time, or any one of many: \"I saw a dog.\" Use an before a vowel sound: an apple, an hour. Use the when it's clear which one: \"The dog was big.\" or there is only one: the sun, the Prime Minister.",
+      "examples": ["I need an umbrella.", "She works in a school near my house.", "The school has a big playground.", "Please close the door."],
+      "exercises": [
+        { "kind": "fill_blank", "prompt": "I ate ___ apple after lunch.", "accepted": ["an"], "concept": "articles", "explanation": "apple starts with a vowel sound → an." },
+        { "kind": "fill_blank", "prompt": "My brother is ___ engineer.", "accepted": ["an"], "concept": "articles", "explanation": "engineer starts with a vowel sound → an." },
+        { "kind": "choose", "prompt": "Which is correct? \"Can you switch off ___ fan, please?\" (the fan in this room)", "options": ["a", "an", "the"], "accepted": ["the"], "concept": "articles", "explanation": "We both know which fan → the." },
+        { "kind": "choose", "prompt": "Which is correct? \"I want to buy ___ new phone.\"", "options": ["a", "an", "the"], "accepted": ["a"], "concept": "articles", "explanation": "Any new phone, first mention → a." },
+        { "kind": "free_response", "prompt": "Write two sentences about something you bought: first with a or an, then with the.", "accepted": [], "concept": "articles", "explanation": "a/an the first time, the after that." }
+      ]
+    },
+    {
+      "id": "prepositions-time",
+      "category": "grammar",
+      "title": "In, on, at for time",
+      "level": 2,
+      "objective": "Use at (times), on (days and dates) and in (months, years, parts of the day) correctly.",
+      "concepts": ["prepositions"],
+      "summary": "at + a time (at 6 o'clock), on + a day or date (on Monday), in + a month, year or part of the day (in May, in the morning).",
+      "explanation": "Think of it from small to big: at for an exact time (at 7:30, at night), on for a day or date (on Friday, on 15 August), in for longer periods (in June, in 2024, in the evening).",
+      "examples": ["The meeting is at 10 o'clock.", "My birthday is on 3 March.", "We go to the village in May.", "I study in the evening."],
+      "exercises": [
+        { "kind": "fill_blank", "prompt": "The train leaves ___ 5:45.", "accepted": ["at"], "concept": "prepositions", "explanation": "An exact time → at." },
+        { "kind": "fill_blank", "prompt": "I have an interview ___ Monday.", "accepted": ["on"], "concept": "prepositions", "explanation": "A day → on." },
+        { "kind": "fill_blank", "prompt": "Diwali is usually ___ October or November.", "accepted": ["in"], "concept": "prepositions", "explanation": "Months → in." },
+        { "kind": "choose", "prompt": "Which sentence is correct?", "options": ["I wake up in 6 o'clock.", "I wake up at 6 o'clock.", "I wake up on 6 o'clock."], "accepted": ["I wake up at 6 o'clock."], "concept": "prepositions", "explanation": "An exact time → at." },
+        { "kind": "free_response", "prompt": "Write a sentence about your weekend plans using at, on or in.", "accepted": [], "concept": "prepositions", "explanation": "at a time, on a day, in a month or part of the day." }
+      ]
+    },
+    {
+      "id": "questions-do-does",
+      "category": "sentence",
+      "title": "Asking questions with do and does",
+      "level": 2,
+      "objective": "Make present-simple questions with do/does in the right word order.",
+      "concepts": ["questions"],
+      "summary": "Question word + do/does + person + verb: Where do you live? What does she do?",
+      "explanation": "In English questions, do or does comes before the person, and the main verb goes back to its basic form. Use does with he, she, it: \"Where does he work?\" (not \"Where he works?\"). For yes/no questions, start with do or does: \"Do you like tea?\"",
+      "examples": ["Where do you live?", "What does your brother do?", "Do you speak Tamil?", "When does the shop open?"],
+      "exercises": [
+        { "kind": "choose", "prompt": "Which question is correct?", "options": ["Where you live?", "Where do you live?", "Where you do live?"], "accepted": ["Where do you live?"], "concept": "questions", "explanation": "Question word + do + you + verb." },
+        { "kind": "fill_blank", "prompt": "___ your father work in Delhi?", "accepted": ["does"], "concept": "questions", "explanation": "your father = he → Does." },
+        { "kind": "transform", "prompt": "Make a question: \"She likes coffee.\" (start with Does)", "accepted": ["Does she like coffee"], "concept": "questions", "explanation": "Does + she + like (no -s)." },
+        { "kind": "transform", "prompt": "Ask about the time the bank opens. Start with \"What time\".", "accepted": ["What time does the bank open"], "concept": "questions", "explanation": "What time + does + the bank + open." },
+        { "kind": "free_response", "prompt": "Write two questions you could ask a new colleague.", "accepted": [], "concept": "questions", "explanation": "Use do/does before the person." }
+      ]
+    },
+    {
+      "id": "work-vocabulary",
+      "category": "vocabulary",
+      "title": "Talking about your work",
+      "level": 2,
+      "objective": "Use common words and phrases to describe a job: work as, be in charge of, deal with, colleague, shift.",
+      "concepts": ["word_choice", "collocation"],
+      "summary": "I work as a… / I work in (a place) / I'm in charge of… / I deal with customers / I work the night shift.",
+      "explanation": "Useful phrases: \"I work as a nurse\" (your job), \"I work in a hospital\" (the place), \"I'm in charge of the accounts\" (your responsibility), \"I deal with customers\" (handle), \"my colleagues\" (people you work with), \"a shift\" (fixed working hours).",
+      "examples": ["I work as a sales executive.", "I work in a call centre in Gurugram.", "I'm in charge of a team of five.", "I deal with customer complaints."],
+      "exercises": [
+        { "kind": "fill_blank", "prompt": "I work ___ a teacher.", "accepted": ["as"], "concept": "collocation", "explanation": "work as + a job." },
+        { "kind": "choose", "prompt": "Which word means the people you work with?", "options": ["colleagues", "customers", "relatives"], "accepted": ["colleagues"], "concept": "word_choice", "explanation": "colleagues = people you work with." },
+        { "kind": "fill_blank", "prompt": "She is in ___ of the whole store.", "accepted": ["charge"], "concept": "collocation", "explanation": "in charge of = responsible for." },
+        { "kind": "free_response", "prompt": "Describe your job (or a job you want) in two sentences using at least one phrase from this lesson.", "accepted": [], "concept": "word_choice", "explanation": "Try work as, work in, in charge of or deal with." }
+      ]
+    },
+    {
+      "id": "present-perfect-experience",
+      "category": "grammar",
+      "title": "Have you ever…?",
+      "level": 3,
+      "objective": "Use the present perfect (have/has + past participle) to talk about life experiences.",
+      "concepts": ["present_perfect"],
+      "summary": "have/has + past participle for experiences at any time in your life: I've been to Goa. Have you ever eaten sushi?",
+      "explanation": "When the exact time doesn't matter — only that it happened in your life — use have or has with the past participle: been, seen, eaten, visited. With a finished time (yesterday, in 2019), use the past simple instead: \"I went to Goa in 2019.\"",
+      "examples": ["I've been to Jaipur twice.", "Have you ever seen snow?", "She has never driven a car.", "We've tried Korean food."],
+      "exercises": [
+        { "kind": "fill_blank", "prompt": "I have never ___ (see) the sea.", "accepted": ["seen"], "concept": "present_perfect", "explanation": "see → seen (past participle)." },
+        { "kind": "choose", "prompt": "Which sentence is correct?", "options": ["I have visited Mumbai last year.", "I visited Mumbai last year.", "I have visit Mumbai last year."], "accepted": ["I visited Mumbai last year."], "concept": "present_perfect", "explanation": "last year is a finished time → past simple." },
+        { "kind": "transform", "prompt": "Make a question with \"ever\": \"You ate biryani in Hyderabad.\"", "accepted": ["Have you ever eaten biryani in Hyderabad"], "concept": "present_perfect", "explanation": "Have you ever + eaten." },
+        { "kind": "free_response", "prompt": "Write one thing you have done and one thing you have never done.", "accepted": [], "concept": "present_perfect", "explanation": "have/has + past participle." }
+      ]
+    }
+  ]
+}

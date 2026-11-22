@@ -1,0 +1,32 @@
+{
+ "sessionId": "1ac47f10-271f-4d66-9a6b-8021c0e10f69",
+ "say": [
+  {
+   "text": "नमस्ते! मैं सखी हूँ। चलिए, पाँच मिनट की एक छोटी-सी बातचीत करते हैं। इससे मैं आपकी अंग्रेज़ी का लेवल समझूँगी, और बताऊँगी कि आपको किन बातों पर और काम करना है।",
+   "lang": "hi-IN",
+   "pace": 1
+  },
+  {
+   "text": "आज सुबह आपने क्या किया, कृपया अंग्रेज़ी में बताइए।",
+   "lang": "hi-IN",
+   "pace": 1
+  }
+ ],
+ "card": null,
+ "cue": {
+  "line": 1,
+  "word": 0
+ },
+ "learnerLanguage": null,
+ "listen": {
+  "silenceMs": 1400,
+  "language": "auto"
+ },
+ "task": {
+  "id": "q1_intro",
+  "level": 2,
+  "kind": "open",
+  "item": "OPEN-1"
+ },
+ "plan": "opening"
+}

@@ -1,117 +1,106 @@
 // Question bank for the voice placement test. Shared by browser and server.
-// Levels: 1 Starter · 2 Word-builder · 3 Conversational · 4 Eloquent
+import { BANK } from './bank.js';
+// Levels: 1 Beginner · 2 Basic · 3 Good · 4 Very good
 
+// Level names are everyday words a learner understands (no "Word-builder"-style labels).
 export const LEVELS = {
-  1: { name: 'Starter', blurb: "You're taking your first steps in English. We'll start with everyday words and simple phrases." },
-  2: { name: 'Word-builder', blurb: "You know lots of words! Next we'll turn them into confident sentences." },
-  3: { name: 'Conversational', blurb: "You can hold a real conversation. We'll polish grammar and grow your vocabulary." },
-  4: { name: 'Eloquent', blurb: "Impressive range! We'll focus on nuance, idiom and persuasive speaking." },
+  1: { name: 'Beginner', blurb: "You're starting to speak English. We'll begin with everyday words and short sentences.", hindi: 'आप अंग्रेज़ी बोलना शुरू कर रहे हैं। हम रोज़ के शब्दों और छोटे वाक्यों से शुरुआत करेंगे।' },
+  2: { name: 'Basic', blurb: 'You know many English words. Next, we will make full sentences with them.', hindi: 'आप अंग्रेज़ी के बहुत से शब्द जानते हैं। अब हम इनसे पूरे वाक्य बनाएँगे।' },
+  3: { name: 'Good', blurb: 'You can talk in English about your life. Next, we will make your sentences stronger.', hindi: 'आप अपनी ज़िंदगी के बारे में अंग्रेज़ी में बात कर सकते हैं। अब हम आपके वाक्यों को और मज़बूत बनाएँगे।' },
+  4: { name: 'Very good', blurb: 'You speak English well and easily. Next, we will work on more advanced words and ideas.', hindi: 'आप अंग्रेज़ी अच्छे से और आसानी से बोलते हैं। अब हम और गहरे शब्दों और विचारों पर काम करेंगे।' },
 };
+
+// Everything here tests English only: questions are asked in English (with help in the learner's language if
+// they need it), and only English answers count. One question at a time.
+// The questions themselves live in bank.js (approved in review). Each type has a pool per level; a
+// conversation picks one at random (variantFor), so retakes rarely repeat.
+const READ_SAY = { say: 'Please read this sentence out loud.', hindi: 'स्क्रीन पर लिखा वाक्य ज़ोर से पढ़िए।', simple: 'Read this, please.' };
 
 export const QUESTIONS = [
   {
     id: 'q1_intro',
     kind: 'open',
     silenceMs: 1400,
-    variants: {
-      any: {
-        say: "Hi! I'm Sakhi, your English buddy. Tell me a little about yourself: your name, and what you do during the day. You can speak in English or Hindi, whatever feels comfortable.",
-        simple: "Tell me your name, and what you do every day.",
-        hindi: 'नमस्ते! मैं सखी हूँ। अपने बारे में थोड़ा बताइए: आपका नाम क्या है, और आप दिन में क्या करते हैं?',
-        screen: 'Tell me about yourself 👋',
-      },
-    },
+    variants: { any: BANK.open },
   },
   {
     id: 'q2_vocab',
     kind: 'vocab',
     silenceMs: 1200,
-    variants: {
-      1: {
-        say: "Look at the picture. What is this called in English? And what do we call 'paani' in English?",
-        simple: 'What is this? Say it in English.',
-        hindi: 'इस तस्वीर को देखिए। इसे अंग्रेज़ी में क्या कहते हैं? और "पानी" को अंग्रेज़ी में क्या कहते हैं?',
-        screen: '🍎   +   “पानी” = ?',
-        expect: ['apple', 'water'],
-      },
-      2: {
-        say: "What is this called in English? And what is the Hindi word for 'library'?",
-        simple: 'What is this in English? And library in Hindi?',
-        hindi: 'इसे अंग्रेज़ी में क्या कहते हैं? और "library" को हिंदी में क्या कहते हैं?',
-        screen: '☂️   +   “library” = ?',
-        expect: ['umbrella', ['pustakalay', 'पुस्तकालय', 'library', 'वाचनालय']],
-      },
-      3: {
-        say: "How would you say 'zimmedari' in English? And what does the word 'deadline' mean? Explain in one sentence.",
-        simple: "Say 'zimmedari' in English. Then tell me what 'deadline' means.",
-        hindi: '"ज़िम्मेदारी" को अंग्रेज़ी में कैसे कहेंगे? और "deadline" का मतलब एक वाक्य में बताइए।',
-        screen: '“ज़िम्मेदारी” → ?     “deadline” means…',
-        expect: [['responsibility', 'duty'], ['time', 'date', 'finish', 'last', 'submit', 'before']],
-      },
-      4: {
-        say: "Give me one English word for 'aatmanirbhar'. Then tell me the difference between 'persuade' and 'convince'.",
-        simple: "One English word for 'aatmanirbhar'? And how are 'persuade' and 'convince' different?",
-        hindi: '"आत्मनिर्भर" के लिए एक अंग्रेज़ी शब्द बताइए। फिर "persuade" और "convince" में अंतर बताइए।',
-        screen: '“आत्मनिर्भर” → ?     persuade vs convince',
-        expect: [['self-reliant', 'self reliant', 'self-sufficient', 'self sufficient', 'independent'], ['belief', 'action', 'mind', 'agree', 'do something']],
-      },
+    // Two English words, asked as two separate questions: pictures (level 1 things, level 2 actions) or word
+    // puzzles with a starting letter (levels 3-4), then a meaning or a difference. `expect` has one list of right
+    // answers per question; `second` is asked after any reply to the first, unless that reply already answered it.
+    variants: BANK.vocab,
+  },
+  {
+    id: 'q2_listen',
+    kind: 'listen',
+    silenceMs: 1300,
+    // Listening: Sakhi says two short sentences (always these exact words, never shown on screen), then asks
+    // one question about them. The tutor only writes the lead-in ("Listen carefully…").
+    tutor: {
+      brief: "Tell them you'll say two short sentences, and then ask one question about them, so they should listen carefully. Say only that: not the sentences, and not the question.",
+      mustInclude: [['listen', 'सुन', 'ਸੁਣ']],
+      mustNotSay: [],
     },
+    variants: BANK.listen,
   },
   {
     id: 'q3_read',
     kind: 'read',
     silenceMs: 1300,
-    variants: {
-      1: { say: 'Please read this sentence out loud.', hindi: 'स्क्रीन पर लिखा वाक्य ज़ोर से पढ़िए।', simple: 'Read this, please.', screen: 'My name is Ravi. I like tea.' },
-      2: { say: 'Please read this sentence out loud.', hindi: 'स्क्रीन पर लिखा वाक्य ज़ोर से पढ़िए।', simple: 'Read this, please.', screen: 'Every morning I take the bus to work, and it is always crowded.' },
-      3: { say: 'Please read this sentence out loud.', hindi: 'स्क्रीन पर लिखा वाक्य ज़ोर से पढ़िए।', simple: 'Read this, please.', screen: 'Although the weather was terrible, we decided to continue our journey to the mountains.' },
-      4: { say: 'Please read this sentence out loud.', hindi: 'स्क्रीन पर लिखा वाक्य ज़ोर से पढ़िए।', simple: 'Read this, please.', screen: "The committee's unprecedented decision was, paradoxically, both a vindication of its critics and an indictment of its own procedures." },
+    // Read-aloud is always English, so speech-to-text doesn't need to guess the language.
+    language: 'en-IN',
+    // Sakhi must never read the sentence out (the learner would copy her pronunciation); the server also
+    // rejects any line that contains four or more consecutive words of it.
+    tutor: {
+      brief: 'Ask them to read the sentence shown on their screen out loud, at their own pace. Do not say the sentence yourself.',
+      // "read" in each language Sakhi may be talking in (Hindi, Punjabi, Bengali, Gujarati, Marathi, Tamil, Telugu, Kannada, Malayalam, Odia).
+      mustInclude: [['read', 'पढ़', 'ਪੜ੍ਹ', 'পড়', 'વાંચ', 'वाच', 'படி', 'చదువ', 'ಓದ', 'വായി', 'ପଢ']],
+      mustNotSay: [],
     },
+    variants: Object.fromEntries(Object.entries(BANK.read).map(([lvl, items]) => [lvl, items.map((v) => ({ ...READ_SAY, ...v }))])),
   },
   {
+    // Speaking at length, then one follow-up. Level 1: about you, with a sentence starter on screen. Level 2:
+    // past tense, describing, real-life tasks. Levels 3-4: opinions.
     id: 'q4_opinion',
     kind: 'open',
     silenceMs: 1800,
-    variants: {
-      1: {
-        say: "Last one! What food do you like? Try saying it in English. Start with 'I like'.",
-        simple: "Say: 'I like…' and a food.",
-        hindi: 'आख़िरी सवाल! आपको कौन सा खाना पसंद है? अंग्रेज़ी में बोलिए: "I like…"',
-        screen: 'I like ______ 🍛',
-      },
-      2: {
-        say: 'Last one! What did you do last weekend?',
-        simple: 'What did you do on Sunday?',
-        hindi: 'आख़िरी सवाल! पिछले वीकेंड आपने क्या किया? अंग्रेज़ी में बताने की कोशिश कीजिए।',
-        screen: 'Last weekend, I…',
-      },
-      3: {
-        say: 'Last one! If you could change one thing about your city, what would it be, and why?',
-        simple: 'What one thing would you change in your city? Why?',
-        hindi: 'आख़िरी सवाल! अगर आप अपने शहर की एक चीज़ बदल सकते, तो क्या बदलते और क्यों? अंग्रेज़ी में जवाब दीजिए।',
-        screen: 'If I could change one thing about my city…',
-      },
-      4: {
-        say: "Last one! Some people say smartphones have made us more connected, but lonelier. What's your view?",
-        simple: 'Do smartphones make us lonely? What do you think?',
-        hindi: 'आख़िरी सवाल! कुछ लोग कहते हैं कि स्मार्टफ़ोन ने हमें जोड़ा है, पर अकेला भी किया है। आपकी क्या राय है? अंग्रेज़ी में जवाब दीजिए।',
-        screen: 'Connected… but lonelier? 📱',
-      },
-    },
+    variants: BANK.speak,
   },
 ];
-
-export const ACKS = ['Nice!', 'Got it, thank you.', 'Lovely.', 'Great, thanks!'];
 
 export const PHRASES = {
   didntHear: "Sorry, I couldn't hear that clearly. Could you say it again, a little closer to the phone?",
   cutOff: 'Sorry, did I cut you off? Please go on.',
   nudge: "Take your time. Whenever you're ready.",
   moveOn: "No problem at all! Let's try another one.",
-  done: "That's it, thank you! Give me a second to put your results together.",
+  followUp: 'Tell me a little more about that.',
+  followUpSimple: 'Tell me more.',
+  followUpHindi: 'इसके बारे में थोड़ा और बताइए।',
+  // The opening, in Hindi: what this is (then the first question, in Hindi).
+  welcome: 'नमस्ते! मैं सखी हूँ। चलिए, पाँच मिनट की एक छोटी-सी बातचीत करते हैं। इससे मैं आपकी अंग्रेज़ी का लेवल समझूँगी, और बताऊँगी कि आपको किन बातों पर और काम करना है।',
+  // When the learner says they don't know English (then the task, in Hindi).
+  noEnglishOk: 'कोई बात नहीं! मैं हिंदी में पूछती हूँ। अंग्रेज़ी के जो भी शब्द आते हैं, बस वही बोलिए। थोड़े शब्द भी काफ़ी हैं।',
+  // When the learner says they'd like to talk in Hindi (then the task, in Hindi).
+  hindiOk: 'ज़रूर! हम हिंदी में बात कर सकते हैं। आप जब चाहें, अंग्रेज़ी में भी बोल सकते हैं।',
+  englishOk: "Sure! Let's talk in English.",
+  // When an answer comes in another language: asked once per question, then the answer counts as it is.
+  tryEnglish: 'Can you try saying that in English? Even a few words is fine.',
+  tryEnglishHindi: 'क्या आप यही बात अंग्रेज़ी में बोलने की कोशिश करेंगे? थोड़े शब्द भी ठीक हैं।',
+  listenLead: "Now listen carefully. I'll say two short sentences, and then ask you one question.",
+  listenAgain: "Okay, I'll say it again. Listen carefully.",
+  listenLeadHindi: 'अब ध्यान से सुनिए। मैं अंग्रेज़ी में दो छोटे वाक्य बोलूँगी, फिर उनके बारे में एक सवाल पूछूँगी।',
+  // The bonus reading sentence (after a first sentence read very well).
+  probeRead: "Let's try one more. Please read the new sentence out loud.",
+  probeReadHindi: 'एक और कोशिश करते हैं। स्क्रीन पर लिखा नया वाक्य ज़ोर से पढ़िए।',
+  // Played the moment the learner finishes, while Sakhi's real reply is being prepared.
+  backchannels: ['Okay.', 'Right.', 'I see.', 'Hmm, okay.', 'Got it.'],
 };
 
-/** Pick the variant of a question for a provisional level. */
-export function variantFor(question, level) {
-  return question.variants.any ?? question.variants[level] ?? question.variants[2];
+/** Pick a question for a level: one at random from that level's pool (`random` is replaceable in tests). */
+export function variantFor(question, level, random = Math.random) {
+  const pool = question.variants.any ?? question.variants[level] ?? question.variants[2];
+  return Array.isArray(pool) ? pool[Math.floor(random() * pool.length)] : pool;
 }

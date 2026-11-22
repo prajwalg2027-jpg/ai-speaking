@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Adam Admin</title>
+  <link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">Adam <span>admin</span></div>
+    <nav id="nav" hidden>
+      <a href="#overview">Overview</a>
+      <a href="#settings">Settings</a>
+      <a href="#playground">Playground</a>
+      <a href="#models">Compare models</a>
+      <a href="#evals">Evaluations</a>
+      <a href="#conversations">Conversations</a>
+      <a href="#lessons">Lessons</a>
+      <a href="#team">Team</a>
+    </nav>
+    <div class="who" id="who"></div>
+  </header>
+  <main id="main"><p class="muted">Loading…</p></main>
+  <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <script type="module" src="/admin/admin.js"></script>
+</body>
+</html>

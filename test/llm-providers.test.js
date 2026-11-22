@@ -1,0 +1,340 @@
+// The AI providers against fake servers (no keys, no network): Claude through the official SDK (Messages API) and
+// Gemini through an OpenAI-compatible API. Checks the request each provider sends, refusals, `structured({ config })`,
+// `timeoutMs`, and the cost estimate.
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { z } from 'zod';
+
+const Answer = z.strictObject({ reply: z.string().min(1).max(200), score: z.number().int().min(0).max(5) });
+const ANSWER = { reply: 'Well done!', score: 4 };
+let claudeFake, openFake, llm, anthropic, prices;
+const claudeCalls = [], openCalls = [];
+
+/** A fake server: records each request, answers with `respond(body, req)` → [status, json, delayMs?]. */
+function startFake(calls, respond) {
+  return new Promise((ok) => {
+    const s = createServer(async (req, res) => {
+      let raw = ''; for await (const c of req) raw += c;
+      const body = raw ? JSON.parse(raw) : {};
+      calls.push({ path: req.url, headers: req.headers, body });
+      let [code, json, delay = 0] = respond(body, req);
+      // OpenAI's Responses API answers in its own shape.
+      if (code === 200 && req.url.endsWith('/responses')) json = { status: 'completed', output: [{ type: 'reasoning', summary: body.reasoning ? [{ type: 'summary_text', text: 'They answered in English.' }] : [] }, { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: json.choices[0].message.content }] }],
+        usage: { input_tokens: 50, input_tokens_details: { cached_tokens: 20 }, output_tokens: 10, output_tokens_details: { reasoning_tokens: 4 } },
+        // The speed it was really served at: a busy moment can serve a Fast request at standard speed.
+        service_tier: body.service_tier === 'fast' && body.model !== 'gpt-6-luna-busy' ? 'fast' : 'default' };
+      // Asked to stream: the same answer as server-sent events, its text in small pieces, cut at awkward places.
+      if (code === 200 && body.stream && body.model !== 'gpt-breaks') {
+        const text = json.output[1].content[0].text, events = [{ type: 'response.created', response: { status: 'in_progress' } }];
+        for (let i = 0; i < text.length; i += 9) events.push({ type: 'response.output_text.delta', delta: text.slice(i, i + 9) });
+        events.push(body.model === 'gpt-fails' ? { type: 'response.failed', response: { error: { message: 'The model is overloaded.' } } } : { type: 'response.completed', response: json });
+        const wire = events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        for (let i = 0; i < wire.length; i += 37) res.write(wire.slice(i, i + 37));
+        return res.end();
+      }
+      if (code === 200 && body.stream) { res.writeHead(200, { 'content-type': 'text/event-stream' }); return res.end('event: response.created\ndata: {"type":"response.created"}\n\n'); }
+      setTimeout(() => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(json)); }, delay);
+    });
+    s.listen(0, '127.0.0.1', () => ok(s));
+  });
+}
+const lastUser = (b) => JSON.stringify((b.messages || b.input).at(-1).content);
+const claudeMessage = (model, extra) => ({ id: 'msg_1', type: 'message', role: 'assistant', model, stop_details: null, usage: { input_tokens: 1000, output_tokens: 200 }, ...extra });
+
+before(async () => {
+  claudeFake = await startFake(claudeCalls, (b) => {
+    if (lastUser(b).includes('REFUSE')) return [200, claudeMessage(b.model, { content: [], stop_reason: 'refusal', stop_details: { type: 'refusal', category: 'cyber', explanation: null } })];
+    return [200, claudeMessage(b.model, { content: [{ type: 'thinking', thinking: '', signature: 'sig' }, { type: 'text', text: JSON.stringify(ANSWER) }], stop_reason: 'end_turn' })];
+  });
+  openFake = await startFake(openCalls, (b) => (b.model === 'gpt-fixed-temp' && 'temperature' in b
+    // A model that only accepts its default temperature (OpenAI's words).
+    ? [400, { error: { message: "Unsupported value: 'temperature' does not support 0.6 with this model. Only the default (1) value is supported.", type: 'invalid_request_error', param: 'temperature', code: 'unsupported_value' } }]
+    : b.model === 'gpt-no-stream' && b.stream
+    ? [400, { error: { message: "Unsupported parameter: 'stream' is not supported with this model.", type: 'invalid_request_error', param: 'stream' } }]
+    : b.model === 'gpt-no-fast' && b.service_tier
+    ? [400, { error: { message: "Invalid value: 'fast'. The service_tier is not supported with this model.", type: 'invalid_request_error', param: 'service_tier' } }]
+    : b.model === 'gpt-no-effort' && b.reasoning?.effort
+    // A model that doesn't think (OpenAI's words).
+    ? [400, { error: { message: "Unsupported parameter: 'reasoning.effort' is not supported with this model.", type: 'invalid_request_error', param: 'reasoning.effort', code: 'unsupported_parameter' } }]
+    : null) || [200, { choices: [{ message: { content: JSON.stringify(ANSWER) } }], usage: { prompt_tokens: 50, completion_tokens: 10, prompt_tokens_details: { cached_tokens: 20 }, completion_tokens_details: { reasoning_tokens: 4 } } }, lastUser(b).includes('SLOW') ? 600 : 0]);
+  Object.assign(process.env, {
+    ANTHROPIC_API_KEY: 'claude-test-key', ANTHROPIC_BASE_URL: `http://127.0.0.1:${claudeFake.address().port}`,
+    GEMINI_API_KEY: 'gemini-test-key', GEMINI_BASE_URL: `http://127.0.0.1:${openFake.address().port}/gemini`,
+    OPENAI_API_KEY: 'openai-test-key', OPENAI_BASE_URL: `http://127.0.0.1:${openFake.address().port}/openai`,
+    USD_INR: '88',
+  });
+  delete process.env.ANTHROPIC_EFFORT;
+  delete process.env.SARVAM_API_KEY; // the settings' Sarvam default must look unconfigured here
+  llm = await import('../server/llm/index.js');
+  anthropic = await import('../server/llm/anthropic.js');
+  prices = await import('../server/llm/prices.js');
+});
+after(() => { for (const s of [claudeFake, openFake]) { s?.closeAllConnections(); s?.close(); } });
+
+const messages = [{ role: 'system', content: 'You are a kind English tutor.' }, { role: 'user', content: 'I goed to school.' }];
+
+test('Claude: structured JSON that validates, and the request it sends', async () => {
+  claudeCalls.length = 0;
+  const r = await llm.structured({ job: 'placement', config: { provider: 'anthropic', model: 'claude-sonnet-5-5', temperature: 0.6 }, messages, schema: Answer, schemaName: 'feedback' });
+  assert.deepEqual(r.data, ANSWER);
+  assert.equal(r.provider, 'anthropic');
+  assert.equal(r.attempts, 1);
+  assert.deepEqual(r.usage, { input: 1000, cached: 0, output: 200, reasoning: 0 });
+  assert.equal(claudeCalls.length, 1);
+  const { path, headers, body } = claudeCalls[0];
+  assert.match(path, /^\/v1\/messages/);
+  // The SDK (1.x) sends the API key as `Authorization: Bearer`; older majors used `x-api-key`. Either carries the key.
+  assert.ok(headers['x-api-key'] === 'claude-test-key' || headers.authorization === 'Bearer claude-test-key', 'API key sent');
+  assert.match(headers['anthropic-version'], /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(body.model, 'claude-sonnet-5-5');
+  assert.equal(body.system, 'You are a kind English tutor.');
+  assert.deepEqual(body.messages, [{ role: 'user', content: 'I goed to school.' }]);
+  for (const k of ['temperature', 'top_p', 'top_k', 'thinking']) assert.equal(k in body, false, `${k} must not be sent`);
+  assert.equal(body.output_config.effort, 'low');
+  assert.equal(body.output_config.format.type, 'json_schema');
+  const schema = body.output_config.format.schema;
+  assert.equal(schema.type, 'object');
+  assert.equal(schema.additionalProperties, false);
+  assert.deepEqual(schema.required.sort(), ['reply', 'score']);
+  assert.equal(JSON.stringify(schema).match(/minLength|maxLength|minimum|maximum/), null, 'unsupported limits are dropped');
+  // Server-side refusal fallback on Sonnet 5.5 / Opus 5.5.
+  assert.equal(body.fallbacks, 'default');
+  assert.match(headers['anthropic-beta'], /server-side-fallback-2026-07-01/);
+  assert.ok(body.max_tokens > 900, 'room for thinking');
+});
+
+test('Claude Haiku 5.5: no fallbacks (it has none)', async () => {
+  claudeCalls.length = 0;
+  await anthropic.anthropicChat(messages, { model: 'claude-haiku-5-5', maxTokens: 500, schema: Answer });
+  const { headers, body } = claudeCalls[0];
+  assert.equal('fallbacks' in body, false);
+  assert.doesNotMatch(headers['anthropic-beta'] || '', /server-side-fallback/);
+});
+
+test('Claude: a refusal throws, directly and through structured()', async () => {
+  const refused = [{ role: 'user', content: 'REFUSE this' }];
+  await assert.rejects(anthropic.anthropicChat(refused, { model: 'claude-opus-5-5', schema: Answer }), /declined to answer \(cyber\)/);
+  await assert.rejects(llm.structured({ job: 'x', config: { provider: 'anthropic', model: 'claude-opus-5-5' }, messages: refused, schema: Answer }),
+    (e) => e instanceof llm.LlmError && e.kind === 'provider' && /declined/.test(e.message));
+});
+
+test('Gemini: its own base URL and key, max_tokens', async () => {
+  openCalls.length = 0;
+  const r = await llm.structured({ job: 'x', config: { provider: 'gemini', model: 'gemini-3-flash', temperature: 0.2 }, messages, schema: Answer });
+  assert.deepEqual(r.data, ANSWER);
+  assert.equal(r.provider, 'gemini');
+  const { path, headers, body } = openCalls[0];
+  assert.equal(path, '/gemini/chat/completions');
+  assert.equal(headers.authorization, 'Bearer gemini-test-key');
+  assert.equal(body.model, 'gemini-3-flash');
+  assert.equal(body.max_tokens, 900);
+  assert.equal('max_completion_tokens' in body, false);
+  assert.equal(body.response_format.type, 'json_schema');
+});
+
+test('OpenAI: the Responses API, with its own URL and key; a late system note is kept as one', async () => {
+  openCalls.length = 0;
+  const { openaiChat } = await import('../server/llm/openai.js');
+  const talk = [...messages, { role: 'assistant', content: 'Oh, you went to school!' }, { role: 'user', content: 'yes' }, { role: 'system', content: 'NOTE FOR THIS TURN' }];
+  const r = await openaiChat(talk, { model: 'gpt-x', temperature: 0, maxTokens: 300, schema: Answer, schemaName: 'a' });
+  assert.equal(openCalls[0].path, '/openai/responses');
+  assert.equal(openCalls[0].headers.authorization, 'Bearer openai-test-key');
+  const b = openCalls[0].body;
+  assert.deepEqual(b.input.map((m) => m.role), ['system', 'user', 'assistant', 'user', 'system']);
+  assert.deepEqual([b.store, b.max_output_tokens, b.text.format.type, b.text.format.name, b.text.format.strict, 'messages' in b], [false, 2300, 'json_schema', 'a', true, false]);
+  assert.deepEqual(JSON.parse(r.text), ANSWER);
+  assert.deepEqual(r.usage, { input: 50, cached: 20, output: 10, reasoning: 4 });
+});
+
+test("OpenAI: every model's list price is known, dated names too; the thinking summary is asked for only for the log", async () => {
+  const { usdPrice, knownPrices, costInr } = prices, USD_INR = knownPrices().usdInr;
+  assert.deepEqual(usdPrice('openai', 'gpt-6-luna'), { input: 0.1, cached: 0.01, output: 0.5 });
+  assert.deepEqual(usdPrice('openai', 'gpt-6-luna-2026-10-01'), usdPrice('openai', 'gpt-6-luna'), 'a dated name is the same model');
+  assert.equal(usdPrice('openai', 'no-such-model'), null);
+  assert.ok(Object.keys(knownPrices().openai).length >= 25);
+  // 1,000 input tokens of which 800 were reused, 100 output: (200 × 0.1 + 800 × 0.01 + 100 × 0.5) / 1M dollars.
+  const cost = costInr({ provider: 'openai', model: 'gpt-6-luna', usage: { input: 1000, cached: 800, output: 100 } });
+  assert.ok(Math.abs(cost - ((200 * 0.1 + 800 * 0.01 + 100 * 0.5) / 1e6) * USD_INR) < 1e-9);
+  assert.equal(costInr({ provider: 'openai', model: 'no-such-model', usage: { input: 10, output: 10 } }), null);
+
+  openCalls.length = 0;
+  const cfg = { provider: 'openai', model: 'gpt-x', temperature: 0 };
+  const plain = await llm.structured({ job: 'x', config: cfg, messages, schema: Answer });
+  assert.deepEqual(['reasoning' in openCalls[0].body, plain.thinking, JSON.parse(plain.raw)], [false, null, ANSWER], 'learners\' turns never ask for it');
+  const logged = await llm.structured({ job: 'x', config: cfg, messages, schema: Answer, wantThinking: true });
+  assert.deepEqual([openCalls[1].body.reasoning, logged.thinking], [{ summary: 'auto' }, 'They answered in English.']);
+});
+
+test('how hard to think: sent to OpenAI and Claude when asked; a model that refuses it is asked again without', async () => {
+  openCalls.length = 0; claudeCalls.length = 0;
+  const open = (model, effort) => llm.structured({ job: 'x', config: { provider: 'openai', model, temperature: 0 }, messages, schema: Answer, effort });
+  await open('gpt-x', 'low');
+  await open('gpt-x', 'default');
+  await open('gpt-x');
+  assert.deepEqual(openCalls.map((c) => c.body.reasoning), [{ effort: 'low' }, undefined, undefined], "'default' leaves it to the model");
+  // With the log's thinking summary, both go in one field.
+  await llm.structured({ job: 'x', config: { provider: 'openai', model: 'gpt-x', temperature: 0 }, messages, schema: Answer, effort: 'medium', wantThinking: true });
+  assert.deepEqual(openCalls.at(-1).body.reasoning, { effort: 'medium', summary: 'auto' });
+
+  openCalls.length = 0;
+  assert.deepEqual((await open('gpt-no-effort', 'low')).data, ANSWER);
+  assert.deepEqual(openCalls.map((c) => c.body.reasoning), [{ effort: 'low' }, undefined], 'asked again without it');
+  await open('gpt-no-effort', 'medium');
+  assert.equal(openCalls.length, 3, 'remembered: not tried again');
+
+  const claude = (effort) => llm.structured({ job: 'x', config: { provider: 'anthropic', model: 'claude-haiku-5-5', temperature: 0 }, messages, schema: Answer, effort });
+  await claude('medium'); await claude('none'); await claude(); await claude('max');
+  assert.deepEqual(claudeCalls.map((c) => c.body.output_config.effort), ['medium', 'low', 'low', 'high'], 'Claude has no "none" (its usual low) and nothing above high');
+  assert.deepEqual([llm.takesEffort('openai'), llm.takesEffort('anthropic'), llm.takesEffort('sarvam'), llm.takesEffort('gemini')], [true, true, false, false]);
+});
+
+test('OpenAI: with onText the answer is streamed, its text handed over as it is written', async () => {
+  openCalls.length = 0;
+  const ask = (model, onText) => llm.structured({ job: 'x', config: { provider: 'openai', model, temperature: 0 }, messages, schema: Answer, onText });
+  const seen = [];
+  const r = await ask('gpt-x', (text) => seen.push(text));
+  assert.equal(openCalls[0].body.stream, true);
+  assert.deepEqual(r.data, ANSWER);
+  assert.deepEqual(r.usage, { input: 50, cached: 20, output: 10, reasoning: 4 }, 'the same counts as without streaming');
+  assert.ok(seen.length >= 3 && seen.every((t, i) => i === 0 || (t.startsWith(seen[i - 1]) && t.length > seen[i - 1].length)), 'the text only grows');
+  assert.equal(seen.at(-1), JSON.stringify(ANSWER));
+  assert.ok(r.firstTextMs >= 0 && r.firstTextMs <= r.latencyMs);
+  // Not asked for: not streamed. Other providers are never streamed.
+  assert.equal('stream' in (await ask('gpt-x').then(() => openCalls.at(-1).body)), false);
+  const gem = await llm.structured({ job: 'x', config: { provider: 'gemini', model: 'gemini-x', temperature: 0 }, messages, schema: Answer, onText: () => assert.fail('Gemini is not streamed') });
+  assert.deepEqual([gem.data, 'stream' in openCalls.at(-1).body, gem.firstTextMs], [ANSWER, false, null]);
+  assert.deepEqual([llm.streams('openai'), llm.streams('sarvam'), llm.streams('anthropic')], [true, false, false]);
+  // A listener that throws doesn't spoil the answer.
+  assert.deepEqual((await ask('gpt-x', () => { throw new Error('listener'); })).data, ANSWER);
+  // A model that won't stream is asked again without, and that is remembered.
+  openCalls.length = 0;
+  assert.deepEqual((await ask('gpt-no-stream', () => {})).data, ANSWER);
+  await ask('gpt-no-stream', () => {});
+  assert.deepEqual(openCalls.map((c) => !!c.body.stream), [true, false, false]);
+  // The stream fails, or stops before the answer is finished.
+  await assert.rejects(ask('gpt-fails', () => {}), (e) => e.kind === 'provider' && /The model is overloaded/.test(e.message));
+  await assert.rejects(ask('gpt-breaks', () => {}), (e) => e.kind === 'provider' && /stopped before the answer was finished/.test(e.message));
+});
+
+test('an answer that leaves fields out: asked for as plain JSON (no schema to the provider), still checked here', async () => {
+  openCalls.length = 0; claudeCalls.length = 0;
+  const ask = (provider, model) => llm.structured({ job: 'x', config: { provider, model, temperature: 0 }, messages, schema: Answer, schemaToProvider: false });
+  assert.deepEqual((await ask('openai', 'gpt-x')).data, ANSWER);
+  assert.deepEqual(openCalls[0].body.text.format, { type: 'json_object' });
+  assert.deepEqual((await ask('gemini', 'gemini-x')).data, ANSWER);
+  assert.deepEqual(openCalls[1].body.response_format, { type: 'json_object' });
+  assert.deepEqual((await ask('anthropic', 'claude-haiku-5-5')).data, ANSWER);
+  assert.equal('format' in claudeCalls[0].body.output_config, false);
+});
+
+test("OpenAI's Fast mode: asked for when wanted, priced at its own rate, and never needed", async () => {
+  openCalls.length = 0;
+  const usage = { input: 50, cached: 20, output: 10 };
+  const ask = (model, fast) => llm.structured({ job: 'x', config: { provider: 'openai', model, temperature: 0 }, messages, schema: Answer, fast });
+  const slow = await ask('gpt-6-luna'), quick = await ask('gpt-6-luna', true);
+  assert.deepEqual(openCalls.map((c) => c.body.service_tier), [undefined, 'fast']);
+  assert.deepEqual([slow.tier, quick.tier], ['default', 'fast']);
+  // Twice the price per token for this model.
+  assert.deepEqual(prices.usdPrice('openai', 'gpt-6-luna', 'fast'), { input: 0.2, cached: 0.02, output: 1 });
+  assert.ok(Math.abs(quick.costInr - 2 * slow.costInr) < 1e-12 && slow.costInr === prices.costInr({ provider: 'openai', model: 'gpt-6-luna', usage }));
+  assert.equal(prices.usdPrice('openai', 'gpt-4o', 'fast'), null, 'a model without Fast mode has no Fast price');
+  assert.ok(prices.knownPrices().openaiFast['gpt-6-luna']);
+  // Asked for Fast, served at standard speed: charged at the standard price.
+  const busy = await ask('gpt-6-luna-busy', true);
+  assert.equal(busy.tier, 'default');
+  assert.ok(Math.abs(busy.costInr - prices.costInr({ provider: 'openai', model: 'gpt-6-luna-busy', usage })) < 1e-12);
+  // A model that has no Fast mode is asked again without it, and that is remembered.
+  openCalls.length = 0;
+  assert.deepEqual((await ask('gpt-no-fast', true)).data, ANSWER);
+  await ask('gpt-no-fast', true);
+  assert.deepEqual(openCalls.map((c) => c.body.service_tier), ['fast', undefined, undefined]);
+  // Other providers have no such thing.
+  const gem = await llm.structured({ job: 'x', config: { provider: 'gemini', model: 'gemini-x', temperature: 0 }, messages, schema: Answer, fast: true });
+  assert.deepEqual([gem.tier, 'service_tier' in openCalls.at(-1).body], [null, false]);
+});
+
+test('structured({ config }) overrides the settings for the job', async () => {
+  openCalls.length = 0; claudeCalls.length = 0;
+  // The settings say Sarvam for `tutor` (not configured here, so without config this would fail).
+  await assert.rejects(llm.structured({ job: 'tutor', messages, schema: Answer }), (e) => e.kind === 'config');
+  const r = await llm.structured({ job: 'tutor', config: { provider: 'gemini', model: 'gemini-x', temperature: 0.1 }, messages, schema: Answer });
+  assert.equal(r.provider, 'gemini');
+  assert.equal(r.model, 'gemini-x');
+  assert.equal(openCalls.length, 1);
+  assert.equal(openCalls[0].body.temperature, 0.1);
+});
+
+test('timeoutMs rejects with kind timeout', async () => {
+  const t0 = Date.now();
+  await assert.rejects(llm.structured({ job: 'x', config: { provider: 'gemini', model: 'g', temperature: 0 }, timeoutMs: 100, messages: [{ role: 'user', content: 'SLOW' }], schema: Answer }),
+    (e) => e instanceof llm.LlmError && e.kind === 'timeout');
+  assert.ok(Date.now() - t0 < 500);
+});
+
+test('costInr: Claude priced, unknown model null', async () => {
+  // Sonnet 5.5: $2 in / $10 out per million → (1000*2 + 200*10)/1e6 = $0.004 → ₹0.352 at 88.
+  assert.ok(Math.abs(prices.costInr({ provider: 'anthropic', model: 'claude-sonnet-5-5', usage: { input: 1000, output: 200 } }) - 0.352) < 1e-9);
+  assert.equal(prices.costInr({ provider: 'anthropic', model: 'claude-unknown', usage: { input: 1000, output: 200 } }), null);
+  assert.equal(prices.costInr({ provider: 'gemini', model: 'gemini-x', usage: { input: 1000, output: 200 } }), null);
+  assert.equal(typeof prices.costInr({ provider: 'sarvam', model: 'sarvam-105b', usage: { input: 1000, output: 200 } }), 'number');
+  const r = await llm.structured({ job: 'x', config: { provider: 'anthropic', model: 'claude-haiku-5-5' }, messages, schema: Answer });
+  assert.ok(Math.abs(r.costInr - (1000 * 0.1 + 200 * 0.5) / 1e6 * 88) < 1e-9);
+});
+
+test('a model that refuses a temperature is asked again without one, and not sent one after that', async () => {
+  openCalls.length = 0;
+  const cfg = { provider: 'openai', model: 'gpt-fixed-temp', temperature: 0.6 };
+  const r = await llm.structured({ job: 'placement', config: cfg, messages, schema: Answer });
+  assert.deepEqual(openCalls.map((c) => 'temperature' in c.body), [true, false]);
+  assert.deepEqual(r.usage, { input: 50, cached: 20, output: 10, reasoning: 4 }, 'tokens: input (cached inside it), output (thinking inside it)');
+  assert.equal(r.costInr, null, 'no price known for this model');
+  await llm.structured({ job: 'placement', config: cfg, messages, schema: Answer });
+  assert.equal(openCalls.length, 3, 'remembered: one request the second time');
+});
+
+test('a price typed for a model gives its cost; cached tokens cost less', async () => {
+  const price = { input: 1, cached: 0.1, output: 4 }; // US dollars per million tokens
+  const r = await llm.structured({ job: 'placement', config: { provider: 'openai', model: 'gpt-x', temperature: 0.6, price }, messages, schema: Answer });
+  assert.ok(Math.abs(r.costInr - ((30 * 1 + 20 * 0.1 + 10 * 4) / 1e6) * 88) < 1e-9);
+  assert.ok(Math.abs(prices.costInr({ provider: 'openai', model: 'm', usage: { input: 1000, cached: 0, output: 0 }, price: { input: 2, output: 8 } }) - 0.176) < 1e-9);
+});
+
+test('the model menus: each provider is asked for its models; only chat models; nothing offered when a list fails', async () => {
+  const { listModels } = await import('../server/llm/models.js');
+  const fake = await startFake([], (b, req) => (req.url.startsWith('/openai/models') ? [200, { data: ['gpt-6-luna', 'gpt-6', 'text-embedding-3-small', 'whisper-1', 'gpt-image-2', 'o5-mini'].map((id) => ({ id })) }]
+    : req.url.startsWith('/gemini/models') ? [200, { data: ['models/gemini-3-pro', 'models/gemini-3-flash', 'models/gemini-embedding-1', 'models/imagen-4'].map((id) => ({ id })) }]
+    : req.url.startsWith('/v1/models') ? [200, { data: [{ id: 'claude-opus-5-5', type: 'model' }, { id: 'claude-haiku-5-5', type: 'model' }], has_more: false, first_id: 'claude-opus-5-5', last_id: 'claude-haiku-5-5' }]
+    : [404, {}]));
+  const base = `http://127.0.0.1:${fake.address().port}`;
+  const old = { OPENAI_BASE_URL: process.env.OPENAI_BASE_URL, GEMINI_BASE_URL: process.env.GEMINI_BASE_URL, ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL };
+  Object.assign(process.env, { OPENAI_BASE_URL: `${base}/openai`, GEMINI_BASE_URL: `${base}/gemini`, ANTHROPIC_BASE_URL: base });
+  try {
+    const m = await listModels({ fresh: true });
+    assert.deepEqual(m.openai, ['o5-mini', 'gpt-6-luna', 'gpt-6']);
+    assert.deepEqual(m.gemini, ['gemini-3-pro', 'gemini-3-flash']);
+    assert.deepEqual(m.anthropic, ['claude-opus-5-5', 'claude-haiku-5-5']);
+    assert.deepEqual(m.sarvam, ['sarvam-105b-conversations', 'sarvam-105b']);
+    process.env.GEMINI_BASE_URL = `${base}/broken`;
+    assert.deepEqual((await listModels({ fresh: true })).gemini, [], 'the list fails: nothing to offer, and the name can still be typed');
+  } finally { Object.assign(process.env, old); fake.closeAllConnections(); fake.close(); }
+});
+
+test('a note for one turn (a late system message): a user message from the app for Claude, Gemini and Sarvam', async () => {
+  const talk = [...messages, { role: 'assistant', content: 'Oh, you went to school!' }, { role: 'user', content: 'yes' }, { role: 'system', content: 'NOTE FOR THIS TURN' }];
+  assert.deepEqual(llm.lateSystemAsUser(talk).map((m) => m.role), ['system', 'user', 'assistant', 'user', 'user']);
+  assert.match(llm.lateSystemAsUser(talk).at(-1).content, /^\[Note from the app, not said by the learner\]\nNOTE FOR THIS TURN$/);
+  // A line that already says it is the app's is left as it is (the conversation placement's lines).
+  assert.deepEqual(llm.lateSystemAsUser([talk[0], { role: 'system', content: '[System] STEP: HELLO.' }]).at(-1), { role: 'user', content: '[System] STEP: HELLO.' });
+  claudeCalls.length = 0;
+  await anthropic.anthropicChat(talk, { model: 'claude-haiku-5-5', maxTokens: 300, schema: Answer });
+  const b = claudeCalls[0].body;
+  assert.equal(b.system, 'You are a kind English tutor.', 'the system prompt stays the same from turn to turn');
+  assert.deepEqual(b.messages.map((m) => m.role), ['user', 'assistant', 'user', 'user']);
+  assert.match(b.messages.at(-1).content, /Note from the app/);
+  assert.deepEqual(b.cache_control, { type: 'ephemeral' }, 'the repeated part is reused');
+  openCalls.length = 0;
+  await llm.structured({ job: 'placement', config: { provider: 'gemini', model: 'gemini-x', temperature: 0.5 }, messages: talk, schema: Answer });
+  assert.deepEqual(openCalls[0].body.messages.map((m) => m.role), ['system', 'user', 'assistant', 'user', 'user']);
+});

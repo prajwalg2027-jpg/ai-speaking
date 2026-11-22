@@ -4,9 +4,10 @@ import WebSocket from 'ws';
 import { startMockRealtime } from './mock-sarvam-realtime.js';
 
 let mock, server, base;
+const queued = []; // texts the stand-in returns next (default: an English sentence)
 
 before(async () => {
-  mock = await startMockRealtime({ transcribe: async () => 'My name is Priya and I teach.', requireKey: 'test-key' });
+  mock = await startMockRealtime({ transcribe: async () => queued.shift() ?? 'My name is Priya and I teach.', requireKey: 'test-key' });
   // config.js reads env at import time, so set it before importing the server.
   process.env.SARVAM_API_KEY = 'test-key';
   process.env.SARVAM_REALTIME_URL = mock.url;
@@ -65,6 +66,12 @@ test('relay opens Sarvam realtime with the right query and key, and maps events'
   assert.equal(final.language, 'en-IN');
   assert.ok(Math.abs(final.speechSec - 1.2) < 0.15, `speechSec ${final.speechSec}`);
   assert.deepEqual(conn.configUpdates, [{ event: 'config.update', silence_duration_ms: 800 }]);
+  // The relay narrates what it does for the browser's log panel, without exposing the key.
+  const logs = c.events.filter((e) => e.type === 'log').map((e) => e.msg);
+  assert.ok(logs.includes('Connecting to Sarvam Realtime'));
+  assert.ok(logs.includes('Sent config.update'));
+  assert.ok(logs.includes('Sarvam applied config.update'));
+  assert.match(c.events.find((e) => e.msg === 'Connecting to Sarvam Realtime').data.url, /model=saaras%3Av4/);
   c.ws.close();
 });
 
@@ -80,10 +87,86 @@ test('"finish" forces the end of a turn without waiting for real silence', async
   c.ws.close();
 });
 
-test('rejected upstream → browser gets "unavailable" and the socket closes (REST fallback)', async () => {
+test('lab relay: any valid realtime option reaches Sarvam, invalid ones are dropped and reported', async () => {
+  const ws = new WebSocket(`${base.replace('/api/live', '/api/lab/live')}?model=saaras:v3-realtime&mode=verbatim&threshold=0.5&stream_type=warp&bogus=1&language_code=hi-IN`);
+  const events = [];
+  ws.on('message', (m) => events.push(JSON.parse(m)));
+  await new Promise((r) => ws.on('open', r));
+  await new Promise((r) => setTimeout(r, 300));
+  const q = mock.state.connections.at(-1).query;
+  assert.equal(q.model, 'saaras:v3-realtime');
+  assert.equal(q.mode, 'verbatim');
+  assert.equal(q.threshold, '0.5');
+  assert.equal(q.language_code, 'hi-IN');
+  assert.equal(q.stream_type, 'balanced', 'invalid value replaced by the default');
+  assert.ok(!('bogus' in q));
+  assert.deepEqual(events.find((e) => e.msg === 'Ignored options with invalid values').data.rejected.sort(), ['bogus', 'stream_type']);
+  assert.ok(events.some((e) => e.type === 'sarvam' && e.event.event === 'session.begin'), 'raw Sarvam events reach the lab');
+  // Only Sarvam's own control events pass through; 'end' finalises and closes the session.
+  ws.send(JSON.stringify({ type: 'sarvam', event: { event: 'audio_input', audio: 'AAAA' } }));
+  ws.send(JSON.stringify({ type: 'sarvam', event: { event: 'end' } }));
+  await new Promise((r) => ws.on('close', r));
+  assert.ok(events.some((e) => e.type === 'sarvam' && e.event.event === 'session.end'));
+  assert.equal(mock.state.connections.at(-1).audioBytes, 0, 'JSON audio_input is not passed through');
+});
+
+test('the app path ignores lab-style options and passthrough', async () => {
+  const c = connect();
+  await c.waitFor('ready');
+  assert.equal(mock.state.connections.at(-1).query.model, 'saaras:v4');
+  c.ws.send(JSON.stringify({ type: 'sarvam', event: { event: 'end' } }));
+  await new Promise((r) => setTimeout(r, 200));
+  assert.ok(!c.events.some((e) => e.type === 'sarvam'), 'no raw events on the app path');
+  c.ws.close();
+});
+
+test('language: config.update re-arms detection; invalid languages are not forwarded', async () => {
+  const c = connect();
+  await c.waitFor('ready');
+  const finals = [];
+  c.ws.on('message', (m) => { const e = JSON.parse(m); if (e.type === 'final') finals.push(e); });
+  const speak = async (text) => {
+    queued.push(text);
+    const n = finals.length;
+    await stream(c.ws, Buffer.concat([tone(0.6), silence(0.6)]));
+    while (finals.length === n) await new Promise((r) => setTimeout(r, 20));
+    return finals.at(-1);
+  };
+  c.ws.send(JSON.stringify({ type: 'config', silenceMs: 300, language: 'auto' }));
+  assert.equal((await speak('मैं घर पे रहता हूँ')).language, 'hi-IN');
+  // Without a re-arm, Sarvam keeps the first language: the English answer is still labelled Hindi.
+  assert.equal((await speak('I work in an office')).language, 'hi-IN');
+  // The app re-arms after every final and at every question: detection starts fresh.
+  c.ws.send(JSON.stringify({ type: 'config', language: 'auto' }));
+  assert.equal((await speak('I love my work')).language, 'en-IN');
+  c.ws.send(JSON.stringify({ type: 'config', language: 'xx-YY' }));
+  await new Promise((r) => setTimeout(r, 100));
+  const updates = mock.state.connections.at(-1).configUpdates;
+  assert.deepEqual(updates[0], { event: 'config.update', silence_duration_ms: 300, language_code: 'auto' });
+  assert.ok(updates.every((u) => u.language_code !== 'xx-YY'), 'invalid language not sent to Sarvam');
+  assert.ok(c.events.some((e) => e.msg === 'Ignored an invalid language'));
+  c.ws.close();
+});
+
+test('rejected upstream → browser gets "unavailable" and the socket closes (the app shows an error)', async () => {
   mock.state.rejectNext = true;
   const c = connect();
   const e = await c.waitFor('unavailable');
   assert.match(e.reason, /403/);
+  assert.ok(c.events.some((x) => x.type === 'log' && /rejected the connection: HTTP 403/.test(x.msg)), 'rejection is logged with its status');
   assert.equal(await c.closed, 4001);
+});
+
+test('audio sent to Sarvam is charged to the conversation the browser binds', async () => {
+  const { startSession, getSession } = await import('../server/session.js');
+  const s = getSession(startSession().sessionId);
+  const c = connect();
+  await c.waitFor('ready');
+  c.ws.send(JSON.stringify({ type: 'bind', sessionId: s.id }));
+  await stream(c.ws, Buffer.concat([tone(1.5), silence(0.5)]));
+  c.ws.send(JSON.stringify({ type: 'finish' })); // pushed silence is billed too
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(s.ledger.sttSec >= 2 + 1.2, `charged ${s.ledger.sttSec} s`);
+  assert.ok(s.ledger.sttSec < 4);
+  c.ws.close(); await c.closed;
 });

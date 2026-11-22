@@ -1,0 +1,6 @@
+{"sessionId":"s1","say":[{"text":"Thank you! Your English is at level 2 of 4, Basic. You can talk about your free time.","lang":"en-IN","pace":1}],
+ "card":null,"cue":{"line":0,"word":0},"listen":null,"task":null,
+ "done":{"level":2,"overall":2.41,"dims":{"comprehension":2.8,"vocabulary":2.4,"grammar":2.1,"fluency":2.6,"pronunciation":null,"coherence":2.2},
+  "reasons":["Read-aloud accuracy below 70%"],"talk":{"coherence":2.4,"vocabulary":2.3},"name":"Basic","blurb":"You know many English words. Next, we will make full sentences with them.",
+  "hindi":"आप अंग्रेज़ी के बहुत से शब्द जानते हैं।","doingWell":["You can talk about your free time."],"practise":["Say 'he needs' instead of 'he need'."],
+  "answers":[{"q":"q1_intro","level":2,"skipped":false,"transcript":"I play cricket","neededHindi":false}]}}

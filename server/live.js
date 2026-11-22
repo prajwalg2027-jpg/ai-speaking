@@ -7,10 +7,12 @@
 //                    transcript.final, config.updated, error, session.end, pong
 //
 // Browser protocol (ours):
-//   browser → relay: binary PCM16 frames; JSON {type:"config", silenceMs}, {type:"finish"}
+//   browser → relay: binary PCM16 frames; JSON {type:"config", silenceMs}, {type:"finish"},
+//                    {type:"bind", sessionId} (the conversation the audio is charged to)
 //   relay → browser: {type:"ready"}, {type:"speech_start", idx}, {type:"partial", idx, text},
 //                    {type:"speech_end", idx}, {type:"final", idx, text, language, languageConfidence, speechSec},
-//                    {type:"unavailable", reason} (then close: browser falls back to REST)
+//                    {type:"unavailable", reason} (then close: browser falls back to REST),
+//                    {type:"log", msg, data} (what the relay itself is doing, for the browser's log panel)
 
 import WebSocket, { WebSocketServer } from 'ws';
 import { config } from './config.js';
@@ -32,7 +34,43 @@ async function getProxyAgent(url) {
   return proxyAgent;
 }
 
-export function upstreamUrl({ silenceMs = 1200 } = {}) {
+// Every option of Sarvam's realtime endpoint (sarvamai SDK 1.1.19), with the values it allows.
+// The STT lab can set any of them; the app uses the defaults in upstreamUrl().
+const LANGS = ['auto', 'en-IN', 'hi-IN', 'bn-IN', 'kn-IN', 'ml-IN', 'mr-IN', 'or-IN', 'pa-IN', 'ta-IN', 'te-IN', 'gu-IN', 'as-IN',
+  'ur-IN', 'ne-IN', 'kok-IN', 'ks-IN', 'sd-IN', 'sa-IN', 'sat-IN', 'mni-IN', 'brx-IN', 'mai-IN', 'doi-IN'];
+const num = (min, max) => (v) => { const n = Number(v); return Number.isFinite(n) && n >= min && n <= max ? String(n) : null; };
+const oneOf = (list) => (v) => (list.includes(v) ? v : null);
+const text = (max) => (v) => (typeof v === 'string' && v.length <= max ? v : null);
+export const REALTIME_OPTIONS = {
+  model: oneOf(['saaras:v4', 'saaras:v3-realtime']),
+  language_code: oneOf(LANGS),
+  mode: oneOf(['transcribe', 'translate', 'verbatim', 'translit', 'codemix']),
+  stream_type: oneOf(['fast', 'balanced', 'simulated']),
+  endpointing: oneOf(['vad', 'manual']),
+  encoding: oneOf(['linear16', 'mulaw', 'alaw']),
+  sample_rate: oneOf(['16000', '8000']),
+  return_timestamps: oneOf(['true', 'false']),
+  threshold: num(0, 1),
+  silence_duration_ms: num(0, 10000),
+  min_speech_duration_ms: num(0, 10000),
+  prefix_padding_ms: num(0, 10000),
+  prompt: text(2000),
+  keyterms: text(4000),
+};
+
+/** Keep only known options with allowed values. Returns { params, rejected }. */
+export function sanitizeRealtimeOptions(input = {}) {
+  const params = {}, rejected = [];
+  for (const [k, v] of Object.entries(input)) {
+    if (v === '' || v == null) continue; // blank = Sarvam's default
+    const check = REALTIME_OPTIONS[k];
+    const ok = check ? check(String(v)) : null;
+    if (ok == null) rejected.push(k); else params[k] = ok;
+  }
+  return { params, rejected };
+}
+
+export function upstreamUrl({ silenceMs = 1200, ...overrides } = {}) {
   const qs = new URLSearchParams({
     model: S.realtime.model,
     language_code: 'auto', // adaptive language ID; finals then carry `language` + `language_confidence`
@@ -43,22 +81,39 @@ export function upstreamUrl({ silenceMs = 1200 } = {}) {
     silence_duration_ms: String(silenceMs),
     stream_type: S.realtime.streamType,
     return_timestamps: 'true', // start_s / end_s on finals → speaking time for words-per-minute
+    ...overrides,
   });
   return `${S.realtime.url}?${qs}`;
 }
 
-/** Attach the relay to an http.Server at /api/live. */
-export function attachLiveRelay(server, { enabled = () => true } = {}) {
+/**
+ * Attach the relay to an http.Server: /api/live for the app (fixed settings), /api/lab/live for the
+ * STT lab (any realtime option, passed as query parameters, plus raw Sarvam events both ways).
+ */
+export function attachLiveRelay(server, { enabled = () => true, onAudio = () => {}, lab: labAllowed = true, authorize = async () => null } = {}) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
 
   server.on('upgrade', (req, socket, head) => {
-    if (new URL(req.url, 'http://x').pathname !== '/api/live') return socket.destroy();
-    wss.handleUpgrade(req, socket, head, (client) => relay(client, enabled()));
+    const u = new URL(req.url, 'http://x');
+    if (u.pathname === '/api/lab/live' && labAllowed) {
+      const { params, rejected } = sanitizeRealtimeOptions(Object.fromEntries(u.searchParams));
+      return wss.handleUpgrade(req, socket, head, (client) => relay(client, enabled(), { lab: true, params, rejected, onAudio }));
+    }
+    if (u.pathname !== '/api/live') return socket.destroy();
+    // The caller is checked before the socket opens (a bad or missing login token: 401).
+    authorize(req).then((user) => {
+      wss.handleUpgrade(req, socket, head, (client) => relay(client, enabled(), { onAudio: (id, sec, pcm) => onAudio(id, sec, pcm, user) }));
+    }, (e) => {
+      socket.write(`HTTP/1.1 ${e.status === 401 ? '401 Unauthorized' : '403 Forbidden'}\r\nConnection: close\r\n\r\n`);
+      socket.destroy();
+    });
   });
   return wss;
 }
 
-async function relay(client, enabled) {
+const LAB_EVENTS = new Set(['speech_start', 'speech_end', 'flush', 'end', 'config.update', 'ping']);
+
+async function relay(client, enabled, { lab = false, params = {}, rejected = [], onAudio = () => {} } = {}) {
   const toClient = (msg) => client.readyState === WebSocket.OPEN && client.send(JSON.stringify(msg));
   let failed = false;
   const unavailable = (reason) => {
@@ -67,36 +122,75 @@ async function relay(client, enabled) {
     toClient({ type: 'unavailable', reason });
     client.close(4001, 'unavailable');
   };
-  if (!enabled) return unavailable('realtime disabled');
+  if (!enabled) return unavailable('server has no SARVAM_API_KEY');
 
   let silenceMs = 1200;
   let ready = false;
   let closed = false;
-  const upstream = new WebSocket(upstreamUrl({ silenceMs }), {
+  const note = (msg, data) => toClient({ type: 'log', msg, data });
+  if (rejected.length) note('Ignored options with invalid values', { rejected });
+  const url = upstreamUrl({ silenceMs, ...params });
+  const opened = Date.now();
+  // The URL carries only settings; the key goes in a header and is never sent to the browser.
+  note('Connecting to Sarvam Realtime', { url });
+  const upstream = new WebSocket(url, {
     agent: (await getProxyAgent(S.realtime.url)) || undefined,
     headers: { 'api-subscription-key': S.apiKey },
     handshakeTimeout: 5000,
   });
   const toSarvam = (msg) => upstream.readyState === WebSocket.OPEN && upstream.send(JSON.stringify(msg));
+  // Every second of audio sent to Sarvam is billed: report it for the conversation's cost ({type:"bind"}
+  // tells us which conversation this connection belongs to).
+  let sessionId = null;
+  const sendAudio = (pcm) => {
+    if (upstream.readyState !== WebSocket.OPEN) return;
+    // onAudio returns false when this audio isn't allowed (no conversation, or its listening time is used up).
+    if (onAudio(sessionId, pcm.length / 2 / SAMPLE_RATE, pcm) === false) {
+      if (!closed) { closed = true; toClient({ type: 'closed', code: 4003, reason: 'listening limit reached' }); client.close(4003, 'limit'); }
+      return;
+    }
+    sentBytes += pcm.length;
+    upstream.send(JSON.stringify({ event: 'audio_input', audio: Buffer.from(pcm).toString('base64') }));
+  };
 
   upstream.on('unexpected-response', (_req, res) => {
-    res.resume();
-    console.warn(`[live] Sarvam realtime rejected the connection: HTTP ${res.statusCode}`);
-    unavailable(`HTTP ${res.statusCode}`);
+    // Keep the start of the body: Sarvam's JSON error explains a rejection (bad model, key, quota…).
+    let body = '';
+    res.on('data', (c) => { if (body.length < 600) body += c; });
+    res.on('end', () => {
+      const detail = body.trim().slice(0, 600);
+      console.warn(`[live] Sarvam realtime rejected the connection: HTTP ${res.statusCode} ${detail}`);
+      note(`Sarvam rejected the connection: HTTP ${res.statusCode}`, { body: detail || '(empty)', afterMs: Date.now() - opened });
+      unavailable(`HTTP ${res.statusCode}${detail ? `: ${detail}` : ''}`);
+    });
   });
-  upstream.on('error', (e) => { if (!ready) unavailable(e.message); else console.warn('[live] upstream error', e.message); });
+  upstream.on('upgrade', () => note('WebSocket accepted by Sarvam', { afterMs: Date.now() - opened }));
+  upstream.on('error', (e) => {
+    note('Upstream socket error', { message: e.message });
+    if (!ready) unavailable(e.message); else console.warn('[live] upstream error', e.message);
+  });
   upstream.on('close', (code, reason) => {
     if (closed) return;
+    note('Sarvam closed the stream', { code, reason: String(reason) });
     if (!ready) return unavailable(`closed ${code} ${reason}`);
     toClient({ type: 'closed', code, reason: String(reason) });
     client.close();
   });
 
-  const ping = setInterval(() => toSarvam({ event: 'ping' }), 20_000);
+  // The browser streams only while listening, so there are quiet gaps (prompts, scoring). Ping during
+  // gaps so Sarvam doesn't close the session for inactivity.
+  let sentBytes = 0, reportedBytes = 0, lastAudioAt = Date.now();
+  const ping = setInterval(() => { if (Date.now() - lastAudioAt >= 5000) toSarvam({ event: 'ping' }); }, 5000);
+  const stats = setInterval(() => {
+    if (sentBytes === reportedBytes) return;
+    note('Audio sent to Sarvam so far (billed)', { totalKB: Math.round(sentBytes / 1024), audioSec: +(sentBytes / 2 / SAMPLE_RATE).toFixed(1), sessionSec: Math.round((Date.now() - opened) / 1000) });
+    reportedBytes = sentBytes;
+  }, 10_000);
 
   upstream.on('message', (raw) => {
     let e;
     try { e = JSON.parse(raw); } catch { return; }
+    if (lab) toClient({ type: 'sarvam', event: e }); // the lab sees every raw event
     switch (e.event) {
       case 'session.begin':
         ready = true;
@@ -115,33 +209,52 @@ async function relay(client, enabled) {
         });
       case 'error':
         console.warn('[live] Sarvam error', e.code, e.message);
-        return toClient({ type: 'error', code: e.code, fatal: !!e.is_fatal, message: e.message });
+        return toClient({ type: 'error', code: e.code, fatal: !!e.is_fatal, message: e.message, status: e.status_code ?? null });
+      case 'config.updated':
+        return note('Sarvam applied config.update', { applied: e.applied });
+      case 'session.end':
+        return note('Sarvam ended the session', { utterances: e.total_utterances, audioSec: e.audio_duration_s, sessionSec: e.total_duration_s });
       default:
-        return; // config.updated, pong, session.end: nothing to forward
+        return; // pong
     }
   });
 
   client.on('message', (data, isBinary) => {
     if (isBinary) {
       // Raw PCM16 from the browser → base64 audio_input.
-      return toSarvam({ event: 'audio_input', audio: Buffer.from(data).toString('base64') });
+      lastAudioAt = Date.now();
+      return sendAudio(data);
     }
     let m;
     try { m = JSON.parse(data); } catch { return; }
-    if (m.type === 'config' && Number.isFinite(m.silenceMs)) {
-      silenceMs = Math.max(300, Math.min(5000, Math.round(m.silenceMs)));
-      // VAD knobs apply immediately (no reconnect needed).
-      toSarvam({ event: 'config.update', silence_duration_ms: silenceMs });
+    if (lab && m.type === 'sarvam' && LAB_EVENTS.has(m.event?.event)) return toSarvam(m.event);
+    if (m.type === 'bind') { sessionId = typeof m.sessionId === 'string' ? m.sessionId : null; return; }
+    if (m.type === 'config') {
+      // One config.update per request. silence_duration_ms applies immediately; language_code applies at
+      // the next utterance boundary and re-arms language detection (Sarvam otherwise sticks to the first
+      // language it detected for the whole session).
+      const update = {};
+      if (Number.isFinite(m.silenceMs)) update.silence_duration_ms = silenceMs = Math.max(300, Math.min(5000, Math.round(m.silenceMs)));
+      if (m.language != null) {
+        const lang = REALTIME_OPTIONS.language_code(String(m.language));
+        if (lang) update.language_code = lang; else note('Ignored an invalid language', { language: m.language });
+      }
+      if (Object.keys(update).length) {
+        toSarvam({ event: 'config.update', ...update });
+        note('Sent config.update', update);
+      }
     } else if (m.type === 'finish') {
       // "Done speaking": endpointing=vad has no flush, so push enough silence to end the turn now.
       const pad = Buffer.alloc(Math.ceil(((silenceMs + 400) / 1000) * SAMPLE_RATE) * 2);
-      for (let o = 0; o < pad.length; o += 6400) toSarvam({ event: 'audio_input', audio: pad.subarray(o, o + 6400).toString('base64') });
+      for (let o = 0; o < pad.length; o += 6400) sendAudio(pad.subarray(o, o + 6400));
+      note(`Pushed ${silenceMs + 400} ms of silence so Sarvam ends the turn now`);
     }
   });
 
   client.on('close', () => {
     closed = true;
     clearInterval(ping);
+    clearInterval(stats);
     if (upstream.readyState === WebSocket.OPEN) { toSarvam({ event: 'end' }); upstream.close(); }
     else upstream.terminate();
   });

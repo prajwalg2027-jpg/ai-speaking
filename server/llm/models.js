@@ -1,0 +1,52 @@
+// The models each provider offers right now, for the admin console's model menus. Asked from the provider itself
+// with the server's key (so new models appear without a code change), kept for ten minutes. A provider without a
+// key, or whose list can't be fetched, falls back to a few known names. Any name can still be typed.
+import Anthropic from '@anthropic-ai/sdk';
+
+const KNOWN = {
+  sarvam: ['sarvam-105b-conversations', 'sarvam-105b'], // Sarvam has no list to ask for: these are the chat models it accepts
+  anthropic: ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5'],
+  openai: [], gemini: [],
+};
+// Not for conversation: speech, images, embeddings, moderation and older completion-only models.
+const NOT_CHAT = /embed|tts|whisper|dall-e|image|imagen|audio|realtime|moderation|transcri|search|davinci|babbage|sora|veo|aqa|computer-use|codex|instruct|robotics|guard|learnlm/i;
+const TTL_MS = 10 * 60 * 1000;
+let cache = { at: 0, value: null };
+
+async function getJson(url, key) {
+  const res = await fetch(url, { headers: { authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8000) });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+const chatOnly = (ids) => [...new Set(ids.filter((id) => id && !NOT_CHAT.test(id)))].sort((a, b) => b.localeCompare(a, 'en', { numeric: true }));
+
+const FETCH = {
+  async openai() {
+    const j = await getJson(`${process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'}/models`, process.env.OPENAI_API_KEY);
+    return chatOnly((j.data || []).map((m) => m.id).filter((id) => /^(gpt|o\d|chatgpt)/.test(id)));
+  },
+  async gemini() {
+    const j = await getJson(`${process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai'}/models`, process.env.GEMINI_API_KEY);
+    return chatOnly((j.data || []).map((m) => String(m.id || '').replace(/^models\//, '')).filter((id) => /^gemini/.test(id)));
+  },
+  async anthropic() {
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL || undefined, timeout: 8000, maxRetries: 0 });
+    const ids = [];
+    for await (const m of client.models.list({ limit: 100 })) ids.push(m.id);
+    return chatOnly(ids);
+  },
+};
+const KEY = { openai: 'OPENAI_API_KEY', gemini: 'GEMINI_API_KEY', anthropic: 'ANTHROPIC_API_KEY' };
+
+/** → { sarvam: [...], anthropic: [...], openai: [...], gemini: [...] }: model names for the menus, newest first. */
+export async function listModels({ fresh = false } = {}) {
+  if (!fresh && cache.value && Date.now() - cache.at < TTL_MS) return cache.value;
+  const value = { ...KNOWN };
+  await Promise.all(Object.keys(FETCH).map(async (p) => {
+    if (!process.env[KEY[p]]) return;
+    try { const ids = await FETCH[p](); if (ids.length) value[p] = ids; }
+    catch (e) { console.warn(`[llm] couldn't list ${p} models (${e.message}): showing the known names`); }
+  }));
+  cache = { at: Date.now(), value };
+  return value;
+}

@@ -34,6 +34,20 @@ export function startMockRealtime({ transcribe = async () => 'hello world', port
 
     let t = 0; // samples received
     let idx = 0, inSpeech = false, silent = 0, utter = [], startSample = 0, lastPartialAt = 0;
+    // Like Sarvam: with language_code=auto, the first detected language sticks for the session until a
+    // config.update sets language_code again ("re-arms auto-LID and resets the sticky language").
+    let sticky = null;
+    const finalize = async (endSample) => {
+      inSpeech = false;
+      const my = idx++;
+      send({ event: 'vad.speech_end', utterance_idx: my, confidence: 0.9 });
+      const text = await transcribe(Buffer.concat(utter), cfg);
+      send({
+        event: 'transcript.final', utterance_idx: my, text,
+        ...(cfg.language_code === 'auto' ? { language: (sticky ??= /[\u0900-\u097F]/.test(text) ? 'hi-IN' : 'en-IN'), language_confidence: 0.95 } : {}),
+        ...(cfg.return_timestamps ? { start_s: startSample / RATE, end_s: endSample / RATE } : {}),
+      });
+    };
     ws.on('message', async (raw) => {
       const m = JSON.parse(raw);
       if (m.event === 'ping') return send({ event: 'pong' });
@@ -41,9 +55,15 @@ export function startMockRealtime({ transcribe = async () => 'hello world', port
         conn.configUpdates.push(m);
         const applied = Object.keys(m).filter((k) => k !== 'event');
         for (const k of applied) cfg[k] = m[k];
+        if ('language_code' in m) sticky = null;
         return send({ event: 'config.updated', applied });
       }
-      if (m.event === 'end') { send({ event: 'session.end', request_id: 'mock', total_utterances: idx }); return ws.close(1000); }
+      if (m.event === 'end') {
+        // Like Sarvam: finalise any utterance in progress, then end the session.
+        if (inSpeech) await finalize(t - silent);
+        send({ event: 'session.end', request_id: 'mock', total_utterances: idx, audio_duration_s: +(conn.audioBytes / 2 / RATE).toFixed(2) });
+        return ws.close(1000);
+      }
       if (m.event !== 'audio_input') return;
       const buf = Buffer.from(m.audio, 'base64');
       conn.audioBytes += buf.length;
@@ -59,18 +79,7 @@ export function startMockRealtime({ transcribe = async () => 'hello world', port
         utter.push(Buffer.from(buf));
         silent = voiced ? 0 : silent + pcm.length;
         if (t - lastPartialAt > RATE * 0.5 && voiced) { lastPartialAt = t; send({ event: 'transcript.partial', utterance_idx: idx, text: '…' }); }
-        if (silent >= (cfg.silence_duration_ms / 1000) * RATE) {
-          inSpeech = false;
-          const my = idx++;
-          const endSample = t + pcm.length - silent;
-          send({ event: 'vad.speech_end', utterance_idx: my, confidence: 0.9 });
-          const text = await transcribe(Buffer.concat(utter), cfg);
-          send({
-            event: 'transcript.final', utterance_idx: my, text,
-            ...(cfg.language_code === 'auto' ? { language: /[ऀ-ॿ]/.test(text) ? 'hi-IN' : 'en-IN', language_confidence: 0.95 } : {}),
-            ...(cfg.return_timestamps ? { start_s: startSample / RATE, end_s: endSample / RATE } : {}),
-          });
-        }
+        if (silent >= (cfg.silence_duration_ms / 1000) * RATE) await finalize(t + pcm.length - silent);
       }
       t += pcm.length;
     });

@@ -1,0 +1,56 @@
+# Server checks on every push: the test suite (including the production guard) and the Cloud Run container build.
+name: Server
+
+on:
+  push:
+    paths: ["server/**", "shared/**", "public/**", "test/**", "package*.json", "Dockerfile", ".dockerignore", ".github/workflows/server.yml"]
+  pull_request:
+    paths: ["server/**", "shared/**", "public/**", "test/**", "package*.json", "Dockerfile", ".dockerignore", ".github/workflows/server.yml"]
+
+concurrency:
+  group: server-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: sakhi_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:ci@localhost:5432/sakhi_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: ffmpeg (voice recordings)
+        # The runner's man-page index update can stall apt for many minutes: turn it off first.
+        run: |
+          which ffmpeg && exit 0
+          sudo rm -f /var/lib/man-db/auto-update
+          sudo apt-get update -q
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends ffmpeg
+      - run: npm test
+      - name: Container builds
+        run: docker build -t sakhi-server:ci .
+      - name: Container starts in production mode and answers its health check
+        run: |
+          docker run -d --name sakhi -p 8080:8080 -e PORT=8080 -e SARVAM_API_KEY=ci-placeholder -e SAKHI_ALLOW_NO_LOGIN=1 sakhi-server:ci
+          for i in $(seq 1 20); do curl -fsS localhost:8080/healthz && break; sleep 1; done
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8080/review.html)" = 404
+          docker logs sakhi | grep "(production)"
+          docker exec sakhi ffmpeg -hide_banner -encoders | grep -q libopus
+      - name: Production refuses to start without login and a database
+        run: |
+          docker run --name strict -e SARVAM_API_KEY=ci-placeholder sakhi-server:ci || true
+          docker logs strict 2>&1 | grep "Refusing to start"
