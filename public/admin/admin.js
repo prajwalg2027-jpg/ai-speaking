@@ -823,7 +823,7 @@ async function models() {
 // Sarvam's and Google's voices side by side, on the same words: hear each, see how soon it started and how long it
 // took, what it cost, and what a whole talk would cost with it (server/admin/voices.js). Nothing is saved.
 let voicePicks = null; // the voice rows, kept for later visits
-const VOICE_PROVIDERS = { sarvam: 'Sarvam', gemini: 'Google Gemini' };
+const VOICE_PROVIDERS = { sarvam: 'Sarvam', cloudtts: 'Google Cloud TTS', gemini: 'Google Gemini API' };
 const inr4 = (x) => (x == null ? '–' : x < 0.01 ? `₹${x.toFixed(4)}` : `₹${x.toFixed(3)}`);
 const b64ToBlob = (b64, type) => { const bin = atob(b64), bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); return new Blob([bytes], { type }); };
 
@@ -833,8 +833,9 @@ async function voicesPage() {
   if (!voicePicks) voicePicks = [
     { provider: 'sarvam', model: info.current.model, voice: info.current.voice },
     { provider: 'sarvam', model: 'bulbul:v4-flash', voice: 'ishita_enhi_companion' },
+    { provider: 'cloudtts', model: 'gemini-2.5-flash-tts', voice: 'Sulafat', style: 'Say this warmly and patiently, like a kind teacher on a phone call.' },
+    { provider: 'cloudtts', model: 'gemini-3.1-flash-tts-preview', voice: 'Achernar', style: 'Say this warmly and patiently, like a kind teacher on a phone call.' },
     { provider: 'gemini', model: 'gemini-3.8-flash-tts', voice: 'Sulafat', style: 'warm, friendly and patient, like a kind teacher on a phone call' },
-    { provider: 'gemini', model: 'gemini-3.8-flash-lite-tts', voice: 'Achird', style: 'warm, friendly and patient, like a kind teacher on a phone call' },
   ];
   const label = (v) => `${VOICE_PROVIDERS[v.provider]} · ${v.model} · ${v.voice}${v.style ? ` · “${v.style.slice(0, 40)}${v.style.length > 40 ? '…' : ''}”` : ''}${v.pace && v.pace !== 1 ? ` · pace ${v.pace}` : ''}`;
   const pr = info.prices;
@@ -844,16 +845,17 @@ async function voicesPage() {
     <datalist id="vl-sarvam-bulbul:v4-flash">${sarvamList('bulbul:v4-flash').map((v) => html`<option value="${v}">`)}</datalist>
     <datalist id="vl-sarvam-bulbul:v3">${sarvamList('bulbul:v3').map((v) => html`<option value="${v}">`)}</datalist>
     <datalist id="vl-gemini">${info.voices.gemini.map((v) => html`<option value="${v.id}">${v.label}</option>`)}</datalist>
+    <datalist id="vl-cloudtts">${info.voices.cloudtts.map((v) => html`<option value="${v.id}">${v.label}</option>`)}</datalist>
     <form class="card section" id="vform" novalidate>
       <h2>What Sakhi says</h2>
       <div class="row end"><label class="f">Her real lines<select id="vsample"><option value="">Choose one…</option>${info.samples.map((s, i) => html`<option value="${i}">${s.label}</option>`)}</select></label></div>
       <label class="f"><span>Words ("|" marks where her reaction ends and her question begins)</span><textarea id="vtext" rows="3" maxlength="1200">${info.samples[0].text}</textarea></label>
       <div class="choices" role="radiogroup" aria-label="How it is sent">${info.modes.map(([v, t], i) => html`<label class="choice"><input type="radio" name="vmode" value="${v}" ${i === 0 ? raw('checked') : ''}><div><strong>${t}</strong></div></label>`)}</div>
       <h2>Voices</h2>
-      ${['sarvam', 'gemini'].filter((p) => !info.providers[p].configured).map((p) => html`<p class="small err">${p === 'gemini' ? 'No Gemini key on the server yet, so Google voices will fail. Add it with deploy/llm-keys-setup.sh (PROVIDERS=gemini).' : 'No Sarvam key on the server.'}</p>`)}
+      ${Object.keys(VOICE_PROVIDERS).filter((p) => !info.providers[p]?.configured).map((p) => html`<p class="small err">${{ gemini: 'Google Gemini API: no Gemini key on the server yet, so these voices will fail. Add it with deploy/llm-keys-setup.sh (PROVIDERS=gemini).', cloudtts: 'Google Cloud TTS works only on the deployed server (it signs in as its Google Cloud service account), so these voices fail when the console runs elsewhere.', sarvam: 'No Sarvam key on the server.' }[p]}</p>`)}
       <div id="vrows"></div>
       <p><button type="button" id="vadd">Add a voice</button></p>
-      <p class="muted small">Sarvam: ${info.voices.sarvam['bulbul:v4-flash'].length} voices for Bulbul v4 Flash and ${info.voices.sarvam['bulbul:v3'].length} for v3 (Sarvam's list on ${info.voices.sarvam.asOf}); each name is person_language_style, so <code>roopa_hi_companion</code> is Roopa, Hindi, companion style. Pace, pitch and steadiness are Sarvam's own controls. Google: ${info.voices.gemini.length} voices; it is told how to speak in words (the style), not with numbers.</p>
+      <p class="muted small">Sarvam: ${info.voices.sarvam['bulbul:v4-flash'].length} voices for Bulbul v4 Flash and ${info.voices.sarvam['bulbul:v3'].length} for v3 (Sarvam's list on ${info.voices.sarvam.asOf}); each name is person_language_style, so <code>roopa_hi_companion</code> is Roopa, Hindi, companion style. Pace, pitch and steadiness are Sarvam's own controls. Google: the same 30 voices through Google Cloud TTS (streamed, signed in as the server's Google Cloud account, billed to the project; Gemini 3.1 Flash preview and the 2.5 models) or through the Gemini API (an API key; the newest 3.8 models, which Cloud TTS does not have); either is told how to speak in words, not with numbers.</p>
       <div class="row end"><label class="f">Characters Sakhi says in a talk, for the estimate<input type="number" id="vtalk" min="100" max="10000" value="700"></label>
         <label class="f">Talks<input type="number" id="vtalks" min="1" max="10000000" value="1000"></label></div>
       <p class="err" id="verr" role="alert"></p>
@@ -871,18 +873,21 @@ async function voicesPage() {
   const rowHtml = (v, i) => html`<div class="card vrow" data-i="${i}"><div class="row end">
       <label class="f">Provider<select data-k="provider">${Object.entries(VOICE_PROVIDERS).map(([p, t]) => html`<option value="${p}" ${p === v.provider ? raw('selected') : ''}>${t}${info.providers[p].configured ? '' : ' (no key on the server)'}</option>`)}</select></label>
       <label class="f">Model<select data-k="model">${info.models[v.provider].map((m) => html`<option value="${m.id}" ${m.id === v.model ? raw('selected') : ''}>${m.label}</option>`)}</select></label>
-      <label class="f grow">Voice<input data-k="voice" value="${v.voice}" list="${v.provider === 'gemini' ? 'vl-gemini' : `vl-sarvam-${v.model}`}" autocomplete="off"></label>
+      <label class="f grow">Voice<input data-k="voice" value="${v.voice}" list="${v.provider === 'sarvam' ? `vl-sarvam-${v.model}` : `vl-${v.provider}`}" autocomplete="off"></label>
       <button type="button" class="link danger" data-remove>Remove</button></div>
     ${v.provider === 'gemini'
       ? html`<label class="f">How to say it (style, optional)<input data-k="style" value="${v.style || ''}" maxlength="400" placeholder="warm, friendly and patient"></label>`
+      : v.provider === 'cloudtts'
+      ? html`<div class="row"><label class="f grow">How to say it (Google's prompt, optional)<input data-k="style" value="${v.style || ''}" maxlength="400" placeholder="Say this warmly and patiently."></label>
+          <label class="f">Pace<input type="number" data-k="pace" min="0.5" max="2" step="0.05" value="${v.pace ?? 1}"></label></div>`
       : html`<div class="row"><label class="f">Pace<input type="number" data-k="pace" min="0.5" max="2" step="0.05" value="${v.pace ?? 1}"></label>
           <label class="f">Pitch<input type="number" data-k="pitch" min="-0.5" max="0.5" step="0.05" value="${v.pitch ?? 0}"></label>
           <label class="f">Steadiness (temperature: lower is steadier)<input type="number" data-k="temperature" min="0.01" max="1" step="0.05" value="${v.temperature ?? 0.6}"></label></div>`}</div>`;
   const readRows = () => $$('.vrow', rowsBox).map((r) => {
     const get = (k) => $(`[data-k="${k}"]`, r);
     const o = { provider: get('provider').value, model: get('model').value, voice: get('voice').value.trim() };
-    if (o.provider === 'gemini') { if (get('style')?.value.trim()) o.style = get('style').value.trim(); }
-    else for (const k of ['pace', 'pitch', 'temperature']) { const n = Number(get(k)?.value); if (get(k) && get(k).value !== '' && Number.isFinite(n)) o[k] = n; }
+    if (o.provider !== 'sarvam' && get('style')?.value.trim()) o.style = get('style').value.trim();
+    if (o.provider !== 'gemini') for (const k of ['pace', 'pitch', 'temperature']) { const n = Number(get(k)?.value); if (get(k) && get(k).value !== '' && Number.isFinite(n)) o[k] = n; }
     return o;
   });
   function drawRows() {
@@ -892,7 +897,7 @@ async function voicesPage() {
       $('[data-k="provider"]', r).addEventListener('change', (e) => {
         voicePicks = readRows();
         const p = e.target.value;
-        voicePicks[i] = p === 'gemini' ? { provider: p, model: 'gemini-3.8-flash-tts', voice: 'Sulafat' } : { provider: p, model: 'bulbul:v4-flash', voice: 'roopa_hi_companion' };
+        voicePicks[i] = { gemini: { provider: p, model: 'gemini-3.8-flash-tts', voice: 'Sulafat' }, cloudtts: { provider: p, model: 'gemini-2.5-flash-tts', voice: 'Sulafat' }, sarvam: { provider: p, model: 'bulbul:v4-flash', voice: 'roopa_hi_companion' } }[p];
         drawRows();
       });
       $('[data-k="model"]', r).addEventListener('change', () => { voicePicks = readRows(); drawRows(); });
@@ -901,7 +906,7 @@ async function voicesPage() {
     $('#vadd').disabled = voicePicks.length >= 8;
   }
   drawRows();
-  $('#vadd').addEventListener('click', () => { voicePicks = readRows(); voicePicks.push({ provider: 'gemini', model: 'gemini-3.8-flash-tts', voice: 'Kore' }); drawRows(); });
+  $('#vadd').addEventListener('click', () => { voicePicks = readRows(); voicePicks.push({ provider: 'cloudtts', model: 'gemini-2.5-flash-tts', voice: 'Kore' }); drawRows(); });
   $('#vsample').addEventListener('change', (e) => { if (e.target.value !== '') $('#vtext').value = info.samples[Number(e.target.value)].text; });
   const talkChars = () => Math.max(1, Number($('#vtalk').value) || 700), talks = () => Math.max(1, Number($('#vtalks').value) || 1000);
   const refreshEstimates = () => {

@@ -122,3 +122,48 @@ test('what is refused', async () => {
     assert.deepEqual([r.status, /No Gemini key on the server/.test(r.json.error)], [400, true]);
   } finally { process.env.GEMINI_API_KEY = key; }
 });
+
+test('Google Cloud Text-to-Speech: streamed, the settings first and then the text and the style; the sound as it comes', async () => {
+  const voices = await import('../server/voices/index.js');
+  const calls = [];
+  // A stand-in for Google's client: records what is written to the stream, answers with sound in pieces.
+  voices.setCloudTtsClient({
+    streamingSynthesize() {
+      const call = { writes: [], ended: false };
+      calls.push(call);
+      return {
+        write: (m) => call.writes.push(m), end: () => { call.ended = true; },
+        async *[Symbol.asyncIterator]() {
+          if (call.writes[0].streamingConfig.voice.name === 'Nobody') { const e = new Error('3 INVALID_ARGUMENT'); e.details = 'Voice Nobody does not exist.'; throw e; }
+          yield { audioContent: Buffer.alloc(24000) }; yield { audioContent: Buffer.alloc(0) }; yield { audioContent: Buffer.alloc(24000) };
+        },
+      };
+    },
+  });
+  process.env.CLOUD_TTS = 'on';
+  try {
+    const info = await get('/api/admin/voices');
+    assert.equal(info.providers.cloudtts.configured, true);
+    assert.deepEqual(info.models.cloudtts.map((m) => m.id), ['gemini-2.5-flash-tts', 'gemini-2.5-flash-lite-preview-tts', 'gemini-3.1-flash-tts-preview', 'gemini-2.5-pro-tts']);
+    assert.ok(info.voices.cloudtts.some((v) => v.id === 'Sulafat'));
+    assert.equal(info.prices.rows.find((r) => r.provider === 'cloudtts' && r.model === 'gemini-2.5-flash-tts').usd.output, 10);
+
+    const r = await speak({ provider: 'cloudtts', model: 'gemini-2.5-flash-tts', voice: 'Sulafat', style: 'Say this warmly.', pace: 0.9, text: 'Nice to meet you! | आप कैसे हैं?', mode: 'app' });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.equal(calls.length, 2, 'English and Hindi apart, as the app sends them');
+    assert.deepEqual(calls[0].writes, [
+      { streamingConfig: { voice: { name: 'Sulafat', languageCode: 'en-IN', modelName: 'gemini-2.5-flash-tts' }, streamingAudioConfig: { audioEncoding: 'PCM', sampleRateHertz: 24000, speakingRate: 0.9 } } },
+      { input: { text: 'Nice to meet you!', prompt: 'Say this warmly.' } },
+    ]);
+    assert.equal(calls[0].ended, true, 'the input is ended, so Google starts');
+    assert.equal(calls[1].writes[0].streamingConfig.voice.languageCode, 'hi-IN');
+    assert.deepEqual([r.json.pieces[0].seconds, r.json.pieces[0].tokens], [1, { input: 9, output: 25, counted: false }], "one second of sound; Google gives no count here, so it is estimated");
+    assert.ok(Math.abs(r.json.pieces[0].costInr - ((9 * 0.5 + 25 * 10) / 1e6) * 88) < 1e-12);
+    // An error from Google is shown in its own words.
+    const bad = await speak({ provider: 'cloudtts', model: 'gemini-2.5-flash-tts', voice: 'Nobody', text: 'Hello.' });
+    assert.deepEqual([bad.status, bad.json.reason], [502, 'Google Cloud: Voice Nobody does not exist.']);
+  } finally { delete process.env.CLOUD_TTS; }
+  // Off Google Cloud (no service account): it says so.
+  const off = await speak({ provider: 'cloudtts', model: 'gemini-2.5-flash-tts', voice: 'Kore', text: 'Hi' });
+  assert.deepEqual([off.status, /deployed server/.test(off.json.error)], [400, true]);
+});

@@ -28,7 +28,7 @@ step() { echo; echo "› $*"; }
 
 step "Turning on the Google services Adam uses (first run only)"
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com \
-  sqladmin.googleapis.com storage.googleapis.com identitytoolkit.googleapis.com firebase.googleapis.com --quiet
+  sqladmin.googleapis.com storage.googleapis.com identitytoolkit.googleapis.com firebase.googleapis.com texttospeech.googleapis.com --quiet
 
 if ! gcloud secrets describe sarvam-api-key >/dev/null 2>&1; then
   read -rsp "› Sarvam API key (typed input is hidden): " KEY; echo

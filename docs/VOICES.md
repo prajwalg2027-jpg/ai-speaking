@@ -1,8 +1,17 @@
 # Comparing voices
 
 Admin console › **Compare voices** (`server/admin/voices.js`, `server/voices/index.js`). It plays Sakhi's words in
-several voices side by side, from **Sarvam** (Bulbul, what the app uses today: `roopa_hi_companion`) and **Google
-Gemini** (its text-to-speech models). Nothing on this page changes the app's voice.
+several voices side by side. Nothing on this page changes the app's voice. Three sources:
+
+| | How it is called | Models | Sign-in | Streamed |
+| --- | --- | --- | --- | --- |
+| **Sarvam** | REST, streamed | Bulbul v4 Flash, v3 (the app uses v4 Flash, `roopa_hi_companion`) | Sarvam key | yes |
+| **Google Cloud TTS** | Cloud Text-to-Speech, `StreamingSynthesize` (gRPC) | Gemini 2.5 Flash TTS, 2.5 Flash-Lite (preview), 3.1 Flash (preview), 2.5 Pro | the server's Google Cloud service account (no key); billed to the project | yes: the sound comes back in pieces as it is made, once the text is in |
+| **Google Gemini API** | Interactions API, `stream: true` | Gemini 3.8 Flash TTS, 3.8 Flash-Lite TTS, and the previews | a Gemini API key | Google's guide says so; not yet checked against Google |
+
+Google's Cloud TTS guide says the newest models (3.8 Flash and Flash-Lite TTS) are **not** available through
+Cloud Text-to-Speech, only through Vertex AI and the Gemini API; that is why both Google routes are on the page.
+Each card shows **First sound after**, so the two routes can be measured on the same words.
 
 ## What it shows, for each voice
 
@@ -43,6 +52,8 @@ Pieces sent apart are joined with a short gap, as the app plays separate lines.
 | Gemini 3.8 Flash-Lite TTS | the same | $6 / $0.50: about ₹0.80 a minute. Doubles on 1 Jan 2027. |
 | Gemini 3.1 Flash TTS (preview), 2.5 Pro TTS (preview) | the same | $20 / $1 |
 | Gemini 2.5 Flash TTS (preview) | the same | $10 / $0.50 |
+| Cloud TTS: Gemini 2.5 Flash TTS, 2.5 Flash-Lite (preview) | the same | $10 / $0.50: about ₹1.32 a minute |
+| Cloud TTS: Gemini 3.1 Flash TTS (preview), 2.5 Pro TTS | the same | $20 / $1 |
 
 The page's table puts them side by side assuming Sakhi speaks about 20 characters a second (what Sarvam's voice
 measured); each card uses what its own clip really took. $1 = ₹88 unless `USD_INR` is set. Google's spending is
@@ -50,7 +61,17 @@ not counted in the daily budget; Sarvam's is.
 
 ## To try Google's voices
 
-The server needs the Gemini key (the same one Gemini as the AI uses):
+**Google Cloud TTS** needs the Cloud Text-to-Speech API turned on in the project (the deploy setup does it from
+now on; for the project as it is, once):
+
+```bash
+gcloud services enable texttospeech.googleapis.com --project=cool-arch-515210-b0
+```
+
+It signs in as the Cloud Run service account, so it works only on the deployed server, not on a local one. If
+Google refuses it, its own words show on the card.
+
+**The Gemini API** needs the Gemini key (the same one Gemini as the AI uses):
 
 ```bash
 PROJECT=cool-arch-515210-b0 PROVIDERS=gemini ./deploy/llm-keys-setup.sh
