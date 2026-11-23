@@ -59,7 +59,28 @@ const OPENAI_FAST_USD_PER_MILLION = {
   'gpt-5.6-terra': { input: 4, cached: 0.4, output: 24 },
   'gpt-5.6-luna': { input: 0.4, cached: 0.04, output: 2.4 },
 };
-const USD_TABLES = { anthropic: CLAUDE_USD_PER_MILLION, openai: OPENAI_USD_PER_MILLION };
+// Gemini (Google), standard tier, from Google's price page (aistudio.google.com/docs/pricing) on 23 Nov 2026.
+// Some prices rise on a date Google has announced: "later" holds the new price and the day it starts, and the
+// right one is used for the day the call is made. "cached" is the price of reused input (Google's context caching).
+export const GEMINI_PRICES_AS_OF = '23 Nov 2026';
+const GEMINI_USD_PER_MILLION = {
+  'gemini-4-carbon': { input: 2, cached: 0.1, output: 10, later: { from: '2026-12-01', input: 4, cached: 0.2, output: 20 } },
+  'gemini-4-argon': { input: 2, cached: 0.1, output: 10, later: { from: '2026-12-01', input: 4, cached: 0.2, output: 20 } },
+  'gemini-4-neon': { input: 3, cached: 0.15, output: 15 },
+  'gemini-4-hydrogen': { input: 1.5, cached: 0.075, output: 7.5 },
+  'gemini-3.8-flash': { input: 0.75, cached: 0.075, output: 3.75, later: { from: '2027-01-01', input: 1.5, cached: 0.15, output: 7.5 } },
+  'gemini-3.6-flash': { input: 0.75, cached: 0.075, output: 3.75, later: { from: '2027-01-01', input: 1.5, cached: 0.15, output: 7.5 } },
+  'gemini-3.5-flash-lite': { input: 0.3, cached: 0.03, output: 2.5 },
+  'gemini-3.1-flash-lite': { input: 0.25, cached: 0.025, output: 1.5 },
+  'gemini-3.1-pro-preview': { input: 2, cached: 0.2, output: 12 }, // prompts up to 200k tokens
+  'gemini-3-flash-preview': { input: 0.5, cached: 0.05, output: 3 },
+  'gemini-2.5-pro': { input: 1.25, cached: 0.125, output: 10 }, // prompts up to 200k tokens
+  'gemini-2.5-flash': { input: 0.3, cached: 0.03, output: 2.5 },
+  'gemini-2.5-flash-lite': { input: 0.1, cached: 0.01, output: 0.4 },
+};
+/** The price that applies on a day: a model's own, or its "later" one once that has started. */
+const onDay = (p, day = new Date().toISOString().slice(0, 10)) => (p?.later && day >= p.later.from ? p.later : p) || null;
+const USD_TABLES = { anthropic: CLAUDE_USD_PER_MILLION, openai: OPENAI_USD_PER_MILLION, gemini: GEMINI_USD_PER_MILLION };
 /** Was this answer served in OpenAI's Fast mode? (Older models report it as "priority".) */
 export const isFastTier = (tier) => tier === 'fast' || tier === 'priority';
 
@@ -67,13 +88,13 @@ export const isFastTier = (tier) => tier === 'fast' || tier === 'priority';
 export function usdPrice(provider, model, tier = null) {
   const table = provider === 'openai' && isFastTier(tier) ? OPENAI_FAST_USD_PER_MILLION : USD_TABLES[provider];
   if (!table || !model) return null;
-  if (table[model]) return table[model];
+  if (table[model]) return onDay(table[model]);
   const base = Object.keys(table).filter((k) => model.startsWith(`${k}-`)).sort((x, y) => y.length - x.length)[0];
-  return base ? table[base] : null;
+  return base ? onDay(table[base]) : null;
 }
 
 /** Every price known here, for the admin's model menus: { provider: { model: { input, cached?, output } } } in US dollars per million tokens. */
-export const knownPrices = () => ({ ...USD_TABLES, openaiFast: OPENAI_FAST_USD_PER_MILLION, sarvamInr: PRICES.llmPerMillion, usdInr: usdInr(), openaiAsOf: OPENAI_PRICES_AS_OF });
+export const knownPrices = () => ({ ...Object.fromEntries(Object.entries(USD_TABLES).map(([p, t]) => [p, Object.fromEntries(Object.entries(t).map(([m, x]) => [m, onDay(x)]))])), openaiFast: OPENAI_FAST_USD_PER_MILLION, geminiAsOf: GEMINI_PRICES_AS_OF, sarvamInr: PRICES.llmPerMillion, usdInr: usdInr(), openaiAsOf: OPENAI_PRICES_AS_OF });
 
 function usdInr() {
   const n = Number(process.env.USD_INR);

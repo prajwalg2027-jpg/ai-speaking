@@ -18,7 +18,19 @@ const noTemperature = new Set();
 // Models that refused a request for a summary of their thinking (they don't think, or the account can't see it).
 const noThinking = new Set();
 
-async function chatCompletions(p, messages, { model, temperature, maxTokens, schema, schemaName }) {
+/**
+ * How hard a Gemini model thinks, in the OpenAI-compatible words Google takes (aistudio.google.com/docs/openai):
+ * thinking can be turned off only on the 2.5 models ("none"); for the others "none" is their least ("minimal").
+ * "xhigh" exists only on gemini-4-neon and gemini-4-hydrogen; elsewhere the most is "high".
+ */
+export function geminiEffort(model, effort) {
+  if (!effort) return null;
+  if (effort === 'none') return /^gemini-2\.5/.test(model) && !/pro/.test(model) ? 'none' : 'minimal';
+  if (effort === 'xhigh' || effort === 'max') return /^gemini-4-(neon|hydrogen)/.test(model) ? 'xhigh' : 'high';
+  return effort;
+}
+
+async function chatCompletions(p, messages, { model, temperature, maxTokens, schema, schemaName, effort = null }) {
   const base = process.env[p.base] || p.defaultBase;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20_000);
@@ -29,6 +41,7 @@ async function chatCompletions(p, messages, { model, temperature, maxTokens, sch
         headers: { authorization: `Bearer ${process.env[p.key]}`, 'content-type': 'application/json' },
         body: JSON.stringify({
           model, messages, ...(noTemperature.has(`${p.label}/${model}`) ? {} : { temperature }), [p.maxParam]: maxTokens,
+          ...(effort && !noEffort.has(`${p.label}/${model}`) ? { reasoning_effort: effort } : {}),
           response_format: schema
             ? { type: 'json_schema', json_schema: { name: schemaName, strict: true, schema: z.toJSONSchema(schema, { target: 'draft-7' }) } }
             : { type: 'json_object' },
@@ -39,6 +52,7 @@ async function chatCompletions(p, messages, { model, temperature, maxTokens, sch
         const body = (await res.text()).slice(0, 400);
         // "temperature does not support 0.6 with this model": ask again without it, and remember.
         if (res.status === 400 && /temperature/i.test(body) && !noTemperature.has(`${p.label}/${model}`)) { noTemperature.add(`${p.label}/${model}`); continue; }
+        if (res.status === 400 && effort && /reasoning|thinking|effort/i.test(body) && !noEffort.has(`${p.label}/${model}`)) { noEffort.add(`${p.label}/${model}`); continue; }
         throw new Error(`${p.label} ${res.status}: ${body.slice(0, 300)}`);
       }
       const j = await res.json();

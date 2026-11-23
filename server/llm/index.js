@@ -8,7 +8,7 @@
 // calls have no side effects, so retrying them can't duplicate anything: saving happens later, once.
 import * as settings from '../settings.js';
 import * as sarvam from '../sarvam.js';
-import { openaiChat, openaiConfigured, geminiChat, geminiConfigured } from './openai.js';
+import { openaiChat, openaiConfigured, geminiChat, geminiConfigured, geminiEffort } from './openai.js';
 import { anthropicChat, anthropicConfigured } from './anthropic.js';
 import { costInr } from './prices.js';
 
@@ -43,11 +43,11 @@ export const fromTheApp = (text) => (text.startsWith('[System]') ? text : `[Note
 /** The providers whose answer can be streamed (onText). */
 export const streams = (provider) => provider === 'openai';
 /** The providers that can be told how hard to think. The others ignore it. */
-export const takesEffort = (provider) => provider === 'openai' || provider === 'anthropic';
+export const takesEffort = (provider) => provider === 'openai' || provider === 'anthropic' || provider === 'gemini';
 
 async function callProvider(job, messages, { schema, schemaName, maxTokens, wantThinking = false, effort = null, onText = null, fast = false }) {
   if (job.provider === 'openai') return openaiChat(messages, { model: job.model, temperature: job.temperature, maxTokens, schema, schemaName, wantThinking, effort, onText, fast });
-  if (job.provider === 'gemini') return geminiChat(lateSystemAsUser(messages), { model: job.model, temperature: job.temperature, maxTokens, schema, schemaName });
+  if (job.provider === 'gemini') return geminiChat(lateSystemAsUser(messages), { model: job.model, temperature: job.temperature, maxTokens, schema, schemaName, effort: geminiEffort(job.model, effort) });
   // Current Claude models reject temperature, so it isn't passed.
   if (job.provider === 'anthropic') return anthropicChat(messages, { model: job.model, maxTokens, schema, schemaName, wantThinking, effort });
   const meta = {};
