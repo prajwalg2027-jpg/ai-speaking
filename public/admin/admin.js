@@ -252,7 +252,7 @@ async function overview() {
 const ORDER = ['placement', 'payments', 'corrections', 'llm', 'conversation', 'limits', 'features', 'scoring'];
 const JOBS = { tutor: 'Tutor replies', verify: 'Correction check (strategy B)', lessonEval: 'Lesson marking' };
 const EFFORT_OPTIONS = [['default', "The model's own default"], ['none', 'None (fastest)'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Most (slowest)']];
-const TAKES_THINKING = ['openai', 'anthropic']; // the providers that can be told how hard to think
+const TAKES_THINKING = ['openai', 'anthropic', 'gemini']; // the providers that can be told how hard to think
 const META = {
   'corrections.strategy': { type: 'choice', label: 'How corrections are made', options: [
     ['single', 'A · One call', 'The tutor replies and proposes corrections in one call; the correction rules filter them. Fastest and cheapest.'],
@@ -267,7 +267,7 @@ const META = {
   'placement.summary': { label: 'Backup AI for the closing feedback (only if the first leaves the level out)' },
   'placement.maxQuestions': { label: 'Most open questions in a conversation', help: '1 to 6, after the name, picture and reading. The talk ends sooner when the level is clear.' },
   'placement.speed': { type: 'select', label: 'OpenAI speed', help: "Fast is OpenAI's Fast mode: up to 2.5 times quicker, at about twice the price per token. Only some OpenAI models have it (gpt-6-luna does); others answer at standard speed.", options: [['fast', 'Fast (dearer)'], ['standard', 'Standard']] },
-  'placement.turnEffort': { type: 'select', label: 'Thinking on each turn', help: 'How hard the model thinks before Sakhi replies. Less is faster. Used by OpenAI and Claude models; others ignore it.', options: EFFORT_OPTIONS },
+  'placement.turnEffort': { type: 'select', label: 'Thinking on each turn', help: 'How hard the model thinks before Sakhi replies. Less is faster. Used by OpenAI, Claude and Gemini models; Sarvam ignores it.', options: EFFORT_OPTIONS },
   'placement.finalEffort': { type: 'select', label: 'Thinking for the final level and feedback', help: 'If the AI ends the talk on a turn with less thinking than this, that turn is asked once more at this level.', options: EFFORT_OPTIONS },
   'conversation.historyMessages': { label: 'Recent messages the tutor reads', help: 'More = better memory of the conversation, slightly slower and costlier.' },
   'limits.dailyBudgetInr': { label: 'Daily budget (₹)', help: 'When today’s AI spend reaches this, new conversations and messages pause until tomorrow.' },
@@ -581,7 +581,7 @@ async function models() {
     const pr = info.prices || {}, fastUsd = p === 'openai' && speed === 'fast' && pr.openaiFast?.[model], usd = fastUsd || pr[p]?.[model] || Object.entries(pr[p] || {}).filter(([k]) => model.startsWith(`${k}-`)).sort((a, b) => b[0].length - a[0].length)[0]?.[1];
     const per = (x, sign) => `${sign}${x.input} input · ${x.cached != null ? `${sign}${x.cached} reused input · ` : ''}${sign}${x.output} output, per million tokens`;
     if (p === 'sarvam' && pr.sarvamInr) return `Price: ${per(pr.sarvamInr, '₹')}.`;
-    if (usd) return `Price: ${per(usd, '$')}${p === 'openai' ? ` (OpenAI's ${fastUsd ? 'Fast mode' : 'list'} price, ${pr.openaiAsOf})` : ''}${p === 'openai' && speed === 'fast' && !fastUsd ? ' This model has no Fast mode: it will answer at standard speed.' : ''}. Shown in rupees at ₹${pr.usdInr} to the dollar.`;
+    if (usd) return `Price: ${per(usd, '$')}${p === 'openai' ? ` (OpenAI's ${fastUsd ? 'Fast mode' : 'list'} price, ${pr.openaiAsOf})` : p === 'gemini' ? ` (Google's price, ${pr.geminiAsOf})` : ''}${p === 'openai' && speed === 'fast' && !fastUsd ? ' This model has no Fast mode: it will answer at standard speed.' : ''}. Shown in rupees at ₹${pr.usdInr} to the dollar.`;
     return 'No price is known for this model, so its cost will show as "–". Add one below to see it.';
   };
 
@@ -624,7 +624,7 @@ async function models() {
       <p class="muted small">Up to four. Each one runs its own conversation.</p>
       <div id="picks">${labPicks.models.map(pickRow)}</div>
       ${labPicks.models.length < 4 ? html`<p><button type="button" id="addm">Add a model</button></p>` : ''}
-      <p class="muted small">Thinking can be chosen for each OpenAI or Claude model (other providers have no such choice). It starts at the levels in <a href="#settings">Settings › Placement test</a>. To compare thinking levels, add the same model twice.</p>
+      <p class="muted small">Thinking can be chosen for each OpenAI, Claude or Gemini model (Sarvam has no such choice). It starts at the levels in <a href="#settings">Settings › Placement test</a>. To compare thinking levels, add the same model twice.</p>
       <p class="muted small">API keys are added on the server with <code>deploy/llm-keys-setup.sh</code>. This page spends real AI credit.</p>
       <p class="err" id="serr" role="alert"></p>
       <div class="row"><button class="primary" type="submit">Start the conversations</button></div></form>`);

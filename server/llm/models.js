@@ -6,10 +6,13 @@ import Anthropic from '@anthropic-ai/sdk';
 const KNOWN = {
   sarvam: ['sarvam-105b-conversations', 'sarvam-105b'], // Sarvam has no list to ask for: these are the chat models it accepts
   anthropic: ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5'],
-  openai: [], gemini: [],
+  openai: [],
+  // Google's chat models (aistudio.google.com/docs/models, 23 Nov 2026). With a key, the list comes from Google.
+  gemini: ['gemini-4-carbon', 'gemini-4-argon', 'gemini-4-neon', 'gemini-4-hydrogen', 'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'],
 };
 // Not for conversation: speech, images, embeddings, moderation and older completion-only models.
-const NOT_CHAT = /embed|tts|whisper|dall-e|image|imagen|audio|realtime|moderation|transcri|search|davinci|babbage|sora|veo|aqa|computer-use|codex|instruct|robotics|guard|learnlm/i;
+const NOT_CHAT = /embed|tts|whisper|dall-e|image|imagen|audio|realtime|moderation|transcri|search|davinci|babbage|sora|veo|aqa|computer-use|codex|instruct|robotics|guard|learnlm|live|banana|omni|genie|lyria|decision|gemma/i;
 const TTL_MS = 10 * 60 * 1000;
 let cache = { at: 0, value: null };
 

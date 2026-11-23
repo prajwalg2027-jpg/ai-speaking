@@ -319,7 +319,11 @@ Notes on providers (`server/llm/`):
 - **Gemini** uses Google's OpenAI-compatible endpoint; **OpenAI** its own. Type the model name.
 - None of the three has been run against the real service from this repository (no keys here): the tests use
   stand-ins. Try each on the Compare models page before switching learners to it.
-- Cost shown is an estimate (Sarvam, Claude and OpenAI prices are known to the code; others show "–"). Spending on
+- Cost shown is an estimate (Sarvam, Claude, OpenAI and Gemini prices are known to the code; others show "–").
+- **Gemini**: every chat model and its price is listed (Google's price page, 23 Nov 2026, including the rises
+  Google has announced: Gemini 4 Carbon and Argon double on 1 Dec 2026, 3.8 Flash on 1 Jan 2027; the right price
+  is used for the day of the call). Thinking levels map to Google's: thinking can be turned off only on the 2.5
+  models ("none" is their least level otherwise), and extra high exists only on Gemini 4 Neon and Hydrogen. Spending on
   providers other than Sarvam is not counted towards the daily budget limit yet.
 - **Privacy**: with a provider other than Sarvam, the text of what learners say is sent to that company's
   servers, outside India. The privacy policy needs to say so before learners are switched to one. Voice

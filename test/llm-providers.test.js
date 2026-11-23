@@ -187,7 +187,12 @@ test('how hard to think: sent to OpenAI and Claude when asked; a model that refu
   const claude = (effort) => llm.structured({ job: 'x', config: { provider: 'anthropic', model: 'claude-haiku-5-5', temperature: 0 }, messages, schema: Answer, effort });
   await claude('medium'); await claude('none'); await claude(); await claude('max');
   assert.deepEqual(claudeCalls.map((c) => c.body.output_config.effort), ['medium', 'low', 'low', 'high'], 'Claude has no "none" (its usual low) and nothing above high');
-  assert.deepEqual([llm.takesEffort('openai'), llm.takesEffort('anthropic'), llm.takesEffort('sarvam'), llm.takesEffort('gemini')], [true, true, false, false]);
+  assert.deepEqual([llm.takesEffort('openai'), llm.takesEffort('anthropic'), llm.takesEffort('sarvam'), llm.takesEffort('gemini')], [true, true, false, true]);
+  // Gemini, through its OpenAI-compatible endpoint: in Google's words for each model.
+  openCalls.length = 0;
+  const gem = (model, effort) => llm.structured({ job: 'x', config: { provider: 'gemini', model, temperature: 0 }, messages, schema: Answer, effort });
+  await gem('gemini-3.8-flash', 'low'); await gem('gemini-3.8-flash', 'none'); await gem('gemini-2.5-flash', 'none'); await gem('gemini-4-hydrogen', 'max'); await gem('gemini-4-carbon', 'max'); await gem('gemini-3.8-flash');
+  assert.deepEqual(openCalls.map((c) => c.body.reasoning_effort), ['low', 'minimal', 'none', 'xhigh', 'high', undefined], 'thinking can only be turned off on 2.5; extra high only on Neon and Hydrogen');
 });
 
 test('OpenAI: with onText the answer is streamed, its text handed over as it is written', async () => {
@@ -227,6 +232,25 @@ test('an answer that leaves fields out: asked for as plain JSON (no schema to th
   assert.deepEqual(openCalls[1].body.response_format, { type: 'json_object' });
   assert.deepEqual((await ask('anthropic', 'claude-haiku-5-5')).data, ANSWER);
   assert.equal('format' in claudeCalls[0].body.output_config, false);
+});
+
+test("Gemini's prices: every chat model, with the rises Google has announced, on the right day", async () => {
+  const { usdPrice, knownPrices, costInr, GEMINI_PRICES_AS_OF } = prices;
+  assert.equal(GEMINI_PRICES_AS_OF, '23 Nov 2026');
+  const all = knownPrices().gemini;
+  for (const m of ['gemini-4-carbon', 'gemini-4-argon', 'gemini-4-neon', 'gemini-4-hydrogen', 'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'])
+    assert.ok(all[m]?.input > 0 && all[m].output > 0 && all[m].cached > 0, m);
+  assert.deepEqual(usdPrice('gemini', 'gemini-3.5-flash-lite'), { input: 0.3, cached: 0.03, output: 2.5 });
+  // Gemini 4 Carbon doubles on 1 Dec 2026: the price used depends on the day of the call.
+  const real = Date;
+  try {
+    global.Date = class extends real { constructor(...a) { super(...(a.length ? a : ['2026-11-30T12:00:00Z'])); } static now() { return new real('2026-11-30T12:00:00Z').getTime(); } };
+    assert.equal(usdPrice('gemini', 'gemini-4-carbon').input, 2);
+    global.Date = class extends real { constructor(...a) { super(...(a.length ? a : ['2026-12-01T00:30:00Z'])); } static now() { return new real('2026-12-01T00:30:00Z').getTime(); } };
+    assert.deepEqual(usdPrice('gemini', 'gemini-4-carbon'), { from: '2026-12-01', input: 4, cached: 0.2, output: 20 });
+    assert.equal(usdPrice('gemini', 'gemini-3.8-flash').input, 0.75, 'its rise is in January');
+  } finally { global.Date = real; }
+  assert.ok(costInr({ provider: 'gemini', model: 'gemini-2.5-flash-lite', usage: { input: 1000, cached: 500, output: 100 } }) > 0);
 });
 
 test("OpenAI's Fast mode: asked for when wanted, priced at its own rate, and never needed", async () => {
@@ -317,7 +341,8 @@ test('the model menus: each provider is asked for its models; only chat models; 
     assert.deepEqual(m.anthropic, ['claude-opus-5-5', 'claude-haiku-5-5']);
     assert.deepEqual(m.sarvam, ['sarvam-105b-conversations', 'sarvam-105b']);
     process.env.GEMINI_BASE_URL = `${base}/broken`;
-    assert.deepEqual((await listModels({ fresh: true })).gemini, [], 'the list fails: nothing to offer, and the name can still be typed');
+    const known = (await listModels({ fresh: true })).gemini;
+    assert.ok(known.includes('gemini-3.8-flash') && known.includes('gemini-4-hydrogen') && !known.some((m) => /tts|live|image/.test(m)), "the list fails: Google's known chat models are offered, and any name can still be typed");
   } finally { Object.assign(process.env, old); fake.closeAllConnections(); fake.close(); }
 });
 
