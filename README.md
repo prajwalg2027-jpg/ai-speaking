@@ -63,3 +63,4 @@ public/mic-test.html          mic processing on/off test page
 public/pcm.js                 streaming resampler → 16 kHz PCM16
 test/mock-sarvam-realtime.js  protocol-accurate stand-in for Sarvam Realtime (tests / offline dev)
 ```
+
