@@ -74,7 +74,7 @@ stay** (Prajwal may switch back). The new **conversation** test goes from easy t
 word, a line to read, then open questions. **Every turn goes to the AI, which also decides the final level**
 (Prajwal's choice); code keeps the step order, repeat limits and a safety net (`server/placement/level.js`). Its AI
 model is a setting: Sarvam, Claude, OpenAI or Gemini, compared side by side on the console's Compare models page.
-Everything is in `docs/PLACEMENT.md`. Not yet done: trying it with real models (keys via
+Everything is in `docs/PLACEMENT.md`. Comparing Sakhi's voices (Sarvam's and Google Gemini's, with costs): `docs/VOICES.md`. Not yet done: trying it with real models (keys via
 `deploy/llm-keys-setup.sh`), and the privacy policy line needed before learners' words go to a provider outside India.
 
 ## Payments (Nov 2026)

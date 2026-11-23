@@ -82,7 +82,7 @@ async function signOut() {
 let me = { permissions: [] };
 const can = (p) => me.permissions.includes(p);
 // The permission each page needs.
-const NEEDS = { overview: 'dashboard.view', settings: 'settings.view', playground: 'playground.use', models: 'playground.use', evals: 'evals.view', conversations: 'conversations.view', lessons: 'lessons.view', team: 'team.manage' };
+const NEEDS = { overview: 'dashboard.view', settings: 'settings.view', playground: 'playground.use', models: 'playground.use', voices: 'playground.use', evals: 'evals.view', conversations: 'conversations.view', lessons: 'lessons.view', team: 'team.manage' };
 
 async function boot() {
   const cfg = await fetch('/api/admin/config').then((r) => r.json());
@@ -157,7 +157,7 @@ function firebaseLoginPage() {
   });
 }
 
-const PAGES = { overview, settings, playground, models, evals, conversations, lessons, team };
+const PAGES = { overview, settings, playground, models, voices: voicesPage, evals, conversations, lessons, team };
 async function route() {
   const first = Object.keys(PAGES).find((k) => can(NEEDS[k]));
   if (!first) return show(html`<div class="card"><h2>Nothing to show yet</h2><p class="muted">Your role (${me.roleName}) doesn't include any pages. Ask an owner.</p></div>`);
@@ -817,6 +817,151 @@ async function models() {
   }
 
   setup();
+}
+
+// ---- Compare voices ---------------------------------------------------------------------------------
+// Sarvam's and Google's voices side by side, on the same words: hear each, see how soon it started and how long it
+// took, what it cost, and what a whole talk would cost with it (server/admin/voices.js). Nothing is saved.
+let voicePicks = null; // the voice rows, kept for later visits
+const VOICE_PROVIDERS = { sarvam: 'Sarvam', gemini: 'Google Gemini' };
+const inr4 = (x) => (x == null ? '–' : x < 0.01 ? `₹${x.toFixed(4)}` : `₹${x.toFixed(3)}`);
+const b64ToBlob = (b64, type) => { const bin = atob(b64), bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); return new Blob([bytes], { type }); };
+
+async function voicesPage() {
+  const info = await api('/voices');
+  const sarvamList = (model) => info.voices.sarvam[model] || info.voices.sarvam['bulbul:v4-flash'];
+  if (!voicePicks) voicePicks = [
+    { provider: 'sarvam', model: info.current.model, voice: info.current.voice },
+    { provider: 'sarvam', model: 'bulbul:v4-flash', voice: 'ishita_enhi_companion' },
+    { provider: 'gemini', model: 'gemini-3.8-flash-tts', voice: 'Sulafat', style: 'warm, friendly and patient, like a kind teacher on a phone call' },
+    { provider: 'gemini', model: 'gemini-3.8-flash-lite-tts', voice: 'Achird', style: 'warm, friendly and patient, like a kind teacher on a phone call' },
+  ];
+  const label = (v) => `${VOICE_PROVIDERS[v.provider]} · ${v.model} · ${v.voice}${v.style ? ` · “${v.style.slice(0, 40)}${v.style.length > 40 ? '…' : ''}”` : ''}${v.pace && v.pace !== 1 ? ` · pace ${v.pace}` : ''}`;
+  const pr = info.prices;
+
+  show(html`
+    <div class="page-head"><div><h1>Compare voices</h1><p class="muted">Sakhi's voice from Sarvam (what the app uses now: <code>${info.current.voice}</code>) and from Google Gemini, on the same words. Each card plays the sound and shows how soon it started, how long it took and what it cost. This page spends real credit with each provider. Nothing changes in the app.</p></div></div>
+    <datalist id="vl-sarvam-bulbul:v4-flash">${sarvamList('bulbul:v4-flash').map((v) => html`<option value="${v}">`)}</datalist>
+    <datalist id="vl-sarvam-bulbul:v3">${sarvamList('bulbul:v3').map((v) => html`<option value="${v}">`)}</datalist>
+    <datalist id="vl-gemini">${info.voices.gemini.map((v) => html`<option value="${v.id}">${v.label}</option>`)}</datalist>
+    <form class="card section" id="vform" novalidate>
+      <h2>What Sakhi says</h2>
+      <div class="row end"><label class="f">Her real lines<select id="vsample"><option value="">Choose one…</option>${info.samples.map((s, i) => html`<option value="${i}">${s.label}</option>`)}</select></label></div>
+      <label class="f"><span>Words ("|" marks where her reaction ends and her question begins)</span><textarea id="vtext" rows="3" maxlength="1200">${info.samples[0].text}</textarea></label>
+      <div class="choices" role="radiogroup" aria-label="How it is sent">${info.modes.map(([v, t], i) => html`<label class="choice"><input type="radio" name="vmode" value="${v}" ${i === 0 ? raw('checked') : ''}><div><strong>${t}</strong></div></label>`)}</div>
+      <h2>Voices</h2>
+      ${['sarvam', 'gemini'].filter((p) => !info.providers[p].configured).map((p) => html`<p class="small err">${p === 'gemini' ? 'No Gemini key on the server yet, so Google voices will fail. Add it with deploy/llm-keys-setup.sh (PROVIDERS=gemini).' : 'No Sarvam key on the server.'}</p>`)}
+      <div id="vrows"></div>
+      <p><button type="button" id="vadd">Add a voice</button></p>
+      <p class="muted small">Sarvam: ${info.voices.sarvam['bulbul:v4-flash'].length} voices for Bulbul v4 Flash and ${info.voices.sarvam['bulbul:v3'].length} for v3 (Sarvam's list on ${info.voices.sarvam.asOf}); each name is person_language_style, so <code>roopa_hi_companion</code> is Roopa, Hindi, companion style. Pace, pitch and steadiness are Sarvam's own controls. Google: ${info.voices.gemini.length} voices; it is told how to speak in words (the style), not with numbers.</p>
+      <div class="row end"><label class="f">Characters Sakhi says in a talk, for the estimate<input type="number" id="vtalk" min="100" max="10000" value="700"></label>
+        <label class="f">Talks<input type="number" id="vtalks" min="1" max="10000000" value="1000"></label></div>
+      <p class="err" id="verr" role="alert"></p>
+      <div class="row"><button class="primary" type="submit">Make every voice</button><button type="button" id="vplayall" disabled>Play them one after another</button></div>
+    </form>
+    <div id="vout" class="voice-grid"></div>
+    <div class="card section"><h2>What each voice model costs</h2>
+      <div class="table-wrap"><table><tr><th>Provider</th><th>Model</th><th>Billed by</th><th class="num">₹ per 1,000 characters</th><th class="num">₹ per minute of speech</th><th class="num">₹ per talk (at the characters above)</th></tr>
+      ${pr.rows.map((r) => html`<tr><td>${VOICE_PROVIDERS[r.provider]}</td><td>${r.label}${r.rises ? html`<br><span class="small muted">doubles from ${r.rises.from}</span>` : ''}</td><td class="small">${r.billedBy}</td><td class="num">${inr4(r.per1000Chars)}</td><td class="num">${inr4(r.perMinute)}</td><td class="num" data-pertalk="${r.per1000Chars}">${inr4((r.per1000Chars * 700) / 1000)}</td></tr>`)}
+      </table></div>
+      <p class="small muted">Sarvam charges for characters sent (₹ per 1,000, pay as you go); Google for seconds of sound made (25 tokens a second) and a little for the text. To put them side by side the table assumes Sakhi says about ${pr.charsPerSecond} characters a second, and $1 = ₹${pr.usdInr}. The cards below use what each clip really took. Her fixed lines (the hello, the level) are made once and reused, so a talk pays only for what the AI writes. Google's spending is not counted in the daily budget.</p>
+    </div>`);
+
+  const rowsBox = $('#vrows');
+  const rowHtml = (v, i) => html`<div class="card vrow" data-i="${i}"><div class="row end">
+      <label class="f">Provider<select data-k="provider">${Object.entries(VOICE_PROVIDERS).map(([p, t]) => html`<option value="${p}" ${p === v.provider ? raw('selected') : ''}>${t}${info.providers[p].configured ? '' : ' (no key on the server)'}</option>`)}</select></label>
+      <label class="f">Model<select data-k="model">${info.models[v.provider].map((m) => html`<option value="${m.id}" ${m.id === v.model ? raw('selected') : ''}>${m.label}</option>`)}</select></label>
+      <label class="f grow">Voice<input data-k="voice" value="${v.voice}" list="${v.provider === 'gemini' ? 'vl-gemini' : `vl-sarvam-${v.model}`}" autocomplete="off"></label>
+      <button type="button" class="link danger" data-remove>Remove</button></div>
+    ${v.provider === 'gemini'
+      ? html`<label class="f">How to say it (style, optional)<input data-k="style" value="${v.style || ''}" maxlength="400" placeholder="warm, friendly and patient"></label>`
+      : html`<div class="row"><label class="f">Pace<input type="number" data-k="pace" min="0.5" max="2" step="0.05" value="${v.pace ?? 1}"></label>
+          <label class="f">Pitch<input type="number" data-k="pitch" min="-0.5" max="0.5" step="0.05" value="${v.pitch ?? 0}"></label>
+          <label class="f">Steadiness (temperature: lower is steadier)<input type="number" data-k="temperature" min="0.01" max="1" step="0.05" value="${v.temperature ?? 0.6}"></label></div>`}</div>`;
+  const readRows = () => $$('.vrow', rowsBox).map((r) => {
+    const get = (k) => $(`[data-k="${k}"]`, r);
+    const o = { provider: get('provider').value, model: get('model').value, voice: get('voice').value.trim() };
+    if (o.provider === 'gemini') { if (get('style')?.value.trim()) o.style = get('style').value.trim(); }
+    else for (const k of ['pace', 'pitch', 'temperature']) { const n = Number(get(k)?.value); if (get(k) && get(k).value !== '' && Number.isFinite(n)) o[k] = n; }
+    return o;
+  });
+  function drawRows() {
+    rowsBox.innerHTML = fmt(html`${voicePicks.map(rowHtml)}`);
+    for (const r of $$('.vrow', rowsBox)) {
+      const i = Number(r.dataset.i);
+      $('[data-k="provider"]', r).addEventListener('change', (e) => {
+        voicePicks = readRows();
+        const p = e.target.value;
+        voicePicks[i] = p === 'gemini' ? { provider: p, model: 'gemini-3.8-flash-tts', voice: 'Sulafat' } : { provider: p, model: 'bulbul:v4-flash', voice: 'roopa_hi_companion' };
+        drawRows();
+      });
+      $('[data-k="model"]', r).addEventListener('change', () => { voicePicks = readRows(); drawRows(); });
+      $('[data-remove]', r).addEventListener('click', () => { voicePicks = readRows(); voicePicks.splice(i, 1); drawRows(); });
+    }
+    $('#vadd').disabled = voicePicks.length >= 8;
+  }
+  drawRows();
+  $('#vadd').addEventListener('click', () => { voicePicks = readRows(); voicePicks.push({ provider: 'gemini', model: 'gemini-3.8-flash-tts', voice: 'Kore' }); drawRows(); });
+  $('#vsample').addEventListener('change', (e) => { if (e.target.value !== '') $('#vtext').value = info.samples[Number(e.target.value)].text; });
+  const talkChars = () => Math.max(1, Number($('#vtalk').value) || 700), talks = () => Math.max(1, Number($('#vtalks').value) || 1000);
+  const refreshEstimates = () => {
+    for (const td of $$('[data-pertalk]')) td.textContent = inr4((Number(td.dataset.pertalk) * talkChars()) / 1000);
+    for (const el of $$('[data-perchar]')) el.textContent = `${inr4(Number(el.dataset.perchar) * talkChars())} a talk · ₹${(Number(el.dataset.perchar) * talkChars() * talks()).toFixed(0)} for ${talks().toLocaleString('en-IN')} talks`;
+  };
+  $('#vtalk').addEventListener('input', refreshEstimates); $('#vtalks').addEventListener('input', refreshEstimates);
+
+  // Every voice at once; each card fills in as soon as its sound is ready.
+  let clips = [];
+  $('#vform').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('#verr').textContent = '';
+    voicePicks = readRows();
+    const text = $('#vtext').value.trim(), mode = $('input[name="vmode"]:checked').value;
+    if (!text) { $('#verr').textContent = 'Type what Sakhi says.'; return; }
+    if (!voicePicks.length) { $('#verr').textContent = 'Add at least one voice.'; return; }
+    for (const u of clips) URL.revokeObjectURL(u);
+    clips = []; $('#vplayall').disabled = true;
+    const out = $('#vout');
+    out.innerHTML = fmt(html`${voicePicks.map((v, i) => html`<div class="card vcard" data-i="${i}"><h3>${label(v)}</h3><p class="muted small"><span class="spin"></span> Making the sound…</p></div>`)}`);
+    const btn = $('button[type=submit]', e.target); btn.disabled = true;
+    await Promise.all(voicePicks.map(async (v, i) => {
+      const card = $(`.vcard[data-i="${i}"]`, out);
+      try {
+        const r = await api('/voices/speak', { method: 'POST', body: { ...v, text, mode } });
+        const url = URL.createObjectURL(b64ToBlob(r.audio, 'audio/wav'));
+        clips[i] = url;
+        const perChar = r.costInr / Math.max(1, r.chars);
+        card.innerHTML = fmt(html`<h3>${label(v)}</h3>
+          <audio controls preload="auto" src="${url}"></audio>
+          <table class="vstats">
+            <tr><td>First sound after</td><td class="num"><strong>${ms(r.firstAudioMs)}</strong></td></tr>
+            <tr><td>All made in</td><td class="num">${ms(r.totalMs)}</td></tr>
+            <tr><td>Length of speech</td><td class="num">${r.seconds.toFixed(1)} s (${(r.chars / Math.max(0.1, r.seconds)).toFixed(1)} characters a second)</td></tr>
+            <tr><td>Cost of this clip</td><td class="num"><strong>${inr4(r.costInr)}</strong> for ${r.chars} characters</td></tr>
+            <tr><td>Per minute of speech</td><td class="num">${inr4((r.costInr / Math.max(0.1, r.seconds)) * 60)}</td></tr>
+            <tr><td>At this rate</td><td class="num" data-perchar="${perChar}"></td></tr>
+          </table>
+          ${r.pieces.length > 1 ? html`<details><summary class="small muted">Sent as ${r.pieces.length} requests</summary><ol class="small">${r.pieces.map((p) => html`<li>${p.text} <span class="muted">(first sound ${ms(p.firstByteMs)}, ${p.seconds} s, ${inr4(p.costInr)}${p.tokens ? `, ${p.tokens.output} sound tokens${p.tokens.counted ? '' : ' estimated'}` : ''})</span></li>`)}</ol></details>` : ''}
+          ${r.pieces[0]?.tokens && !r.pieces[0].tokens.counted ? html`<p class="small muted">Google did not report its count: the cost is worked out from the length of the sound.</p>` : ''}
+          <p><a class="small" href="${url}" download="${`${v.provider}-${v.voice}.wav`.replace(/[^\w.-]+/g, '_')}">Download</a></p>`);
+        refreshEstimates();
+      } catch (x) { card.innerHTML = fmt(html`<h3>${label(v)}</h3><p class="err">${x.message}</p>`); }
+    }));
+    btn.disabled = false;
+    $('#vplayall').disabled = !clips.some(Boolean);
+  });
+  // Blind comparison is easier one after another, with a short pause between voices.
+  $('#vplayall').addEventListener('click', async () => {
+    const players = $$('.vcard audio');
+    for (const a of players) {
+      a.closest('.vcard').classList.add('playing');
+      a.currentTime = 0;
+      await a.play().catch(() => {});
+      await new Promise((ok) => { a.onended = ok; a.onpause = ok; });
+      a.closest('.vcard').classList.remove('playing');
+      await new Promise((ok) => setTimeout(ok, 600));
+    }
+  });
 }
 
 // ---- Evaluations ----------------------------------------------------------------------------------

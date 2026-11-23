@@ -27,7 +27,7 @@ export function startMockRest({ transcript = 'my name is ravi i like tea' } = {}
   const state = { tutorMode: 'good', tutorPrompts: [] };
   const server = createServer(async (req, res) => {
     let body = ''; for await (const c of req) body += c;
-    calls.push({ path: req.url, key: req.headers['api-subscription-key'] });
+    calls.push({ path: req.url, key: req.headers['api-subscription-key'], body });
     const json = (o) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
     if (req.url === '/v1/chat/completions') {
       const msgs = JSON.parse(body).messages, sys = msgs[0].content, user = msgs[1]?.content || '';
