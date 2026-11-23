@@ -1,11 +1,16 @@
-// Voices for Sakhi from two providers, for comparing them side by side (admin console › Compare voices):
-//   Sarvam  Bulbul text-to-speech, the voice the app uses today (server/sarvam.js).
-//   Google  Gemini text-to-speech (aistudio.google.com/docs/speech-generation), through the Interactions API.
+// Voices for Sakhi, for comparing them side by side (admin console › Compare voices):
+//   sarvam    Bulbul text-to-speech, the voice the app uses today (server/sarvam.js).
+//   cloudtts  Google's Gemini voices through Google Cloud Text-to-Speech (cloud.google.com/text-to-speech/docs/gemini-tts):
+//             streamed over gRPC (StreamingSynthesize), signed in as the server's own Google Cloud service account
+//             (no key), billed to the project. Serves Gemini 3.1 Flash TTS (preview) and the 2.5 models.
+//   gemini    Google's Gemini voices through the Gemini API (Google AI Studio, an API key), Interactions API.
+//             Has the newest models (3.8 Flash and Flash-Lite TTS), which Cloud Text-to-Speech does not.
 // Each gives 24 kHz, 16-bit, mono sound, the same as the app plays. Nothing here is used by the app itself.
 import { readFileSync } from 'node:fs';
 import { config } from '../config.js';
 import { PRICES, addVoice } from '../costs.js';
 import { voiceLanguage } from '../../shared/languages.js';
+import textToSpeech from '@google-cloud/text-to-speech';
 
 export const SAMPLE_RATE = 24000;
 const usdInr = () => { const n = Number(process.env.USD_INR); return Number.isFinite(n) && n > 0 ? n : 88; };
@@ -23,6 +28,13 @@ export const MODELS = {
   sarvam: {
     'bulbul:v4-flash': { label: 'Bulbul v4 Flash (what the app uses)', inrPer1000Chars: () => PRICES.ttsPer10kChars / 10 },
     'bulbul:v3': { label: 'Bulbul v3', inrPer1000Chars: () => 3 },
+  },
+  // Google Cloud Text-to-Speech's prices for its Gemini voices (cloud.google.com/text-to-speech/pricing, 23 Nov 2026).
+  cloudtts: {
+    'gemini-2.5-flash-tts': { label: 'Gemini 2.5 Flash TTS', usd: { input: 0.5, output: 10 } },
+    'gemini-2.5-flash-lite-preview-tts': { label: 'Gemini 2.5 Flash-Lite TTS (preview)', usd: { input: 0.5, output: 10 } },
+    'gemini-3.1-flash-tts-preview': { label: 'Gemini 3.1 Flash TTS (preview)', usd: { input: 1, output: 20 } },
+    'gemini-2.5-pro-tts': { label: 'Gemini 2.5 Pro TTS', usd: { input: 1, output: 20 } },
   },
   gemini: {
     'gemini-3.8-flash-tts': { label: 'Gemini 3.8 Flash TTS', usd: { input: 0.5, output: 9, later: { from: '2027-01-01', input: 1, output: 18 } } },
@@ -42,7 +54,12 @@ export const GEMINI_VOICES = [
   ['Achird', 'Friendly'], ['Zubenelgenubi', 'Casual'], ['Vindemiatrix', 'Gentle'], ['Sadachbia', 'Lively'], ['Sadaltager', 'Knowledgeable'], ['Sulafat', 'Warm'],
 ].map(([id, sound]) => ({ id, label: `${id} (${sound})` }));
 
-export const configured = { sarvam: () => !!config.sarvam.apiKey, gemini: () => !!process.env.GEMINI_API_KEY };
+export const configured = {
+  sarvam: () => !!config.sarvam.apiKey,
+  gemini: () => !!process.env.GEMINI_API_KEY,
+  // Signed in as the server's Google Cloud service account: on Cloud Run (K_SERVICE), or with a credentials file.
+  cloudtts: () => !!(process.env.K_SERVICE || process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.CLOUD_TTS === 'on'),
+};
 const geminiBase = () => process.env.GEMINI_NATIVE_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta';
 
 let libraryCache = { at: 0, list: null };
@@ -77,10 +94,10 @@ export function priceTable() {
     const per1000 = m.inrPer1000Chars();
     rows.push({ provider: 'sarvam', model, label: m.label, per1000Chars: per1000, perMinute: (per1000 / 1000) * CHARS_PER_SECOND * 60, billedBy: 'characters' });
   }
-  for (const [model, m] of Object.entries(MODELS.gemini)) {
+  for (const [provider, model, m] of [...Object.entries(MODELS.cloudtts).map(([k, v]) => ['cloudtts', k, v]), ...Object.entries(MODELS.gemini).map(([k, v]) => ['gemini', k, v])]) {
     const p = onDay(m.usd), outPerSecond = (p.output / 1e6) * AUDIO_TOKENS_PER_SECOND * usdInr();
     const inPer1000 = (p.input / 1e6) * (1000 / 4) * usdInr(); // about 4 characters a token
-    rows.push({ provider: 'gemini', model, label: m.label, perMinute: outPerSecond * 60 + inPer1000 * (CHARS_PER_SECOND * 60 / 1000),
+    rows.push({ provider, model, label: m.label, perMinute: outPerSecond * 60 + inPer1000 * (CHARS_PER_SECOND * 60 / 1000),
       per1000Chars: inPer1000 + outPerSecond * (1000 / CHARS_PER_SECOND), billedBy: 'seconds of sound (and a little for the text)', usd: p, ...(m.usd.later ? { rises: m.usd.later } : {}) });
   }
   return { rows, charsPerSecond: CHARS_PER_SECOND, usdInr: usdInr() };
@@ -129,6 +146,43 @@ async function sarvamPiece(text, o) {
   for await (const chunk of res.body) { firstByteMs ??= Math.round(performance.now() - t0); parts.push(Buffer.from(chunk)); }
   addVoice(text.length, { cached: false }); // counted towards the daily budget, like any voice
   return { pcm: Buffer.concat(parts), firstByteMs, ms: Math.round(performance.now() - t0), costInr: (MODELS.sarvam[o.model]?.inrPer1000Chars() ?? 2) * text.length / 1000 };
+}
+
+// Google Cloud Text-to-Speech, made once and kept. setCloudTtsClient: a stand-in for tests.
+let cloudClient = null;
+export const setCloudTtsClient = (c) => { cloudClient = c; };
+const cloud = () => (cloudClient ||= new textToSpeech.TextToSpeechClient());
+
+/**
+ * Google Cloud Text-to-Speech, streamed (StreamingSynthesize): the settings first, then the text (and the style,
+ * which Google calls the prompt), then the end of the input; the sound comes back in pieces as it is made.
+ * Google starts on the sound once the input has ended, so the text goes in one piece.
+ */
+async function cloudPiece(text, o) {
+  const t0 = performance.now();
+  const call = cloud().streamingSynthesize();
+  call.write({ streamingConfig: {
+    voice: { name: o.voice, languageCode: sarvamLanguage(text), modelName: o.model },
+    streamingAudioConfig: { audioEncoding: 'PCM', sampleRateHertz: SAMPLE_RATE, ...(o.pace && o.pace !== 1 ? { speakingRate: o.pace } : {}) },
+  } });
+  call.write({ input: { text, ...(o.style ? { prompt: o.style } : {}) } });
+  call.end();
+  const parts = []; let firstByteMs = null;
+  try {
+    for await (const r of call) {
+      const b = r.audioContent;
+      if (!b?.length) continue;
+      firstByteMs ??= Math.round(performance.now() - t0);
+      parts.push(Buffer.from(b));
+    }
+  } catch (e) { throw new Error(`Google Cloud: ${String(e.details || e.message || e).slice(0, 300)}`); }
+  const pcm = Buffer.concat(parts);
+  if (!pcm.length) throw new Error('Google Cloud sent no sound');
+  // Google does not report tokens here: about 4 characters a text token, 25 sound tokens a second.
+  const seconds = pcm.length / 2 / SAMPLE_RATE;
+  const input = Math.ceil((text.length + (o.style || '').length) / 4), output = Math.round(seconds * AUDIO_TOKENS_PER_SECOND);
+  const p = onDay(MODELS.cloudtts[o.model]?.usd || MODELS.cloudtts['gemini-2.5-flash-tts'].usd);
+  return { pcm, firstByteMs, ms: Math.round(performance.now() - t0), tokens: { input, output, counted: false }, costInr: ((input * p.input + output * p.output) / 1e6) * usdInr() };
 }
 
 /** Reads Google's streamed answer (server-sent events): the sound, and what it counted. */
@@ -180,10 +234,10 @@ async function geminiPiece(text, o) {
  * Pieces are made one after another and joined with a short gap, as the app plays separate lines.
  */
 export async function say(o) {
-  if (!configured[o.provider]?.()) throw Object.assign(new Error(o.provider === 'gemini' ? 'No Gemini key on the server (GEMINI_API_KEY): add it with deploy/llm-keys-setup.sh, PROVIDERS=gemini.' : 'No Sarvam key on the server.'), { status: 400 });
+  if (!configured[o.provider]?.()) throw Object.assign(new Error({ gemini: 'No Gemini key on the server (GEMINI_API_KEY): add it with deploy/llm-keys-setup.sh, PROVIDERS=gemini.', cloudtts: 'Google Cloud Text-to-Speech works on the deployed server (it signs in as the Cloud Run service account), not on a local one.', sarvam: 'No Sarvam key on the server.' }[o.provider]), { status: 400 });
   const pieces = piecesOf(o.text, o.mode);
   if (!pieces.length) throw Object.assign(new Error('Type something to say.'), { status: 400 });
-  const make = o.provider === 'gemini' ? geminiPiece : sarvamPiece;
+  const make = { gemini: geminiPiece, cloudtts: cloudPiece, sarvam: sarvamPiece }[o.provider];
   const t0 = performance.now(), out = [], gap = Buffer.alloc(Math.round(SAMPLE_RATE * 0.12) * 2);
   for (const text of pieces) {
     const p = await make(text, o);

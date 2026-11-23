@@ -3,7 +3,7 @@
 // voice is not changed here.
 //
 //   GET  /api/admin/voices         → { providers, models, voices, prices, samples, modes }
-//   POST /api/admin/voices/speak   { provider, model, voice, text, mode, style?, pace?, pitch?, loudness?, temperature? }
+//   POST /api/admin/voices/speak   { provider: sarvam|cloudtts|gemini, model, voice, text, mode, style?, pace?, pitch?, loudness?, temperature? }
 //                                  → { audio: WAV in base64, sampleRate, firstAudioMs, totalMs, seconds, chars, costInr, pieces }
 import { z } from 'zod';
 import { readJson, send, fail } from '../http.js';
@@ -27,13 +27,13 @@ const MODES = [
 ];
 
 const Speak = z.strictObject({
-  provider: z.enum(['sarvam', 'gemini']),
+  provider: z.enum(['sarvam', 'cloudtts', 'gemini']),
   model: z.string().trim().min(1).max(80),
   voice: z.string().trim().min(1).max(120),
   text: z.string().trim().min(1).max(1200),
   mode: z.enum(['app', 'one', 'sentences']).default('one'),
-  style: z.string().trim().max(400).optional(), // Google only: how to say it ("warm and friendly")
-  pace: z.number().min(0.5).max(2).optional(), // Sarvam only
+  style: z.string().trim().max(400).optional(), // Google only: how to say it ("warm and friendly"); Cloud Text-to-Speech calls it the prompt
+  pace: z.number().min(0.5).max(2).optional(), // Sarvam, and Google Cloud's speaking rate
   pitch: z.number().min(-0.5).max(0.5).optional(),
   loudness: z.number().min(0.1).max(2.5).optional(),
   temperature: z.number().min(0.01).max(1).optional(),
@@ -43,11 +43,12 @@ export async function handleVoices(req, res, url) {
   const p = url.pathname, m = req.method;
   if (m === 'GET' && p === '/api/admin/voices') {
     return send(res, 200, {
-      providers: { sarvam: { configured: voices.configured.sarvam() }, gemini: { configured: voices.configured.gemini() } },
+      providers: Object.fromEntries(Object.keys(voices.MODELS).map((k) => [k, { configured: voices.configured[k]() }])),
       models: Object.fromEntries(Object.entries(voices.MODELS).map(([prov, ms]) => [prov, Object.entries(ms).map(([id, x]) => ({ id, label: x.label }))])),
       voices: {
         sarvam: { 'bulbul:v4-flash': voices.sarvamVoices['bulbul:v4-flash'], 'bulbul:v3': voices.sarvamVoices['bulbul:v3'], asOf: voices.sarvamVoices.asOf },
         gemini: await voices.geminiVoices(),
+        cloudtts: voices.GEMINI_VOICES, // the same 30 voices, by name
       },
       current: { provider: 'sarvam', model: config.sarvam.ttsModel, voice: config.sarvam.ttsSpeaker }, // what the app speaks with now
       prices: voices.priceTable(), samples: SAMPLES, modes: MODES,
