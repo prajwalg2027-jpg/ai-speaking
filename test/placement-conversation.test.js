@@ -145,6 +145,9 @@ test('every turn goes to the AI: hello, picture, reading, open questions, and th
 
 test('the fixed instructions: her reply ("r") and her question ("q") are one spoken turn, and the reply asks nothing', async () => {
   const told = brain.BRAIN_SYSTEM;
+  // She sounds spoken: a few natural fillers, never in the written feedback or the line to read.
+  assert.match(told, /Sound spoken, not written\. Now and then use a small filler or thinking sound[^\n]*"Um,"[^\n]*One or two in a turn at most, not on every turn/);
+  assert.match(told, /Never put fillers in "good", "next" or "why", or in the line they must read\./);
   assert.match(told, /"r" and "q" are spoken one straight after the other, as a single turn/);
   assert.match(told, /"q" picks up from where "r" ended\. It does not start afresh, does not greet or react again, and does not repeat anything "r" already said/);
   assert.match(told, /- "r": [^\n]*It must contain no question: not one question mark\. Everything you ask goes in "q"\./);
@@ -155,6 +158,9 @@ test('the fixed instructions: her reply ("r") and her question ("q") are one spo
   ]);
   assert.equal(say(await go('I made tea for my family today')), 'You made tea! | Who do you live with?');
   assert.equal(say(await go('sorry repeat please')), 'No problem. | Who lives in your home?');
+  // Her fillers are said as she wrote them (only invented names are taken out).
+  const t = await toOpen([T({ level: 2, reply: 'Oh, hmm, Priya, you made tea!', question: 'So, um, who do you live with?' })]);
+  assert.equal(say(await t.go('I made tea for my family today')), 'Oh, hmm, you made tea! | So, um, who do you live with?');
 });
 
 test('something unexpected: a steer back once, then on; "I can\'t see it" skips the step without counting it', async () => {

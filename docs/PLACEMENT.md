@@ -40,6 +40,11 @@ Sakhi says and makes every judgement:
   way: "I go market yesterday" → "Oh, you went to the market yesterday!", never "that's wrong");
 - **when to finish**, and the **final level** with its reason and the feedback.
 
+She is told to sound spoken, not written: now and then a small filler or thinking sound where a person would
+pause ("Oh,", "Hmm,", "Um,", "So,"; "अच्छा," in Hindi), one or two in a turn at most and not on every turn,
+only easy ones with a weak learner, and never in the written feedback or the line to read. The voice says them
+as written.
+
 What Sakhi says on a turn comes in two parts, `reply` (her reaction to what they said) and `question` (what she
 asks next). They are spoken one straight after the other, as a single turn, and the fixed instructions tell the
 model so plainly: `question` picks up from where `reply` ended (it does not start afresh, react again or repeat
