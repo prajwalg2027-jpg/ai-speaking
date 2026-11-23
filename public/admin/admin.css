@@ -227,3 +227,14 @@ button.recording { background: var(--critical); border-color: var(--critical); c
 
 #labsum td.lab-model { display: table-cell; white-space: nowrap; }
 .lab-think { flex-basis: 100%; } .lab-think[hidden] { display: none; }
+
+/* Compare voices */
+.voice-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; margin-bottom: 16px; }
+.vcard h3 { margin: 0 0 8px; font-size: 14px; overflow-wrap: anywhere; }
+.vcard audio { width: 100%; margin: 4px 0 8px; }
+.vcard.playing { outline: 2px solid var(--series-1); }
+.vstats { width: 100%; font-size: 13px; } .vstats td { padding: 3px 0; border: 0; } .vstats td.num { text-align: right; }
+.vrow { margin: 8px 0; padding: 10px 12px; }
+.vrow label.f { min-width: 0; }
+#vtext { width: 100%; font: inherit; }
+

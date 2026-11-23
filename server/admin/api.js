@@ -18,12 +18,14 @@
 //   GET  /api/admin/lessons                → lessons with how learners do in them
 //   /api/admin/team/**                     → people and roles (team.js)
 //   /api/admin/placement-lab/**            → compare AI models on the conversation placement (placementLab.js)
+//   /api/admin/voices/**                   → compare voices, Sarvam's and Google's, with costs (voices.js)
 import { pool } from '../db/pool.js';
 import * as settings from '../settings.js';
 import { loginEnabled, firebaseEnabled, otpEnabled, projectId } from '../auth.js';
 import { LIMITS } from '../guard.js';
 import { whoIs, need, handleTeam, PERMISSIONS } from './team.js';
 import { handlePlacementLab } from './placementLab.js';
+import { handleVoices } from './voices.js';
 import { listModels } from '../llm/models.js';
 import { spentToday, PRICES } from '../costs.js';
 import { structured as defaultStructured, providers } from '../llm/index.js';
@@ -136,6 +138,7 @@ export async function handleAdmin(req, res, url, deps = {}) {
   }
 
   if (p.startsWith('/api/admin/placement-lab')) { need(who, 'playground.use'); return handlePlacementLab(req, res, url, { structured: deps.structured }); }
+  if (p === '/api/admin/voices' || p.startsWith('/api/admin/voices/')) { need(who, 'playground.use'); return handleVoices(req, res, url); }
   if (m === 'POST' && p === '/api/admin/playground') {
     need(who, 'playground.use');
     const b = Playground.safeParse(await readJson(req));
