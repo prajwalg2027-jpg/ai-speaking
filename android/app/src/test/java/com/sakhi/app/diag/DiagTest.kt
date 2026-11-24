@@ -42,7 +42,7 @@ class DiagTest {
         { SakhiApi(OkHttpClient()) { web.url("/").toString() } }, scope, { signedIn },
         ctx.getSharedPreferences("diag-test", Context.MODE_PRIVATE), spill, { web.url("/").toString() }, mapOf("model" to "Test phone"))
 
-    @Test fun `events keep their order, data and session; long text is cut`() {
+    @Test fun `events keep their order, data and session, and long text is cut`() {
         Diag.session = "s1"
         Diag.log("conv", "answer", "transcript" to "x".repeat(2000), "speechSec" to 2.34567, "end" to Phase.A, "lines" to listOf("Hi", "There"))
         Diag.session = null
@@ -59,7 +59,7 @@ class DiagTest {
         assertEquals(0, Diag.size())
     }
 
-    @Test fun `only the newest events are kept, and the gap is said`() {
+    @Test fun `only the newest events are kept and the gap is said`() {
         repeat(Diag.MAX_PENDING + 7) { Diag.log("t", "e$it") }
         val first = Diag.take(2)
         assertEquals("dropped", first[0]["name"]!!.jsonPrimitive.content)
@@ -91,7 +91,7 @@ class DiagTest {
         assertEquals(r2.headers["x-request-id"], lines[1]["rid"]!!.jsonPrimitive.content)
     }
 
-    @Test fun `a team phone sends its log; anyone else's is dropped`() = runBlocking {
+    @Test fun `a team phone sends its log and nobody else does`() = runBlocking {
         val up = uploader()
         assertEquals(32, up.code.length)
         assertTrue(up.link.endsWith("/api/diag/logs/${up.code}"))
@@ -109,7 +109,7 @@ class DiagTest {
         assertEquals(0, Diag.size())
     }
 
-    @Test fun `a failed send keeps the events; a crash saves them for the next start`() = runBlocking {
+    @Test fun `a failed send keeps the events and a crash saves them for the next start`() = runBlocking {
         val spill = File(ctx.filesDir, "spill-crash.jsonl").also { it.delete() }
         val up = uploader(spill)
         Diag.enabled = true
