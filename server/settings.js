@@ -66,6 +66,9 @@ export const SECTIONS = {
       model: z.string().min(1).max(100),                 // for Google; Sarvam uses SARVAM_TTS_MODEL
       voice: z.string().min(1).max(100),                 // for Google, e.g. Sulafat; Sarvam uses SARVAM_TTS_SPEAKER
       style: z.string().max(300),                        // for Google: how to speak, in words
+      // Google voices: how fast she speaks, 1 = Google's own speed. Cloud Text-to-Speech takes it as a number
+      // (speaking rate); Vertex AI is told in words. Given a default so settings saved before it still load.
+      speed: z.number().min(0.5).max(2).default(1.15),
       fallbackToSarvam: z.boolean(),                     // a Google voice that fails before any sound: Sarvam says the line
       // Google voices: a turn's lines are joined into one voice request (server/voicejoin.js). Fewer requests a
       // minute; her first sound comes a little later. Given a default so settings saved before it still load.
@@ -75,7 +78,8 @@ export const SECTIONS = {
       source: 'gemini',
       model: 'gemini-3.8-flash-lite-tts',             // Google's fast and cheapest voice model
       voice: 'Sulafat',
-      style: 'Speak warmly and patiently, like a kind, friendly Indian tutor.',
+      style: 'Speak warmly and naturally, like a kind, friendly Indian tutor, at an easy conversational pace.',
+      speed: 1.15,
       fallbackToSarvam: true,
       oneRequestPerTurn: true,
     },
