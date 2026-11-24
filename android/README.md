@@ -38,6 +38,7 @@ the live speech connection. The account button (top right) has *Sign out* and *D
 | Speaker routing | `audio/AudioRouting.kt` | Communication mode + loudspeaker (headset if connected); audio focus ends the conversation on a phone call. |
 | Server API | `net/SakhiApi.kt`, `net/LiveConnection.kt`, `net/Models.kt` | Same endpoints as the web app; `/api/live` WebSocket for speech-to-text. |
 | Sign-in | `auth/AuthViewModel.kt`, `auth/OtpPhoneAuth.kt`, `auth/AuthHttp.kt`, `ui/LoginScreens.kt` | Phone → code → consents; the session token is added to every request and refreshed before it expires (or after a 401). |
+| Learning | `learn/LearnViewModel.kt`, `learn/LearnVoice.kt`, `net/LearnApi.kt`, `ui/LearnScreens.kt` | After the score and a subscription: practice with Sakhi (type, or tap the mic and speak; her reply first, then the correction card), lessons with exercises, progress. A subscribed learner with a level opens straight into it. |
 | Screen | `ui/SakhiScreen.kt`, `ui/Orb.kt`, `ui/theme/Theme.kt` | The design handoff: Molten orb, conversation, fanned card, hint, result, mic screen. Light and dark. |
 
 Leaving the app ends the conversation (a voice conversation can't go on unseen, and Android limits background microphone use).

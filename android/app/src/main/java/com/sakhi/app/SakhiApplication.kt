@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
 import com.sakhi.app.net.LiveConnection
 import com.sakhi.app.net.SakhiApi
+import com.sakhi.app.net.LearnApi
 import com.sakhi.app.pay.PlayBilling
 import com.sakhi.app.pay.PlayStore
 import okhttp3.OkHttpClient
@@ -38,6 +39,8 @@ class AppContainer(app: Application, authFor: ((ServerConfig) -> PhoneAuth)? = n
         .apply { if (auth.configured) addInterceptor(AuthInterceptor(auth)).authenticator(AuthRefresher(auth)) }
         .build()
     val api = SakhiApi(http) { server.baseUrl }
+    /** The learning module: practice conversations, lessons, progress (/api/learn). */
+    val learn = LearnApi(http, BuildConfig.VERSION_NAME) { server.baseUrl }
     val events = EventLog({ api }, scope) { auth.currentUser != null }
     /** Google Play Billing (made on first use; Play builds sell the subscription through it). */
     val play: PlayStore by lazy { PlayBilling(app) }

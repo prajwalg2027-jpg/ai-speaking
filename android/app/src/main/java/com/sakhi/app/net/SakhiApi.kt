@@ -19,7 +19,7 @@ import java.io.InputStream
 /** [reason]: the server's sentence for the person, when it gave one. */
 class ServerException(message: String, val status: Int = 0, val error: String = "", val missing: List<String> = emptyList(), val reason: String? = null) : IOException(message)
 
-private fun refusal(code: Int, text: String, what: String): ServerException {
+internal fun refusal(code: Int, text: String, what: String): ServerException {
     val body = runCatching { SakhiJson.decodeFromString<ErrorBody>(text) }.getOrNull()
     return ServerException("$what (HTTP $code): ${body?.reason ?: body?.error ?: text.take(200)}", code, body?.error.orEmpty(), body?.missing.orEmpty(), body?.reason)
 }
