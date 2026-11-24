@@ -11,6 +11,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.IOException
@@ -38,7 +40,19 @@ class AuthViewModel(private val auth: PhoneAuth, private val api: SakhiApi, priv
     val gate: StateFlow<Gate> = _gate.asStateFlow()
     private var ticker: Job? = null
 
-    init { check() }
+    init {
+        // The diagnostic log: each step of signing in, with any error shown (never the number or the code).
+        viewModelScope.launch {
+            _gate.map { g ->
+                val error = when (g) { is Gate.Phone -> g.error ?: g.note; is Gate.Code -> g.error; is Gate.Consents -> g.error; is Gate.Offline -> g.message; else -> null }
+                val busy = when (g) { is Gate.Phone -> g.busy; is Gate.Code -> g.busy; is Gate.Consents -> g.busy; else -> false }
+                listOf(g::class.simpleName, busy, error, (g as? Gate.Consents)?.missing)
+            }.distinctUntilChanged().collect { (step, busy, error, missing) ->
+                com.sakhi.app.diag.Diag.log("auth", "gate", "step" to step, "busy" to busy, "error" to error, "missing" to missing)
+            }
+        }
+        check()
+    }
 
     /** Re-check where they stand (at start, after an error, or when the server refuses a request). */
     fun check() {

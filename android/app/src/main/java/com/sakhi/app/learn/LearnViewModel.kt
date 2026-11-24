@@ -384,6 +384,7 @@ class LearnViewModel(
 
     companion object {
         fun message(e: IOException): String {
+            com.sakhi.app.diag.Diag.error("learn", "error", e, "status" to (e as? ServerException)?.status) // every error the learning area shows comes here
             if (e !is ServerException) return "Adam couldn't reach the server. Check your internet and try again."
             val reason = e.reason
             return when {

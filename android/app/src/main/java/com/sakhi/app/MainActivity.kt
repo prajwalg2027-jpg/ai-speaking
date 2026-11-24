@@ -115,7 +115,11 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
         RazorpayCheckout.preload(this)
         // A voice conversation can't go on unseen: leaving the app ends it (and frees the microphone).
         lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onStop(owner: LifecycleOwner) { if (!isChangingConfigurations) { vm.onBackgrounded(); learnVm.stopVoice() } }
+            override fun onStart(owner: LifecycleOwner) { com.sakhi.app.diag.Diag.log("app", "foreground") }
+            override fun onStop(owner: LifecycleOwner) {
+                com.sakhi.app.diag.Diag.log("app", "background", "configChange" to isChangingConfigurations)
+                if (!isChangingConfigurations) { vm.onBackgrounded(); learnVm.stopVoice(); container.diag.flushSoon() }
+            }
         })
         val reducedMotion = Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
         setContent {
@@ -205,6 +209,7 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                     onSignOut = { accountOpen = false; inLearn = false; learnVm.stopVoice(); vm.onBackgrounded(); authVm.signOut() },
                     onDelete = { authVm.deleteAccount().also { if (it) { accountOpen = false; inLearn = false; learnVm.stopVoice(); vm.onBackgrounded() } } },
                     onReport = { accountOpen = false; reportText = reportableText(vm.state.value) },
+                    diagLink = if (com.sakhi.app.diag.Diag.enabled) container.diag.link else null,
                 )
                 reportText?.let { text -> ReportDialog(text, onSend = { reason -> vm.report(text, reason) }, onDismiss = { reportText = null }) }
                 if (serverDialog) ServerDialog(container.server.baseUrl, container.server.default) { url ->
@@ -254,7 +259,10 @@ private fun UpdateScreen(onUpdate: () -> Unit) {
 private fun AccountDialog(
     phone: String?, onDismiss: () -> Unit, onSignOut: () -> Unit, onDelete: suspend () -> Boolean,
     subscription: String? = null, onCancelSubscription: (suspend () -> Boolean)? = null, onReport: () -> Unit = {},
+    diagLink: String? = null,
 ) {
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    var diagCopied by remember { mutableStateOf(false) }
     var cancelling by remember { mutableStateOf(false) }
     var cancelFailed by remember { mutableStateOf(false) }
     var busyCancel by remember { mutableStateOf(false) }
@@ -288,6 +296,11 @@ private fun AccountDialog(
                     // Google Play's AI-generated content policy: a way to flag what the AI said, inside the app.
                     LinkButton("Report what Sakhi said", onReport)
                     if (onCancelSubscription != null) LinkButton("Cancel subscription") { cancelling = true }
+                    // Team phones: the diagnostic log's address, to paste to whoever is looking into a problem.
+                    if (diagLink != null) LinkButton(if (diagCopied) "Diagnostics link copied" else "Copy diagnostics link") {
+                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(diagLink)); diagCopied = true
+                        com.sakhi.app.diag.Diag.log("diag", "link.copied")
+                    }
                 }
             }
         },

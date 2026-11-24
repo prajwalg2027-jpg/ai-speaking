@@ -11,6 +11,7 @@ import com.sakhi.app.audio.AudioRouting
 import com.sakhi.app.audio.MicCapture
 import com.sakhi.app.audio.SpeechMeter
 import com.sakhi.app.audio.VoicePlayer
+import com.sakhi.app.diag.Diag
 import com.sakhi.app.net.AppEvent
 import com.sakhi.app.net.Card
 import com.sakhi.app.net.Interrupted
@@ -107,7 +108,7 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
             player.onMicFrame(rms, meter.threshold, ms, now, meter.speechOnsetAtMs)
             gate.onFrame(pcm, now)
         }
-        player.onBargeIn = { onset -> bargeInAt = onset }
+        player.onBargeIn = { onset -> bargeInAt = onset; Diag.log("audio", "barge_in", "onsetAgoMs" to onset?.let { now() - it }, "threshold" to meter.threshold) }
         viewModelScope.launch { for (e in liveEvents) onLive(e) }
     }
 
@@ -116,6 +117,7 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
     /** The orb: start, interrupt Sakhi, or "I'm done speaking". Call only with the mic permission granted. */
     fun onOrbTap() {
         val s = _state.value
+        Diag.log("ui", "orb.tap", "session" to s.session, "phase" to s.phase)
         when {
             s.session != SessionState.LIVE -> start()
             s.phase == Phase.SPEAKING -> { tapInterrupt = true; player.stop() }
@@ -139,6 +141,7 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
     /** The app went to the background: a voice conversation can't continue unseen, so it stops. */
     fun onBackgrounded() {
         if (_state.value.session != SessionState.LIVE) return
+        Diag.log("conv", "stopped", "why" to "app in background")
         stop()
         _state.update { it.copy(session = SessionState.IDLE, phase = Phase.IDLE, notice = false) }
     }
@@ -150,6 +153,7 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
         _state.update { it.copy(notice = false, session = SessionState.LIVE, phase = Phase.THINKING) }
         job = viewModelScope.launch {
             try {
+                Diag.log("conv", "start")
                 val status = c.api.status()
                 if (!status.ready) throw IOException(status.reason ?: "server not ready")
                 if (!mic.isRunning && !mic.start()) throw IOException("microphone unavailable")
@@ -160,6 +164,7 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Conversation stopped", e)
+                Diag.error("conv", "failed", e, "phase" to _state.value.phase)
                 stop()
                 val refused = e as? ServerException
                 if (refused != null && (refused.status == 401 || refused.error == "consent_required")) c.refusals.tryEmit(refused)
@@ -172,6 +177,8 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
         backchannels = viewModelScope.async { loadBackchannels() }
         var turn = c.api.startSession()
         sessionId = turn.sessionId
+        Diag.session = turn.sessionId
+        Diag.log("conv", "session", "lines" to turn.say.size)
         c.events.log("assessment.opened", sessionId = turn.sessionId)
         live.bind(turn.sessionId)
         thinking()
@@ -206,6 +213,8 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
             if (done != null && interrupted == null) return showResult(done)
 
             val (ans, timing) = listen(turn.listen ?: ListenSpec())
+            Diag.log("conv", "answer", "end" to ans.end, "transcript" to ans.transcript, "language" to ans.language, "speechSec" to ans.speechSec,
+                "spoke" to ans.spoke, "spanSec" to timing?.spanSec, "voicedSec" to timing?.voicedSec, "pauses" to timing?.pauses?.size, "interrupted" to interrupted?.index)
             val req = when (ans.end) {
                 AnswerEnd.NO_SPEECH -> TurnRequest(turn.sessionId, "no_speech")
                 AnswerEnd.LIVE_FAILED -> TurnRequest(turn.sessionId, "live_failed")
@@ -221,7 +230,11 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
             // The server may send Sakhi's reaction before the rest of her turn is written: it is said at once,
             // and the rest follows when the whole turn is here.
             val ahead = CompletableDeferred<List<Line>>()
-            val whole = viewModelScope.async { try { c.api.turn(req) { ahead.complete(it) } } finally { ahead.complete(emptyList()) } }
+            val sentAt = now()
+            val whole = viewModelScope.async {
+                try { c.api.turn(req) { Diag.log("conv", "turn.reply", "ms" to now() - sentAt, "lines" to it.map { l -> l.text }); ahead.complete(it) } }
+                finally { ahead.complete(emptyList()) }
+            }
             var head = ahead.await() // her reaction, or nothing: then the whole turn has arrived (or failed)
             replied = true
             val acked = reacting?.await() == true
@@ -237,11 +250,14 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
                 if (cutAhead == null && !whole.isCompleted) thinking() // the rest of her turn is still being written
             }
             turn = whole.await()
+            Diag.log("conv", "turn", "ms" to now() - sentAt, "event" to req.event, "lines" to turn.say.map { it.text }, "card" to turn.card?.text,
+                "listen" to turn.listen?.let { "${it.language} silence=${it.silenceMs}" }, "done" to (turn.done != null), "backchannel" to acked)
             if (head.isEmpty() && acked) turn = dropRepeatedAck(turn)
         }
     }
 
     private fun showResult(r: Result) {
+        Diag.log("conv", "result", "level" to r.level)
         c.events.log("result.viewed", mapOf("level" to r.level.toString()), sessionId)
         exitCard()
         _state.update { it.copy(session = SessionState.RESULT, phase = Phase.IDLE, result = r) }
@@ -255,15 +271,18 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
         val id = sakhiLine(reveal.words, line.lang)
         var shown = 0
         val show = { n: Int -> if (n > shown) { shown = n; updateMessage(id) { it.copy(shown = n) }; onWord(n) } }
+        val asked = now()
         return try {
             val voice = c.api.speak(SpeakRequest(line.text, line.lang, line.pace, sessionId))
+            Diag.log("voice", "line", "text" to line.text, "lang" to line.lang, "pace" to line.pace, "rate" to voice.sampleRate, "cached" to voice.cached, "headersMs" to now() - asked)
             val out = voice.use {
-                player.play(it.body, it.sampleRate, onStart = { setPhase(Phase.SPEAKING) }) { p ->
+                player.play(it.body, it.sampleRate, onStart = { Diag.log("voice", "first_audio", "ms" to now() - asked); setPhase(Phase.SPEAKING) }) { p ->
                     _level.value = p.level
                     show(reveal.shown(p.playedSec, p.receivedSec, p.complete))
                 }
             }
             _level.value = 0f
+            Diag.log("voice", "done", "ms" to now() - asked, "stoppedBy" to out.stoppedBy, "tap" to tapInterrupt, "heardSec" to out.heardSec, "totalSec" to out.totalSec, "wordsShown" to shown, "words" to reveal.words.size)
             val cut = out.stoppedBy == VoicePlayer.Stop.BARGE_IN || (out.stoppedBy != null && tapInterrupt)
             if (cut) {
                 updateMessage(id) { it.copy(shown = maxOf(1, shown), words = it.words.take(maxOf(1, shown)), cut = true) }
@@ -274,6 +293,7 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
             out
         } catch (e: IOException) {
             Log.w(TAG, "Voice failed; showing the line as text", e)
+            Diag.error("voice", "failed", e, "text" to line.text, "ms" to now() - asked)
             show(reveal.words.size)
             delay(1500)
             null
@@ -286,7 +306,9 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
         if (bargeInAt == null) haptics.yourTurn() // after an interruption they're already talking
         setPhase(Phase.LISTENING)
         val bubbleId = youLive()
+        Diag.log("listen", "start", "language" to spec.language, "silenceMs" to spec.silenceMs, "afterBargeIn" to (bargeInAt != null), "liveAlive" to live.alive)
         if (!live.ensureConnected()) {
+            Diag.log("listen", "no_connection", "why" to live.lastFailure)
             removeMessage(bubbleId)
             return CollectedAnswer("", null, null, 0.0, false, AnswerEnd.LIVE_FAILED) to null
         }
@@ -329,6 +351,8 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
     private fun onLive(e: LiveEvent) {
         val col = collector
         val t = now()
+        if (e.type != "partial") Diag.log("live", e.type, "idx" to e.idx, "text" to e.text, "language" to e.language, "confidence" to e.languageConfidence,
+            "speechSec" to e.speechSec, "reason" to e.reason, "code" to e.code, "message" to e.message, "fatal" to e.fatal, "listening" to (col != null))
         when (e.type) {
             "speech_start" -> col?.speechStart(e.idx, t)
             "partial" -> col?.partial(e.idx, e.text.orEmpty())
@@ -393,6 +417,7 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
     private fun removeMessage(id: Long) = _state.update { s -> s.copy(messages = s.messages.filterNot { it.id == id }) }
 
     private fun showCard(card: Card) = _state.update { s ->
+        Diag.log("ui", "card", "text" to card.text)
         val deal = (s.card?.deal ?: 0) + 1
         s.copy(card = CardState(card, deal))
     }
@@ -413,6 +438,8 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
     }
 
     private fun stop() {
+        if (job != null) Diag.log("conv", "stop")
+        Diag.session = null
         job?.cancel(); job = null
         collector = null
         stopAudio()

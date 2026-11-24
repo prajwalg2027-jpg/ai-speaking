@@ -73,6 +73,9 @@ class SakhiApi(private val client: OkHttpClient, private val baseUrl: () -> Stri
     suspend fun me(): Me = get("/api/me")
     suspend fun saveConsents(list: List<Consent>): MissingConsents = post("/api/me/consents", SakhiJson.encodeToString(ConsentsRequest(list)))
     suspend fun sendEvents(events: List<AppEvent>) { call<kotlinx.serialization.json.JsonObject>(request("/api/events").post(SakhiJson.encodeToString(EventsRequest(events)).toRequestBody(jsonType)).build()) }
+    /** Diagnostics (docs/DIAGNOSTICS.md): does this phone send its log, and sending a batch of it. */
+    suspend fun diagStatus(): DiagStatus = get("/api/diag/status")
+    suspend fun sendDiag(body: String) { call<kotlinx.serialization.json.JsonObject>(request("/api/diag/logs").post(body.toRequestBody(jsonType)).build()) }
     /** Erase everything about this customer (their right under India's data protection law). */
     suspend fun deleteMe() { call<kotlinx.serialization.json.JsonObject>(request("/api/me").delete().build()) }
 

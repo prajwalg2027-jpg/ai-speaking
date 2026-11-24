@@ -8,6 +8,9 @@ import com.sakhi.app.auth.OtpPhoneAuth
 import com.sakhi.app.auth.PhoneAuth
 import com.sakhi.app.config.RemoteAppConfig
 import com.sakhi.app.config.ServerConfig
+import com.sakhi.app.diag.Diag
+import com.sakhi.app.diag.DiagInterceptor
+import com.sakhi.app.diag.DiagUploader
 import com.sakhi.app.net.ServerException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,10 +35,14 @@ class AppContainer(app: Application, authFor: ((ServerConfig) -> PhoneAuth)? = n
         app.getSharedPreferences("adam.appconfig", android.content.Context.MODE_PRIVATE))
     /** Work that outlives a screen (sending events). */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /** The diagnostic log's sender (team phones only: docs/DIAGNOSTICS.md). */
+    val diag = DiagUploader({ api }, scope, { auth.currentUser != null },
+        app.getSharedPreferences("adam.diag", android.content.Context.MODE_PRIVATE), java.io.File(app.filesDir, "diag-unsent.jsonl"), { server.baseUrl })
     val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .pingInterval(20, TimeUnit.SECONDS) // keeps the live speech connection open through idle moments
+        .addInterceptor(DiagInterceptor { diag.code })
         .apply { if (auth.configured) addInterceptor(AuthInterceptor(auth)).authenticator(AuthRefresher(auth)) }
         .build()
     val api = SakhiApi(http) { server.baseUrl }
@@ -55,7 +62,11 @@ class SakhiApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        Diag.uptime = { android.os.SystemClock.elapsedRealtime() }
+        Diag.logcat = BuildConfig.DEBUG
         container = AppContainer(this)
+        container.diag.catchCrashes()
+        container.diag.start()
         container.scope.launch { container.appConfig.refresh() }
     }
 }
