@@ -38,4 +38,17 @@ class ModelsTest {
         val json = SakhiJson.encodeToString(TurnRequest.serializer(), TurnRequest("s", "no_speech"))
         assertEquals("""{"sessionId":"s","event":"no_speech"}""", json)
     }
+
+    @Test fun `the result screen's feedback is read whole, parts that are missing left out`() {
+        val ins = SakhiJson.decodeFromString<Insights>(javaClass.classLoader!!.getResource("insights.json")!!.readText())
+        assertEquals(3, ins.level)
+        assertEquals(3, ins.answers.size)
+        assertEquals(listOf("wake", "woke"), ins.answers[0].diff.filter { it.k != "same" }.take(2).map { it.t })
+        assertEquals(4, assertNotNull(ins.ladder).rungs.size)
+        assertEquals(2, ins.habit!!.examples.size)
+        assertEquals(listOf("and", "because", "then"), ins.counts!!.joiningWords)
+        val bare = SakhiJson.decodeFromString<Insights>("""{"status":"ready","level":1,"counts":{"answers":0}}""")
+        assertNull(bare.best)
+        assertEquals(true, bare.isEmpty)
+    }
 }

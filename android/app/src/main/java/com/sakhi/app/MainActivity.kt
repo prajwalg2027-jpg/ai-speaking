@@ -163,6 +163,8 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                     if (granted) vm.onOrbTap()
                 }
                 val hasMic = { ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED }
+                var sayPending by remember { mutableStateOf<String?>(null) }
+                val askSay = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> sayPending?.let { if (granted) vm.sayTap(it) }; sayPending = null }
                 val askLearn = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) learnVm.micTap() }
                 val learn by learnVm.ui.collectAsStateWithLifecycle()
                 BackHandler(enabled = inLearn && learn.page != LearnPage.Home) { learnVm.back() }
@@ -186,8 +188,10 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                     onLogoLongPress = if (container.server.canOverride) ({ serverDialog = true }) else null,
                     micBlocked = micBlocked,
                     onAccount = if (container.auth.configured) ({ payVm.loadAccount(); accountOpen = true }) else null,
-                    onStartLearning = payVm::open,
+                    onStartLearning = { vm.stopSaying(); payVm.open() },
                     onReport = { reportText = it },
+                    onHear = vm::hear,
+                    onSay = { t -> if (hasMic()) vm.sayTap(t) else { sayPending = t; askSay.launch(Manifest.permission.RECORD_AUDIO) } },
                     onAllowMic = {
                         if (hasMic()) { micBlocked = false; vm.onOrbTap() }
                         else if (shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)) ask.launch(Manifest.permission.RECORD_AUDIO)

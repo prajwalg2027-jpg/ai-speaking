@@ -14,7 +14,9 @@ import com.sakhi.app.audio.VoicePlayer
 import com.sakhi.app.diag.Diag
 import com.sakhi.app.net.AppEvent
 import com.sakhi.app.net.Card
+import com.sakhi.app.net.Insights
 import com.sakhi.app.net.Interrupted
+import com.sakhi.app.net.SayBack
 import com.sakhi.app.net.LiveEvent
 import com.sakhi.app.net.Line
 import com.sakhi.app.net.ListenSpec
@@ -69,6 +71,20 @@ data class UiState(
     val waitNudge: Boolean = false,
     val notice: Boolean = false,
     val result: Result? = null,
+    /** The result screen's detailed feedback; [insightsLoading] while the server is still writing it. */
+    val insights: Insights? = null,
+    val insightsLoading: Boolean = false,
+    val sayBack: SayBackState = SayBackState(),
+)
+
+enum class SayPhase { IDLE, PLAYING, RECORDING, CHECKING }
+
+/** "Say it back" on the result screen: which sentence is busy and how, and how each sentence went. */
+data class SayBackState(
+    val text: String? = null,
+    val phase: SayPhase = SayPhase.IDLE,
+    val results: Map<String, SayBack> = emptyMap(),
+    val error: String? = null,
 )
 
 /**
@@ -125,7 +141,7 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
         }
     }
 
-    fun restart() { stop(); _state.value = UiState(); start() }
+    fun restart() { stopSaying(); stop(); _state.value = UiState(); start() }
 
     /** Report what Sakhi said ([AiReport.kt]). Sent at once, not best effort: the person is told if it didn't arrive. */
     suspend fun report(text: String, reason: ReportReason): Boolean = try {
@@ -140,6 +156,7 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
 
     /** The app went to the background: a voice conversation can't continue unseen, so it stops. */
     fun onBackgrounded() {
+        if (_state.value.session == SessionState.RESULT) stopSaying()
         if (_state.value.session != SessionState.LIVE) return
         Diag.log("conv", "stopped", "why" to "app in background")
         stop()
@@ -260,8 +277,80 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
         Diag.log("conv", "result", "level" to r.level)
         c.events.log("result.viewed", mapOf("level" to r.level.toString()), sessionId)
         exitCard()
-        _state.update { it.copy(session = SessionState.RESULT, phase = Phase.IDLE, result = r) }
+        _state.update { it.copy(session = SessionState.RESULT, phase = Phase.IDLE, result = r, insightsLoading = sessionId != null) }
         stopAudio()
+        loadInsights()
+    }
+
+    // ---------- the result screen's detailed feedback, and saying its sentences back ----------
+
+    private var sayVoiceMade: com.sakhi.app.learn.LearnVoice? = null
+    private val sayVoice get() = sayVoiceMade ?: com.sakhi.app.learn.PhoneLearnVoice(getApplication()).also { sayVoiceMade = it }
+    private var sayJob: Job? = null
+
+    private fun loadInsights() {
+        val sid = sessionId ?: return
+        viewModelScope.launch {
+            val got = try { c.api.insights(sid) } catch (e: CancellationException) { throw e } catch (e: Exception) {
+                Log.w(TAG, "insights: ${e.message}"); Diag.log("result", "insights_failed", "why" to e.message); null
+            }
+            Diag.log("result", "insights", "answers" to got?.answers?.size, "best" to (got?.best != null), "habit" to (got?.habit != null), "tip" to (got?.tip != null))
+            if (_state.value.session == SessionState.RESULT) _state.update { it.copy(insights = got?.takeUnless { i -> i.isEmpty }, insightsLoading = false) }
+        }
+    }
+
+    private fun setSay(f: (SayBackState) -> SayBackState) = _state.update { it.copy(sayBack = f(it.sayBack)) }
+
+    /** Hear Sakhi say a sentence from the feedback (tap again to stop). */
+    fun hear(text: String) {
+        val sb = _state.value.sayBack
+        stopSaying()
+        if (sb.text == text && sb.phase == SayPhase.PLAYING) return
+        setSay { it.copy(text = text, phase = SayPhase.PLAYING, error = null) }
+        c.events.log("result.hear", sessionId = sessionId)
+        sayJob = viewModelScope.launch {
+            try { sayVoice.play(c.api.speak(SpeakRequest(text, "en-IN", 0.9, sessionId))) }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { setSay { it.copy(error = "Couldn't play Sakhi's voice. Please try again.") } }
+            finally { setSay { if (it.text == text && it.phase == SayPhase.PLAYING) it.copy(phase = SayPhase.IDLE) else it } }
+        }
+    }
+
+    /** Say a sentence back: the first tap starts recording (the caller holds RECORD_AUDIO), the second checks it. */
+    fun sayTap(text: String) {
+        val sb = _state.value.sayBack
+        if (sb.text == text && sb.phase == SayPhase.RECORDING) return check(text)
+        if (sb.phase == SayPhase.CHECKING) return
+        stopSaying()
+        val started = sayVoice.startRecording(onLevel = { _level.value = it }, onFull = { viewModelScope.launch { check(text) } })
+        setSay { it.copy(text = text, phase = if (started) SayPhase.RECORDING else SayPhase.IDLE, error = if (started) null else "The microphone is busy. Please try again.") }
+    }
+
+    private fun check(text: String) {
+        if (_state.value.sayBack.phase != SayPhase.RECORDING) return
+        val wav = sayVoice.stopRecording()
+        _level.value = 0f
+        val sid = sessionId
+        if (wav == null || sid == null) { setSay { it.copy(phase = SayPhase.IDLE, error = "I didn't hear you. Tap the mic and say the sentence.") }; return }
+        setSay { it.copy(phase = SayPhase.CHECKING) }
+        sayJob = viewModelScope.launch {
+            try {
+                val r = c.api.sayBack(sid, text, wav)
+                c.events.log("result.said_back", mapOf("matched" to r.matched.toString(), "total" to r.total.toString()), sid)
+                setSay { it.copy(phase = SayPhase.IDLE, results = it.results + (text to r)) }
+            } catch (e: CancellationException) { throw e } catch (e: Exception) {
+                Log.w(TAG, "say back: ${e.message}")
+                setSay { it.copy(phase = SayPhase.IDLE, error = "Couldn't check that. Please try again.") }
+            }
+        }
+    }
+
+    /** Stops whatever "say it back" is doing (playing or recording). */
+    fun stopSaying() {
+        sayJob?.cancel(); sayJob = null
+        sayVoiceMade?.let { it.stopPlaying(); it.cancelRecording() }
+        _level.value = 0f
+        setSay { if (it.phase == SayPhase.CHECKING) it else it.copy(phase = SayPhase.IDLE) }
     }
 
     // ---------- speaking ----------
@@ -446,7 +535,7 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
         _level.value = 0f
     }
 
-    override fun onCleared() { stop() }
+    override fun onCleared() { stopSaying(); stop() }
 
     private fun now() = SystemClock.elapsedRealtime()
 

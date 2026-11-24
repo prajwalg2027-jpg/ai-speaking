@@ -414,6 +414,31 @@ message as reused or new (an estimate: providers report only the count). Caching
 long enough (about a thousand tokens for OpenAI); the fixed instructions alone are longer than that. The
 goodbye, level and feedback come in the last turn's answer: no extra request.
 
+## The result screen: feedback on their own answers
+
+Under the level, the app shows what the learner can learn from what they actually said
+(`server/placement/insights.js`, `android/.../ui/ResultScreen.kt`). Every part is there to try out; Prajwal will
+keep the ones that work best:
+
+| Part | What it shows | Made by |
+|---|---|---|
+| Your best moment | their strongest sentence, quoted, with tags (gave a reason, joined two ideas…) | the AI; kept only if the quote is in their words |
+| Your answers, polished | each answer with the wrong words struck out and Sakhi's version highlighted, and why | the AI writes the version; the app works out the word-by-word difference |
+| Next level (a toggle on the same card) | the same idea the way a speaker one level up would say it, with labels for what it adds | the AI |
+| How each level would say it | one idea of theirs said at levels 1 to 4; theirs marked "You are here" | the AI |
+| One habit to work on | a mistake seen in two or more places, each example fixed, and a rule | the AI; kept only with two examples in their words |
+| A tip for you | a common Indian English pattern they used ("since two months"), with a Hindi line | the AI; kept only if they said it |
+| What you said, counted | English words, the longest answer, joining words, Hindi words | the app (no AI) |
+| Hear it / Say it | Sakhi says a sentence; the learner says it back and sees which words were heard | Sakhi's voice; Sarvam speech-to-text and the app's word match |
+
+It is written in **one extra AI call** (the model of each turn, Settings › Placement test, with the final
+evaluation's thinking), started the moment the test ends, while Sakhi says goodbye, so her last turn is not
+slower. The app asks `GET /api/session/insights?id=…`, which waits for it (about 25 s at most), and shows "Sakhi is
+writing feedback on your answers…" until then. If the AI fails, only the counts are shown, with the older "What
+went well" card, which stays below. `POST /api/session/sayback?id=…&text=…` takes a WAV of the learner saying one
+of its sentences (only those) and returns each word, heard or not. It works for both kinds of test (the classic
+test's spoken answers too). The feedback lives with the test in memory; it is not saved to the database yet.
+
 ## What to know about letting the AI decide
 
 Results depend on the model: two models, or the same model twice, can give the same learner different levels.
