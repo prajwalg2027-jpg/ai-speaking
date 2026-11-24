@@ -99,15 +99,19 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // The launch screen (Theme.Sakhi.Starting): the orb on the page colour, kept up while we check who's signed in
-        // (at most 2 s, so a slow network never leaves people staring at it), then a short fade into the app.
+        // The launch screen (Theme.Sakhi.Starting): the orb pops in with a voice ripple (splash_icon_animated.xml).
+        // It stays only while we check who's signed in (at most 2 s), never for the animation: once the app is ready
+        // it goes, even mid-animation, with a 0.2 s fade as the orb grows a touch.
         val splash = installSplashScreen()
         val shownAt = SystemClock.uptimeMillis()
         splash.setKeepOnScreenCondition { authVm.gate.value is Gate.Checking && SystemClock.uptimeMillis() - shownAt < 2_000 }
         splash.setOnExitAnimationListener { screen ->
-            val fast = Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
-            if (fast) screen.remove()
-            else screen.view.animate().alpha(0f).setDuration(220L).withEndAction { screen.remove() }.start()
+            val animationsOff = Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+            if (animationsOff) screen.remove()
+            else {
+                runCatching { screen.iconView.animate().scaleX(1.06f).scaleY(1.06f).setDuration(200L).start() }
+                screen.view.animate().alpha(0f).setDuration(200L).withEndAction { screen.remove() }.start()
+            }
         }
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
