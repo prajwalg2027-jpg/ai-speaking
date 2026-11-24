@@ -48,6 +48,10 @@ const sessions = new Map();
 const TTL_MS = 2 * 60 * 60 * 1000;
 setInterval(() => { const now = Date.now(); for (const [id, s] of sessions) if (now - s.at > TTL_MS) sessions.delete(id); }, 10 * 60 * 1000).unref();
 export const getSession = (id) => sessions.get(id);
+/** A test brought back from the database (server/placement/resume.js). */
+export const adopt = (s) => { sessions.set(s.id, s); return s; };
+/** The server lets go of a test (as a release does); tests. */
+export const forget = (id) => sessions.delete(id);
 
 // ---- lines ------------------------------------------------------------------------------------------
 const line = (text, pace = 1) => ({ text, lang: voiceLanguage(text), pace });
@@ -144,6 +148,17 @@ export function nameIn(t) {
 const fixedAsk = (q, again = false) => (q.step === 'hello' ? [line(HELLO_AGAIN.en, 0.9), line(HELLO_AGAIN.hi, 0.9)]
   : q.step === 'picture' ? (again ? [line(q.v.simple || q.v.say, 0.9), line(q.v.hindi, 0.9)] : [line(q.v.say), line(q.v.hindi, 0.95)])
   : q.step === 'read' ? [line(READ.en, again ? 0.9 : 1), line(READ.hi, again ? 0.9 : 0.95)] : linesOf(q.text, again ? 0.9 : 1));
+/**
+ * The learner is back after a break (the app was closed, the connection lost): `welcome` (Sakhi's lines), then
+ * the question they were on, asked again. The talk notes the break, so the AI knows why she asked it twice.
+ */
+export function resumeTurn(s, welcome) {
+  s.at = Date.now(); s.prev = null; s.saying = null;
+  if (s.done) return respond(s, [], [], { done: s.result });
+  const again = s.lastSay && s.lastSay.askAt < s.lastSay.lines.length ? s.lastSay.lines.slice(s.lastSay.askAt) : fixedAsk(s.q, false);
+  s.history.push({ who: 'app', text: appLine('The learner left the talk for a while and has come back. Sakhi welcomed them back and asked the same question again.') });
+  return respond(s, welcome, again, {}, { step: false });
+}
 const READ_RESULT = (acc) => (acc >= READ_OK ? 'well' : acc >= 0.4 ? 'partly' : 'not');
 
 /**

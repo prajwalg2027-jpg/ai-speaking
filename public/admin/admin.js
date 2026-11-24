@@ -213,6 +213,14 @@ async function overview() {
       <div class="card"><h2>Learners by placement level</h2>${hbars(o.levels, { label: (r) => LEVEL_NAMES[r.level] })}</div>
       <div class="card"><h2>Most common mistakes (7 days)</h2>${hbars(o.mistakes, { label: (r) => humanize(r.concept) })}</div>
     </div>
+    ${o.tests30d ? html`<div class="grid g2 section">
+      <div class="card"><h2>Where placement tests are left (30 days)</h2>${hbars(o.dropOff || [], { label: (r) => (r.answers ? `After ${r.answers} answer${r.answers === 1 ? '' : 's'}` : 'Before the first answer') })}</div>
+      <div class="card"><h2>Placement tests (30 days)</h2>
+        <p>${n0(o.tests30d.started)} started · ${n0(o.tests30d.finished)} finished (${o.tests30d.started ? Math.round((100 * o.tests30d.finished) / o.tests30d.started) : 0}%)</p>
+        <p>${n0(o.tests30d.resumed)} carried on after a break · ${n0(o.tests30d.finishedAfterBreak)} of them finished</p>
+        <p class="muted small">A test counts as left when it is abandoned (the learner started over, or didn't come back within Settings › Limits) or has had no answer for an hour.</p>
+      </div>
+    </div>` : ''}
     <p class="muted small">Spend is counted by this server since midnight (India time); AI cost in the last 24 h from saved replies: ${inr(lat?.costInr)}. Check errors (7 days): ${n0(o.quality?.checkErrors)}.</p>`);
   drawCharts();
   $('#refresh').addEventListener('click', route);
@@ -262,6 +270,7 @@ const META = {
   'limits.turnsPerSession': { label: 'Turns in one placement test' },
   'limits.listenSecPerSession': { label: 'Listening seconds per placement test' },
   'limits.learnMessagesPerDay': { label: 'Practice messages per learner per day' },
+  'limits.resumeHours': { label: 'Hours a learner can carry on a test they left (0: always start again)' },
   'payments.enabled': { type: 'bool', label: 'Learning needs a subscription (the paywall is on)' },
   'payments.priceInr': { label: 'Price per month (₹)', help: 'A new price makes a new Razorpay plan; people already subscribed keep their price.' },
   'payments.gstPercent': { label: 'GST in the price (%)', help: 'For the amounts reported to Google Play when someone pays with Razorpay through Play’s screen. 0 while you’re not GST-registered (under ₹20 lakh a year); 18 once registered.' },

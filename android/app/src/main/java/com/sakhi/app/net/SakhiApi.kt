@@ -37,6 +37,14 @@ class SakhiApi(private val client: OkHttpClient, private val baseUrl: () -> Stri
 
     suspend fun status(): ServerStatus = get("/api/config")
     suspend fun startSession(): Turn = post("/api/session", "{}")
+    /** Carry on a test left midway: Sakhi welcomes them back and asks her question again. null: nothing to carry on. */
+    suspend fun resumeSession(sessionId: String?): Turn? = try {
+        post("/api/session/resume", SakhiJson.encodeToString(ResumeRequest(sessionId)))
+    } catch (e: ServerException) {
+        if (e.status == 404) null else throw e
+    }
+    /** Is there a test left midway? (Nothing is said; for the screen.) */
+    suspend fun openTest(): OpenTest = get("/api/session/resume")
     /**
      * Sends the learner's turn and returns Sakhi's.
      *

@@ -15,6 +15,13 @@ class HintsTest {
         assertEquals(HintKey.WAIT, hintKey(live.copy(phase = Phase.LISTENING, waitNudge = true)))
     }
 
+    @Test fun `a test left midway says tap to carry on, and a reply being sent again says so`() {
+        assertEquals(HintKey.CONTINUE, hintKey(UiState(canResume = true)))
+        assertEquals(HintKey.CONTINUE, hintKey(UiState(canResume = true, notice = true)))
+        assertEquals(HintKey.RECONNECTING, hintKey(UiState(session = SessionState.LIVE, phase = Phase.THINKING, reconnecting = true)))
+        assertEquals("Tap to carry on your test", hintLines(HintKey.CONTINUE, null).first)
+    }
+
     @Test fun `second line is in the learner's language, else Hindi`() {
         assertEquals("ਸੁਣ ਰਹੀ ਹਾਂ…", hintLines(HintKey.LISTENING, "pa-IN").second)
         assertEquals("गोले को छूकर फिर कोशिश करें", hintLines(HintKey.NOTICE, "pa-IN").second) // Punjabi has no line: Hindi

@@ -39,6 +39,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -88,6 +89,7 @@ fun SakhiScreen(
     onAccount: (() -> Unit)? = null,
     onStartLearning: () -> Unit = {},
     onReport: (String) -> Unit = {},
+    onStartOver: () -> Unit = {},
     onHear: (String) -> Unit = {},
     onSay: (String) -> Unit = {},
 ) {
@@ -124,6 +126,10 @@ fun SakhiScreen(
                 )
             }
             Hint(state)
+            // A test left midway: the orb carries it on; this begins a new one.
+            AnimatedVisibility(state.session == SessionState.IDLE && state.canResume) {
+                TextButton(onStartOver, Modifier.fillMaxWidth()) { Text("Start over · फिर से शुरू करें", color = c.ink2) }
+            }
             Spacer(Modifier.height(12.dp))
         }
     }
