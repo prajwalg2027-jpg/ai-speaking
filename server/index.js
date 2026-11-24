@@ -226,8 +226,10 @@ async function handleLabCompare(req, res) {
 }
 
 async function serveStatic(res, pathname) {
+  // The learner app is the Android app; the server's own address has no page of its own, so send visitors to the website.
+  if (pathname === '/') { res.writeHead(302, { location: 'https://adamspeaks.in/' }); return res.end(); }
   // /admin and /admin/ are both the console: adamspeaks.in/admin (Firebase Hosting strips trailing slashes) and the server's own address.
-  const rel = pathname === '/' ? 'public/index.html' : pathname === '/admin/' || pathname === '/admin' ? 'public/admin/index.html' : pathname.startsWith('/shared/') ? pathname.slice(1) : `public${pathname}`;
+  const rel = pathname === '/admin/' || pathname === '/admin' ? 'public/admin/index.html' : pathname.startsWith('/shared/') ? pathname.slice(1) : `public${pathname}`;
   const file = normalize(join(ROOT, rel));
   if (!file.startsWith(ROOT)) { res.writeHead(403); return res.end(); }
   try {

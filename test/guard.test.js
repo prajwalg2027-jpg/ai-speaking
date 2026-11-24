@@ -24,7 +24,9 @@ test('team tools are off in production', async () => {
     assert.equal((await fetch(`${base}${p}`)).status, 404, p);
   }
   assert.equal((await fetch(`${base}/api/lab/compare`, { method: 'POST', body: '{}' })).status, 404);
-  assert.equal((await fetch(`${base}/`)).status, 200, 'the app itself is served');
+  const home = await fetch(`${base}/`, { redirect: 'manual' });
+  assert.equal(home.status, 302, 'the server has no learner page: / goes to the website');
+  assert.equal(home.headers.get('location'), 'https://adamspeaks.in/');
 });
 
 test('replies leave out the scoring trace and the cost', async () => {
