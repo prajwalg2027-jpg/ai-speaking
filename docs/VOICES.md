@@ -5,14 +5,17 @@
 Admin console › **Settings** › **Sakhi's voice** (settings section `voice`, `server/settings.js`; spoken by
 `streamSpeech` in `server/sarvam.js`). It can be changed there without a deploy.
 
-- **Default: Google's Gemini voice through Google Cloud Text-to-Speech**, model `gemini-2.5-flash-tts`, voice
-  **Sulafat** (warm), told to speak "warmly and patiently, like a kind, friendly Indian tutor". It signs in as the
-  server's Cloud Run account, so it is billed to the Google Cloud project (credits pay for it), with no key.
-- Also: the Gemini API (the newest models, 3.8 Flash and Flash-Lite TTS; needs `GEMINI_API_KEY`), or Sarvam
-  Bulbul (`SARVAM_TTS_MODEL`, `SARVAM_TTS_SPEAKER`: v4 Flash, Roopa).
+- **Default: Gemini 3.8 Flash-Lite TTS through Vertex AI**, voice **Sulafat** (warm), told to speak "warmly and
+  patiently, like a kind, friendly Indian tutor". Google calls Flash-Lite its fast model; it is also the cheapest
+  (about ₹0.80 a minute, doubling on 1 Jan 2027). It signs in as the server's Cloud Run account (which already has
+  Vertex AI access for Gemini as the AI), so it is **billed to the Google Cloud project** and credits pay for it.
+  No key. Vertex AI's price for these models is taken to be Google's Gemini API price.
+- Also: 3.8 Flash TTS (best quality) through Vertex AI; the older Gemini models through Google Cloud
+  Text-to-Speech (also billed to the project); or Sarvam Bulbul (`SARVAM_TTS_MODEL`, `SARVAM_TTS_SPEAKER`).
+  The Gemini API with a key is used only if the server is switched off Vertex AI (`GOOGLE_GENAI_USE_VERTEXAI=false`).
 - **Sarvam stays the safety net**: if the Google voice fails before any sound, Sarvam says that line (and it is not
   kept, so Google is tried again next time). Where Google can't be reached at all (a laptop without Google sign-in,
-  no Gemini key), Sarvam speaks.
+  not on Vertex AI), Sarvam speaks.
 - Slower lines (listening passages, `pace` below 1) are asked for "a little slower" in words; Google's voices
   are told how to speak, not given a speed.
 - Fixed lines are kept per voice, so after a change they are made again once (about 124 lines) and stored.

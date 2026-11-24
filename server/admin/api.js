@@ -131,7 +131,7 @@ export async function handleAdmin(req, res, url, deps = {}) {
     const b = await readJson(req);
     if (a.key === 'llm') for (const [job, cfg] of Object.entries(b.value || {})) if (cfg?.provider && !providers[cfg.provider]?.configured()) throw fail(400, `${cfg.provider} is not set up on the server (its API key is missing), so ${job} can't use it`);
     if (a.key === 'voice' && b.value?.source && b.value.source !== 'sarvam') {
-      if (!voiceConfigured[b.value.source]?.()) throw fail(400, b.value.source === 'gemini' ? 'The Gemini API has no key on the server (GEMINI_API_KEY), so its voices can\'t be used.' : 'Google Cloud Text-to-Speech works only on the deployed server.');
+      if (!voiceConfigured[b.value.source]?.()) throw fail(400, 'Google\'s voices work only on the deployed server (it signs in to Google Cloud as its service account).');
       if (!VOICE_MODELS[b.value.source]?.[b.value.model]) throw fail(400, `${b.value.model} is not one of the voice models for ${b.value.source}: ${Object.keys(VOICE_MODELS[b.value.source] || {}).join(', ')}`);
     }
     return send(res, 200, { value: await settings.set(a.key, b.value, who.phone) }), true;

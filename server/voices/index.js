@@ -3,8 +3,10 @@
 //   cloudtts  Google's Gemini voices through Google Cloud Text-to-Speech (cloud.google.com/text-to-speech/docs/gemini-tts):
 //             streamed over gRPC (StreamingSynthesize), signed in as the server's own Google Cloud service account
 //             (no key), billed to the project. Serves Gemini 3.1 Flash TTS (preview) and the 2.5 models.
-//   gemini    Google's Gemini voices through the Gemini API (Google AI Studio, an API key), Interactions API.
-//             Has the newest models (3.8 Flash and Flash-Lite TTS), which Cloud Text-to-Speech does not.
+//   gemini    Google's Gemini voices, with the newest models (3.8 Flash and Flash-Lite TTS), which Cloud
+//             Text-to-Speech does not have. Through Vertex AI by default (generateContent, signed in as the server's
+//             Google Cloud account, billed to the project, like Gemini as the AI: server/llm/openai.js); through the
+//             Gemini API (Google AI Studio, a key, Interactions API) only with GOOGLE_GENAI_USE_VERTEXAI=false.
 // Each gives 24 kHz, 16-bit, mono sound, the same as the app plays. The app's own voice is chosen in the admin
 // console's settings (section "Sakhi's voice", server/settings.js); server/sarvam.js streams it, through speakPiece below.
 import { readFileSync } from 'node:fs';
@@ -12,6 +14,7 @@ import { config } from '../config.js';
 import { PRICES, addVoice } from '../costs.js';
 import { voiceLanguage } from '../../shared/languages.js';
 import textToSpeech from '@google-cloud/text-to-speech';
+import { vertexOn, vertexToken, vertexBase } from '../llm/openai.js';
 
 export const SAMPLE_RATE = 24000;
 const usdInr = () => { const n = Number(process.env.USD_INR); return Number.isFinite(n) && n > 0 ? n : 88; };
@@ -22,7 +25,8 @@ const onDay = (p) => (p?.later && today() >= p.later.from ? { ...p, ...p.later }
 const SARVAM_VOICES = JSON.parse(readFileSync(new URL('./sarvam-voices.json', import.meta.url), 'utf8'));
 
 // Sarvam: priced per 1,000 characters (docs.sarvam.ai pricing, pay as you go, 23 Nov 2026).
-// Google: per million tokens in US dollars (aistudio.google.com/docs/pricing, standard tier, 23 Nov 2026); the
+// Google: per million tokens in US dollars (aistudio.google.com/docs/pricing, standard tier, 23 Nov 2026; Vertex AI's
+// prices for the same models are taken to be the same); the
 // sound is billed as output tokens, 25 for every second of it. Google has announced that its 3.8 prices double on
 // 1 Jan 2027 ("later"); the price for the day is used.
 export const MODELS = {
@@ -55,18 +59,21 @@ export const GEMINI_VOICES = [
   ['Achird', 'Friendly'], ['Zubenelgenubi', 'Casual'], ['Vindemiatrix', 'Gentle'], ['Sadachbia', 'Lively'], ['Sadaltager', 'Knowledgeable'], ['Sulafat', 'Warm'],
 ].map(([id, sound]) => ({ id, label: `${id} (${sound})` }));
 
+// Signed in as the server's Google Cloud service account: on Cloud Run (K_SERVICE), or with a credentials file.
+const googleCloud = () => !!(process.env.K_SERVICE || process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.CLOUD_TTS === 'on');
 export const configured = {
   sarvam: () => !!config.sarvam.apiKey,
-  gemini: () => !!process.env.GEMINI_API_KEY,
-  // Signed in as the server's Google Cloud service account: on Cloud Run (K_SERVICE), or with a credentials file.
-  cloudtts: () => !!(process.env.K_SERVICE || process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.CLOUD_TTS === 'on'),
+  gemini: () => (vertexOn() ? googleCloud() || !!process.env.VERTEX_TTS_BASE_URL : !!process.env.GEMINI_API_KEY),
+  cloudtts: googleCloud,
 };
+/** How the Gemini voices are reached and billed, for the admin console. */
+export const geminiVia = () => (vertexOn() ? 'Vertex AI (Google Cloud)' : 'Gemini API (key)');
 const geminiBase = () => process.env.GEMINI_NATIVE_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta';
 
 let libraryCache = { at: 0, list: null };
-/** Google's wider voice library for English and Hindi (needs the key; kept for an hour). Studio voices if it can't be had. */
+/** Google's wider voice library for English and Hindi (the Gemini API's, needs the key; kept for an hour). Studio voices if it can't be had. */
 export async function geminiVoices() {
-  if (!configured.gemini()) return GEMINI_VOICES;
+  if (vertexOn() || !process.env.GEMINI_API_KEY) return GEMINI_VOICES;
   if (libraryCache.list && Date.now() - libraryCache.at < 60 * 60 * 1000) return libraryCache.list;
   try {
     const q = new URLSearchParams([['language_code', 'en-IN'], ['language_code', 'hi-IN'], ['page_size', '1000']]);
@@ -189,8 +196,67 @@ async function cloudPiece(text, o, onChunk) {
   return { pcm, firstByteMs, ms: Math.round(performance.now() - t0), tokens: { input, output, counted: false }, costInr: ((input * p.input + output * p.output) / 1e6) * usdInr() };
 }
 
+/** Vertex AI's streamGenerateContent address for a model (VERTEX_TTS_BASE_URL: the whole address, for tests). */
+async function vertexModelUrl(model) {
+  if (process.env.VERTEX_TTS_BASE_URL) return `${process.env.VERTEX_TTS_BASE_URL}/${model}:streamGenerateContent?alt=sse`;
+  const m = (await vertexBase()).match(/^(https:\/\/[^/]+)\/v1\/projects\/([^/]+)\/locations\/([^/]+)/);
+  if (!m) throw new Error('Vertex AI: no project and location (GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION)');
+  return `${m[1]}/v1/projects/${m[2]}/locations/${m[3]}/publishers/google/models/${model}:streamGenerateContent?alt=sse`;
+}
+
+/** Reads a stream of server-sent events, calling take(block) for each. */
+async function readEvents(body, take) {
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for await (const chunk of body) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let at;
+    while ((at = buffer.search(/\r?\n\r?\n/)) >= 0) { const block = buffer.slice(0, at); buffer = buffer.slice(at).replace(/^\r?\n\r?\n/, ''); take(block); }
+  }
+  if (buffer.trim()) take(buffer);
+}
+
+/**
+ * A Gemini voice through Vertex AI (Google Cloud): generateContent with sound as the answer, streamed. Google is
+ * told how to speak in words, before the line ("Say warmly: …"), as its speech guide shows.
+ */
+async function vertexPiece(text, o, onChunk) {
+  const t0 = performance.now();
+  const style = (o.style || '').trim().replace(/[.:\s]+$/, '');
+  const res = await fetch(await vertexModelUrl(o.model), {
+    method: 'POST', signal: AbortSignal.timeout(o.timeoutMs || 60_000),
+    headers: { authorization: `Bearer ${await vertexToken()}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: style ? `${style}:\n${text}` : text }] }],
+      generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: o.voice } }, languageCode: sarvamLanguage(text) } },
+    }),
+  });
+  if (!res.ok) throw new Error(`Vertex AI ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const parts = []; let firstByteMs = null, usage = null;
+  await readEvents(res.body, (block) => {
+    const data = block.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim()).join('\n');
+    if (!data) return;
+    let e; try { e = JSON.parse(data); } catch { return; }
+    if (e.error) throw new Error(`Vertex AI: ${String(e.error.message || 'the voice failed').slice(0, 300)}`);
+    for (const part of e.candidates?.[0]?.content?.parts || []) {
+      if (!part.inlineData?.data) continue;
+      firstByteMs ??= Math.round(performance.now() - t0);
+      const buf = Buffer.from(part.inlineData.data, 'base64'); parts.push(buf); onChunk?.(buf);
+    }
+    if (e.usageMetadata) usage = e.usageMetadata;
+  });
+  const pcm = Buffer.concat(parts);
+  if (!pcm.length) throw new Error('Vertex AI sent no sound');
+  const seconds = pcm.length / 2 / SAMPLE_RATE;
+  const input = usage?.promptTokenCount ?? Math.ceil((text.length + style.length) / 4);
+  const output = usage?.candidatesTokenCount ?? Math.round(seconds * AUDIO_TOKENS_PER_SECOND);
+  const p = onDay(MODELS.gemini[o.model]?.usd || MODELS.gemini['gemini-3.8-flash-lite-tts'].usd);
+  return { pcm, firstByteMs, ms: Math.round(performance.now() - t0), tokens: { input, output, counted: !!usage }, costInr: ((input * p.input + output * p.output) / 1e6) * usdInr() };
+}
+
 /** Reads Google's streamed answer (server-sent events): the sound, and what it counted. */
 async function geminiPiece(text, o, onChunk) {
+  if (vertexOn()) return vertexPiece(text, o, onChunk);
   const t0 = performance.now();
   const res = await fetch(`${geminiBase()}/interactions`, {
     method: 'POST', signal: AbortSignal.timeout(o.timeoutMs || 60_000),
@@ -249,7 +315,7 @@ export function speakPiece(provider, text, o, onChunk) {
  * Pieces are made one after another and joined with a short gap, as the app plays separate lines.
  */
 export async function say(o) {
-  if (!configured[o.provider]?.()) throw Object.assign(new Error({ gemini: 'No Gemini key on the server (GEMINI_API_KEY): add it with deploy/llm-keys-setup.sh, PROVIDERS=gemini.', cloudtts: 'Google Cloud Text-to-Speech works on the deployed server (it signs in as the Cloud Run service account), not on a local one.', sarvam: 'No Sarvam key on the server.' }[o.provider]), { status: 400 });
+  if (!configured[o.provider]?.()) throw Object.assign(new Error({ gemini: vertexOn() ? 'Gemini voices through Vertex AI work on the deployed server (it signs in as the Cloud Run service account), not on a local one.' : 'No Gemini key on the server (GEMINI_API_KEY): add it with deploy/llm-keys-setup.sh, PROVIDERS=gemini.', cloudtts: 'Google Cloud Text-to-Speech works on the deployed server (it signs in as the Cloud Run service account), not on a local one.', sarvam: 'No Sarvam key on the server.' }[o.provider]), { status: 400 });
   const pieces = piecesOf(o.text, o.mode);
   if (!pieces.length) throw Object.assign(new Error('Type something to say.'), { status: 400 });
   const make = { gemini: geminiPiece, cloudtts: cloudPiece, sarvam: sarvamPiece }[o.provider];

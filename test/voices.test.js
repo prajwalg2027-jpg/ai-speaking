@@ -24,7 +24,7 @@ before(async () => {
     res.end();
   });
   await new Promise((ok) => google.listen(0, '127.0.0.1', ok));
-  Object.assign(process.env, { SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url, GEMINI_API_KEY: 'gemini-test-key', GEMINI_NATIVE_BASE_URL: `http://127.0.0.1:${google.address().port}/v1beta`, USD_INR: '88' });
+  Object.assign(process.env, { SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url, GEMINI_API_KEY: 'gemini-test-key', GEMINI_NATIVE_BASE_URL: `http://127.0.0.1:${google.address().port}/v1beta`, USD_INR: '88', GOOGLE_GENAI_USE_VERTEXAI: 'false' }); // the Gemini API route (a key); Vertex AI's is in app-voice.test.js
   delete process.env.DATABASE_URL;
   ({ server } = await import('../server/index.js'));
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
@@ -43,7 +43,7 @@ test('the voices to choose from, and what each model costs', async () => {
   // Google's 30 studio voices, and its wider library when the key can ask for it.
   assert.ok(info.voices.gemini.some((v) => v.id === 'Sulafat' && /Warm/.test(v.label)));
   assert.ok(info.voices.gemini.some((v) => v.id === 'aanya-in' && /Aanya \(female, Indian\)/.test(v.label)));
-  assert.deepEqual(info.current, { provider: 'sarvam', model: 'bulbul:v4-flash', voice: 'roopa_hi_companion' });
+  assert.deepEqual(info.current, { provider: 'gemini', model: 'gemini-3.8-flash-lite-tts', voice: 'Sulafat' }, 'the app voice, from the settings');
   const row = (model) => info.prices.rows.find((r) => r.model === model);
   assert.equal(row('bulbul:v4-flash').per1000Chars, 2, '₹2 for 1,000 characters');
   assert.equal(row('bulbul:v3').per1000Chars, 3);
