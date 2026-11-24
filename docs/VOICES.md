@@ -6,7 +6,8 @@ Admin console › **Settings** › **Sakhi's voice** (settings section `voice`, 
 `streamSpeech` in `server/sarvam.js`). It can be changed there without a deploy.
 
 - **Default: Gemini 3.8 Flash-Lite TTS through Vertex AI**, voice **Sulafat** (warm), told to speak "warmly and
-  patiently, like a kind, friendly Indian tutor". Google calls Flash-Lite its fast model; it is also the cheapest
+  naturally, like a kind, friendly Indian tutor, at an easy conversational pace" (not "patiently": Gemini voices
+  hear that as "slowly"). Google calls Flash-Lite its fast model; it is also the cheapest
   (about ₹0.80 a minute, doubling on 1 Jan 2027). It signs in as the server's Cloud Run account (which already has
   Vertex AI access for Gemini as the AI), so it is **billed to the Google Cloud project** and credits pay for it.
   No key. Vertex AI's price for these models is taken to be Google's Gemini API price.
@@ -16,8 +17,11 @@ Admin console › **Settings** › **Sakhi's voice** (settings section `voice`, 
 - **Sarvam stays the safety net**: if the Google voice fails before any sound, Sarvam says that line (and it is not
   kept, so Google is tried again next time). Where Google can't be reached at all (a laptop without Google sign-in,
   not on Vertex AI), Sarvam speaks.
-- Slower lines (listening passages, `pace` below 1) are asked for "a little slower" in words; Google's voices
-  are told how to speak, not given a speed.
+- **Speed** (`voice.speed`, default 1.15; 1 is Google's own speed): sent to Cloud Text-to-Speech as its speaking
+  rate. Vertex AI takes no number, so above 1.1 it is told "speak at a brisk, natural pace" in words. A question
+  said again (`pace` 0.9 or less) is 10% slower; the 0.95 lines (Hindi, follow-up questions) are Sarvam's tuning
+  and Google says them at the normal speed (`googlePace` in `server/sarvam.js`). Changing it makes the fixed lines
+  again. Try a speed first on Compare voices (Google Cloud, Pace).
 - **One voice request per turn** (on by default, Google voices only): a turn's lines are joined into one line
   before the app gets the turn (`server/voicejoin.js`), so each turn is one request to Google. The free trial
   allows 10 Gemini voice requests a minute for the whole project, so this fits about three times as many turns.

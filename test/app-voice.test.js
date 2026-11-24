@@ -47,7 +47,7 @@ after(() => { srv.close(); vertex.close(); });
 
 test('the default voice is Gemini 3.8 Flash-Lite TTS, through Vertex AI (Google Cloud)', async () => {
   const { SECTIONS } = await import('../server/settings.js');
-  assert.deepEqual({ ...SECTIONS.voice.defaults, style: undefined }, { source: 'gemini', model: 'gemini-3.8-flash-lite-tts', voice: 'Sulafat', style: undefined, fallbackToSarvam: true, oneRequestPerTurn: true });
+  assert.deepEqual({ ...SECTIONS.voice.defaults, style: undefined }, { source: 'gemini', model: 'gemini-3.8-flash-lite-tts', voice: 'Sulafat', style: undefined, speed: 1.15, fallbackToSarvam: true, oneRequestPerTurn: true });
 });
 
 test('without Google sign-in on the server (a laptop), Sarvam speaks', async () => {
@@ -72,7 +72,7 @@ test('on the deployed server, Gemini 3.8 Flash-Lite speaks through Vertex AI, si
   assert.equal(call.url, '/models/gemini-3.8-flash-lite-tts:streamGenerateContent?alt=sse');
   assert.equal(call.auth, 'Bearer vertex-token');
   assert.deepEqual(call.body.generationConfig, { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Sulafat' } }, languageCode: 'hi-IN' } });
-  assert.match(call.body.contents[0].parts[0].text, /^Speak warmly.*slower than usual, clearly:\nनमस्ते/s);
+  assert.match(call.body.contents[0].parts[0].text, /^Speak warmly.*Speak clearly:\nनमस्ते/s);
   const c = summarize(ledger).tts;
   assert.equal(c.googleCalls, 1); assert.ok(c.inr > 0); assert.equal(c.chars, 0, 'no Sarvam characters');
   assert.equal(sarvamHits, 1, 'Sarvam not called (only by the laptop test)');
@@ -102,8 +102,8 @@ test('through Cloud Text-to-Speech (chosen in the settings), the Gemini voice sp
   assert.equal(sarvamHits, 1, 'Sarvam not called');
   const [cfg, input] = googleCalls[0].writes;
   assert.deepEqual(cfg.streamingConfig.voice, { name: 'Sulafat', languageCode: 'en-IN', modelName: 'gemini-2.5-flash-tts' });
-  assert.equal(cfg.streamingConfig.streamingAudioConfig.speakingRate, undefined, 'the pace goes in words');
-  assert.match(input.input.prompt, /slower/);
+  assert.equal(cfg.streamingConfig.streamingAudioConfig.speakingRate, 1.03, 'the admin speed, 10% slower for a line said again');
+  assert.doesNotMatch(input.input.prompt, /slower/);
   const c = summarize(ledger).tts;
   assert.equal(c.googleCalls, 1); assert.ok(c.inr > 0); assert.equal(c.chars, 0);
   const again = await streamSpeech('Nice to meet you!', { lang: 'en-IN', pace: 0.9 });
@@ -123,4 +123,17 @@ test('a line the Gemini voice fails on is said by Sarvam, and Google is tried ag
   await streamSpeech('Shall we begin?', { lang: 'en-IN' });
   assert.equal(googleCalls.length, before + 1, 'not cached in the wrong voice');
   delete process.env.CLOUD_TTS;
+});
+
+test('Google voices: the admin speed becomes the speaking rate, and only lines said again are slower', async () => {
+  const { googlePace } = await import('../server/sarvam.js');
+  const cloud = { source: 'cloudtts', style: 'Warm.', speed: 1.2 };
+  assert.deepEqual(googlePace(cloud, 1), { style: 'Warm.', rate: 1.2 });
+  assert.deepEqual(googlePace(cloud, 0.95), { style: 'Warm.', rate: 1.2 }, 'Hindi lines are not slowed down');
+  assert.deepEqual(googlePace(cloud, 0.9), { style: 'Warm. Speak clearly.', rate: 1.08 });
+  assert.match(googlePace({ source: 'gemini', style: 'Warm.', speed: 1.15 }, 1).style, /brisk/, 'Vertex AI is told in words');
+  assert.doesNotMatch(googlePace({ source: 'gemini', style: 'Warm.', speed: 1 }, 1).style, /brisk|slower/);
+  const settings = await import('../server/settings.js');
+  const { speed, ...saved } = settings.SECTIONS.voice.defaults;
+  assert.equal(settings.SECTIONS.voice.schema.parse(saved).speed, 1.15, 'settings saved before the speed still load');
 });

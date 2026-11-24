@@ -92,16 +92,16 @@ function keep(key, pcm) {
 /**
  * The voice Sakhi speaks with now: the admin's choice (settings section "voice"), or Sarvam's Bulbul when that is
  * chosen or when the chosen Google route isn't set up on this server (no Google sign-in locally, no Gemini key).
- * → { source, model, voice, style?, fallback }
+ * → { source, model, voice, style?, speed?, fallback }
  */
 export function voiceInUse() {
   const v = settings.get('voice');
-  if (v && v.source !== 'sarvam' && voiceConfigured[v.source]?.()) return { source: v.source, model: v.model, voice: v.voice, style: v.style || '', fallback: v.fallbackToSarvam };
+  if (v && v.source !== 'sarvam' && voiceConfigured[v.source]?.()) return { source: v.source, model: v.model, voice: v.voice, style: v.style || '', speed: v.speed ?? 1, fallback: v.fallbackToSarvam };
   return { source: 'sarvam', model: S.ttsModel, voice: S.ttsSpeaker, fallback: false };
 }
 // A clip's key: the words and the voice that said them. Sarvam's keys are as they always were, so its stored lines stay good.
 const ttsKey = (text, lang, pace, v = voiceInUse()) => createHash('sha1').update(
-  (v.source === 'sarvam' ? [text, lang, pace, S.ttsSpeaker, S.ttsModel, TTS_RATE] : [text, lang, pace, v.source, v.model, v.voice, v.style, TTS_RATE]).join('|'),
+  (v.source === 'sarvam' ? [text, lang, pace, S.ttsSpeaker, S.ttsModel, TTS_RATE] : [text, lang, pace, v.source, v.model, v.voice, v.style, ...(v.speed && v.speed !== 1 ? [v.speed] : []), TTS_RATE]).join('|'),
 ).digest('hex');
 
 /**
@@ -151,9 +151,8 @@ export async function streamSpeech(text, { lang = 'en-IN', pace = 1.0, pin = fal
       // A Google Gemini voice, streamed. If it fails before any sound was sent, Sarvam says the line instead (not
       // kept, so the Google voice is tried again next time); after some sound, the line can't be patched: fail.
       try {
-        // Google is told the pace in words: a number for the speed isn't something every Gemini voice takes.
-        const style = [voice.style, pace < 1 ? 'Speak a little slower than usual, clearly.' : ''].filter(Boolean).join(' ');
-        const r = await speakPiece(voice.source, text, { model: voice.model, voice: voice.voice, style, timeoutMs: 20_000 }, send);
+        const { style, rate } = googlePace(voice, pace);
+        const r = await speakPiece(voice.source, text, { model: voice.model, voice: voice.voice, style, pace: rate, timeoutMs: 20_000 }, send);
         addVoice(text.length, { cached: false, inr: r.costInr });
         return finish(r.pcm);
       } catch (e) {
@@ -169,6 +168,21 @@ export async function streamSpeech(text, { lang = 'en-IN', pace = 1.0, pin = fal
   pending.set(key, entry);
   try { const all = await job; return { cached: false, bytes: all.length, firstByteMs }; }
   finally { pending.delete(key); }
+}
+
+/**
+ * How fast a Google voice says a line. The admin's speed (settings "voice", 1 = Google's own) goes to Cloud
+ * Text-to-Speech as a number; Vertex AI takes no number, so it is told in words. Lines at pace 0.9 or less (a question
+ * said again) are a little slower; the 0.95 lines (Hindi, follow-up questions) are Sarvam's tuning and are said at
+ * the normal speed, since Gemini voices are already unhurried. → { style, rate }
+ */
+export function googlePace(voice, pace = 1) {
+  const slow = pace <= 0.9;
+  const rate = Math.round((voice.speed || 1) * (slow ? 0.9 : 1) * 100) / 100;
+  const words = voice.source === 'gemini'
+    ? (rate >= 1.1 ? 'Speak at a brisk, natural pace, never slowly.' : rate <= 0.9 ? 'Speak a little slower than usual, clearly.' : slow ? 'Speak clearly.' : '')
+    : (slow ? 'Speak clearly.' : '');
+  return { style: [voice.style, words].filter(Boolean).join(' '), rate };
 }
 
 /** One line in Sarvam's Bulbul voice, streamed to send(Buffer). → the whole clip. */
