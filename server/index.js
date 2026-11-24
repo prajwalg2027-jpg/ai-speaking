@@ -254,7 +254,7 @@ export const server = createServer(async (req, res) => {
   if (url.pathname.startsWith('/api/learn/')) return handleApi(req, res, url, () => handleLearn(req, res, url, { speak: speakTo }));
   if (url.pathname.startsWith('/api/admin/')) return handleApi(req, res, url, () => handleAdmin(req, res, url));
   if (url.pathname.startsWith('/api/auth/')) return handleApi(req, res, url, () => handleLogin(req, res, url));
-  if (url.pathname.startsWith('/api/pay/') || url.pathname === '/api/razorpay/webhook') return handleApi(req, res, url, () => payments.handlePayments(req, res, url));
+  if (url.pathname.startsWith('/api/pay/') || url.pathname === '/api/razorpay/webhook' || url.pathname === '/api/play/rtdn') return handleApi(req, res, url, () => payments.handlePayments(req, res, url));
   try {
     if (url.pathname.startsWith('/internal') && await handleBuilds(req, res, url)) return; // pre-production only
     if (isTeamPath(url.pathname)) return send(res, 404, { error: 'not found' });

@@ -17,6 +17,8 @@ androidx-fragment = { module = "androidx.fragment:fragment-ktx", version = "1.8.
 play-services-auth = { module = "com.google.android.gms:play-services-auth", version = "22.0.0" }
 # Razorpay Standard Checkout (subscriptions).
 razorpay-checkout = { module = "com.razorpay:checkout", version = "1.6.41" }
+# Google Play Billing (subscriptions on Play builds, with user choice billing for Razorpay).
+play-billing = { module = "com.android.billingclient:billing", version = "8.0.0" }
 truecaller-sdk = { module = "com.truecaller.android.sdk:truecaller-sdk", version = "3.3.0" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }

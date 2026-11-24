@@ -223,7 +223,7 @@ private fun YouBubble(m: Message, focus: Boolean) {
 }
 
 @Composable
-private fun Dots(color: Color, small: Boolean = false) {
+internal fun Dots(color: Color, small: Boolean = false) {
     var step by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { while (true) { delay(260); step = (step + 1) % 3 } }
     Row(horizontalArrangement = Arrangement.spacedBy(if (small) 3.dp else 5.dp), modifier = Modifier.semantics { contentDescription = "Sakhi is thinking" }) {

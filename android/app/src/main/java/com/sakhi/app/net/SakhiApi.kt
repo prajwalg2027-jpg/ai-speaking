@@ -19,7 +19,7 @@ import java.io.InputStream
 /** [reason]: the server's sentence for the person, when it gave one. */
 class ServerException(message: String, val status: Int = 0, val error: String = "", val missing: List<String> = emptyList(), val reason: String? = null) : IOException(message)
 
-private fun refusal(code: Int, text: String, what: String): ServerException {
+internal fun refusal(code: Int, text: String, what: String): ServerException {
     val body = runCatching { SakhiJson.decodeFromString<ErrorBody>(text) }.getOrNull()
     return ServerException("$what (HTTP $code): ${body?.reason ?: body?.error ?: text.take(200)}", code, body?.error.orEmpty(), body?.missing.orEmpty(), body?.reason)
 }
@@ -78,7 +78,9 @@ class SakhiApi(private val client: OkHttpClient, private val baseUrl: () -> Stri
 
     // Payments: the learning module's subscription.
     suspend fun payStatus(): PayStatus = get("/api/pay/status")
-    suspend fun startRazorpay(): CheckoutStart = post("/api/pay/razorpay/subscription", "{}")
+    suspend fun startRazorpay(playExternalToken: String? = null): CheckoutStart =
+        post("/api/pay/razorpay/subscription", SakhiJson.encodeToString(RazorpayStart(playExternalToken)))
+    suspend fun verifyPlay(purchaseToken: String): PayStatus = post("/api/pay/play/verify", SakhiJson.encodeToString(PlayPurchase(purchaseToken)))
     suspend fun verifyRazorpay(v: VerifyPayment): PayStatus = post("/api/pay/razorpay/verify", SakhiJson.encodeToString(v))
     suspend fun cancelSubscription(): PayStatus = post("/api/pay/cancel", "{}")
 

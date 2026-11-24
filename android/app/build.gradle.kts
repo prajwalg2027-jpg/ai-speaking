@@ -107,6 +107,7 @@ dependencies {
     implementation(libs.androidx.fragment)
     implementation(libs.play.services.auth)
     implementation(libs.razorpay.checkout)
+    implementation(libs.play.billing)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
 
