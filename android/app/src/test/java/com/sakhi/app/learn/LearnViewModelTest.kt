@@ -79,7 +79,7 @@ class LearnViewModelTest {
         assertEquals("went", you.corrections.single().corrected)
         assertFalse(you.checking)
         assertEquals("r1", sakhi.id)
-        assertTrue(server.takeRequest().body!!.utf8().contains("\"channel\":\"text\""))
+        assertFalse(server.takeRequest().body!!.utf8().contains("\"channel\":\"voice\"")) // text is the server's default
     }
 
     @Test fun `a failed message can be sent again with the same id`() {

@@ -56,10 +56,13 @@ class LearnRenderTest {
         LearnProgress(2, 2, null, LearnActivity(42, 5, 1, 6, 17), focus = listOf("past_simple", "articles")), lessons,
         listOf(ConversationInfo("c1", title = null, lastMessage = "Nice! What did you buy at the market?")))
 
-    @Test fun home() { shot("learn-home", LearnUi(LearnPage.Home, home)); shot("learn-home-dark", LearnUi(LearnPage.Home, home), dark = true) }
+    // One screen per test: a compose rule can only be given content once.
+    @Test fun home() = shot("learn-home", LearnUi(LearnPage.Home, home))
+    @Test fun homeDark() = shot("learn-home-dark", LearnUi(LearnPage.Home, home), dark = true)
+    @Test fun chat() = shot("learn-chat", LearnUi(LearnPage.Chat("c1"), home, chat))
+    @Test fun chatDark() = shot("learn-chat-dark", LearnUi(LearnPage.Chat("c1"), home, chat), dark = true)
 
-    @Test fun chat() {
-        val chat = ChatState("c1", loading = false, items = listOf(
+    private val chat = ChatState("c1", loading = false, items = listOf(
             ChatItem("g", true, "Hi Asha! I'm Sakhi. What would you like to talk about today?", id = "g"),
             ChatItem("m1", false, "Yesterday I goed to the market with my sister", voice = true,
                 corrections = listOf(Correction(original = "goed", corrected = "went", explanation = "Go is irregular: go → went."))),
@@ -67,18 +70,14 @@ class LearnRenderTest {
             ChatItem("m2", false, "We buyed vegetables and fruits", checking = true),
             ChatItem("r2", true, "Lovely. Do you go every week?", id = "r2"),
         ))
-        shot("learn-chat", LearnUi(LearnPage.Chat("c1"), home, chat))
-        shot("learn-chat-dark", LearnUi(LearnPage.Chat("c1"), home, chat), dark = true)
-    }
 
-    @Test fun lesson() {
-        val ex = Exercise("past/3", 3, "choose", "Which sentence is correct?", listOf("She call me yesterday.", "She called me yesterday.", "She calling me yesterday."))
-        val st = LessonState("s1", "active", 3, 2, 2, 5, "c9", past, ex)
-        shot("learn-lesson", LearnUi(LearnPage.LessonPage("s1"), home, lesson = LessonUi(false, st)))
-        val fill = st.copy(exercise = Exercise("past/2", 2, "fill_blank", "Last Sunday we ___ (play) cricket."), position = 2)
-        val r = AttemptResult("incorrect", "Not quite. Have another look and try again.", tryAgain = true, state = fill)
-        shot("learn-lesson-feedback", LearnUi(LearnPage.LessonPage("s1"), home, lesson = LessonUi(false, fill, r)))
-        val done = st.copy(status = "completed", correct = 4, total = 5, exercise = null)
-        shot("learn-lesson-done", LearnUi(LearnPage.LessonPage("s1"), home, lesson = LessonUi(false, done)))
-    }
+    private val ex = Exercise("past/3", 3, "choose", "Which sentence is correct?", listOf("She call me yesterday.", "She called me yesterday.", "She calling me yesterday."))
+    private val st = LessonState("s1", "active", 3, 2, 2, 5, "c9", past, ex)
+    private val fill = st.copy(exercise = Exercise("past/2", 2, "fill_blank", "Last Sunday we ___ (play) cricket."), position = 2)
+
+    @Test fun lesson() = shot("learn-lesson", LearnUi(LearnPage.LessonPage("s1"), home, lesson = LessonUi(false, st)))
+    @Test fun lessonFeedback() = shot("learn-lesson-feedback", LearnUi(LearnPage.LessonPage("s1"), home,
+        lesson = LessonUi(false, fill, AttemptResult("incorrect", "Not quite. Have another look and try again.", tryAgain = true, state = fill))))
+    @Test fun lessonDone() = shot("learn-lesson-done", LearnUi(LearnPage.LessonPage("s1"), home,
+        lesson = LessonUi(false, st.copy(status = "completed", correct = 4, total = 5, exercise = null))))
 }
