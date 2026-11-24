@@ -194,6 +194,8 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                     placement = { learnVm.stopVoice(); inLearn = false },
                     account = if (container.auth.configured) ({ payVm.loadAccount(); accountOpen = true }) else null,
                     report = { reportText = it },
+                    openMemory = learnVm::openMemory, forget = learnVm::forget, forgetAll = learnVm::forgetAll,
+                    cancelForgetAll = learnVm::cancelForgetAll, setMemoryEnabled = learnVm::setMemoryEnabled,
                 ))
                 else SakhiScreen(
                     state = state,

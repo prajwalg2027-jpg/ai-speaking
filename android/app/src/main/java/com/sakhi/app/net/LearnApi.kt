@@ -14,7 +14,7 @@ import java.io.IOException
 
 /**
  * The learning module's HTTP API (/api/learn, server/learning/api.js): practice conversations with corrections,
- * lessons, progress. Same login and headers as [SakhiApi]. A 402 ([ServerException.status]) means the learner
+ * lessons, progress, Sakhi's memory of the learner. Same login and headers as [SakhiApi]. A 402 ([ServerException.status]) means the learner
  * needs a subscription first (the paywall).
  */
 class LearnApi(private val client: OkHttpClient, private val version: String = "", private val baseUrl: () -> String) {
@@ -25,6 +25,13 @@ class LearnApi(private val client: OkHttpClient, private val version: String = "
         call<kotlinx.serialization.json.JsonObject>(request("/api/learn/preferences").patch(SakhiJson.encodeToString(p).toRequestBody(jsonType)).build())
     }
     suspend fun progress(): LearnProgress = get("/api/learn/progress")
+
+    /** What Sakhi remembers about the learner. */
+    suspend fun memory(): LearnerMemory = get("/api/learn/memory")
+    /** Forget one thing. */
+    suspend fun forget(id: Long) { call<kotlinx.serialization.json.JsonObject>(request("/api/learn/memory/$id").delete().build()) }
+    /** Forget everything Sakhi remembers (and the summaries of past conversations). */
+    suspend fun forgetAll() { call<kotlinx.serialization.json.JsonObject>(request("/api/learn/memory").delete().build()) }
 
     suspend fun conversations(): List<ConversationInfo> = get<ConversationList>("/api/learn/conversations").conversations
     /** A new free-practice conversation; it opens with Sakhi's greeting. */

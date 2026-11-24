@@ -11,6 +11,7 @@ import com.sakhi.app.learn.HomeState
 import com.sakhi.app.learn.LearnPage
 import com.sakhi.app.learn.LearnUi
 import com.sakhi.app.learn.LessonUi
+import com.sakhi.app.learn.MemoryUi
 import com.sakhi.app.net.AttemptResult
 import com.sakhi.app.net.Correction
 import com.sakhi.app.net.ConversationInfo
@@ -18,6 +19,9 @@ import com.sakhi.app.net.Exercise
 import com.sakhi.app.net.LearnActivity
 import com.sakhi.app.net.LearnProfile
 import com.sakhi.app.net.LearnProgress
+import com.sakhi.app.net.LearnerMemory
+import com.sakhi.app.net.MemoryConversation
+import com.sakhi.app.net.MemoryItem
 import com.sakhi.app.net.Lesson
 import com.sakhi.app.net.LessonProgress
 import com.sakhi.app.net.LessonState
@@ -80,4 +84,14 @@ class LearnRenderTest {
         lesson = LessonUi(false, fill, AttemptResult("incorrect", "Not quite. Have another look and try again.", tryAgain = true, state = fill))))
     @Test fun lessonDone() = shot("learn-lesson-done", LearnUi(LearnPage.LessonPage("s1"), home,
         lesson = LessonUi(false, st.copy(status = "completed", correct = 4, total = 5, exercise = null))))
+
+    private val memory = LearnerMemory(true, listOf(
+        MemoryItem(1, "fact", "Works in a call centre in Pune"), MemoryItem(2, "fact", "Has a younger sister"),
+        MemoryItem(3, "goal", "Wants to speak confidently with customers"),
+        MemoryItem(4, "event", "Has a job interview at TCS", "2026-11-28"),
+        MemoryItem(5, "interest", "Likes cricket, especially IPL"), MemoryItem(6, "preference", "Wants explanations in Hindi when it's hard")),
+        listOf(MemoryConversation("c1", "Talked about her interview next week and practised introducing herself.")))
+    @Test fun memory() = shot("learn-memory", LearnUi(LearnPage.Memory, home, memory = MemoryUi(false, memory)))
+    @Test fun memoryDark() = shot("learn-memory-dark", LearnUi(LearnPage.Memory, home, memory = MemoryUi(false, memory, confirmingForgetAll = true)), dark = true)
+    @Test fun memoryEmpty() = shot("learn-memory-empty", LearnUi(LearnPage.Memory, home, memory = MemoryUi(false, LearnerMemory(false))))
 }

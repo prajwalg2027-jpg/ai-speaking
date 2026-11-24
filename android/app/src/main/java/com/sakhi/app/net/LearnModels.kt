@@ -13,10 +13,31 @@ data class LearnProfile(
     val level: Int? = null,
     val placementLevel: Int? = null,
     val levelConfidence: Double? = null,
+    /** The learner's own switch for Sakhi's memory of them. */
+    val memoryEnabled: Boolean = true,
 )
 
 /** PATCH /api/learn/preferences: only the fields that are set are changed. */
-@Serializable data class LearnPreferences(val correctionIntensity: String? = null, val goals: List<String>? = null)
+@Serializable data class LearnPreferences(val correctionIntensity: String? = null, val goals: List<String>? = null, val memoryEnabled: Boolean? = null)
+
+/** One thing Sakhi remembers about the learner (GET /api/learn/memory). */
+@Serializable
+data class MemoryItem(
+    val id: Long,
+    /** fact | goal | event | interest | preference */
+    val kind: String = "fact",
+    val content: String,
+    /** Events: the day it happens (YYYY-MM-DD). */
+    val dueOn: String? = null,
+    /** placement | conversation */
+    val source: String? = null,
+)
+
+/** What an earlier practice conversation was about. */
+@Serializable data class MemoryConversation(val id: String, val summary: String, val topics: List<String> = emptyList(), val startedAt: String? = null)
+
+/** Everything Sakhi remembers; [enabled] is false when the learner (or the admin) switched memory off. */
+@Serializable data class LearnerMemory(val enabled: Boolean = true, val items: List<MemoryItem> = emptyList(), val conversations: List<MemoryConversation> = emptyList())
 
 @Serializable
 data class LearnActivity(
