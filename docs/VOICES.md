@@ -18,6 +18,11 @@ Admin console › **Settings** › **Sakhi's voice** (settings section `voice`, 
   not on Vertex AI), Sarvam speaks.
 - Slower lines (listening passages, `pace` below 1) are asked for "a little slower" in words; Google's voices
   are told how to speak, not given a speed.
+- **One voice request per turn** (on by default, Google voices only): a turn's lines are joined into one line
+  before the app gets the turn (`server/voicejoin.js`), so each turn is one request to Google. The free trial
+  allows 10 Gemini voice requests a minute for the whole project, so this fits about three times as many turns.
+  The cost: her first sound waits for the whole turn, and her reaction is no longer said before the rest of the
+  turn is written. Fixed lines and lines at another pace stay apart. Off in the settings: one request per line.
 - Fixed lines are kept per voice, so after a change they are made again once (about 124 lines) and stored.
 - What Google charges is counted in each conversation's cost and the daily budget (by seconds of sound).
 - The app reads the sample rate from the server (24 kHz for both), so no new app build is needed.

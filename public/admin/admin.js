@@ -247,6 +247,7 @@ const META = {
   'voice.voice': { label: 'Voice name (Google)', help: 'One of Google’s voices, e.g. Sulafat (warm), Vindemiatrix (gentle), Achernar (soft), Kore (firm), Aoede (breezy), Leda (youthful). Hear them on Compare voices.' },
   'voice.style': { label: 'How she speaks (Google)', help: 'In plain words. Slower lines (listening passages) add “a little slower” on their own.' },
   'voice.fallbackToSarvam': { type: 'bool', label: 'If the Google voice fails, Sarvam says the line' },
+  'voice.oneRequestPerTurn': { type: 'bool', label: 'One voice request per turn: join each turn’s lines (Google voices). Fewer requests a minute (the free trial allows 10); she starts speaking a little later' },
   'conversation.historyMessages': { label: 'Recent messages the tutor reads', help: 'More = better memory of the conversation, slightly slower and costlier.' },
   'limits.dailyBudgetInr': { label: 'Daily budget (₹)', help: 'When today’s AI spend reaches this, new conversations and messages pause until tomorrow.' },
   'limits.sessionsPerIpPerHour': { label: 'Placement tests per learner per hour' },

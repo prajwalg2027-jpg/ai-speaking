@@ -5,6 +5,7 @@ import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config, ready } from './config.js';
 import * as sarvam from './sarvam.js';
+import { joinLines, mapInterruption } from './voicejoin.js';
 import { attachLiveRelay } from './live.js';
 import { readAccuracy } from './scoring.js';
 import { normalizeForCompare } from './normalize.js';
@@ -95,12 +96,16 @@ async function handleSessionTurn(req, res) {
     res.write(`${JSON.stringify(o)}\n`);
   };
   const speakAhead = (lines) => { for (const l of lines) sarvam.streamSpeech(l.text, { lang: l.lang, pace: l.pace }).catch(() => {}); };
+  // One voice request per turn (a Google voice, and the admin setting): her lines are joined once the turn is
+  // written, so her reaction is neither voiced nor sent ahead on its own.
+  const join = joinTurns();
+  const interrupted = body.interrupted ? { index: Number(body.interrupted.index) || 0, heardSec: Number(body.interrupted.heardSec) || 0 } : null;
   let turn;
   try {
     turn = await withLedger(s.ledger, () => handleTurn(s, {
       event: body.event, transcript: String(body.transcript || ''), languageCode: body.languageCode || null, speechSec: Number(body.speechSec) || 0,
       // Set when the learner talked over Sakhi: which of her lines, and how many seconds of it they heard.
-      interrupted: body.interrupted ? { index: Number(body.interrupted.index) || 0, heardSec: Number(body.interrupted.heardSec) || 0 } : null,
+      interrupted: join || s.joined ? mapInterruption(s.joined, interrupted, (l) => sarvam.speechSeconds(l.text, l)) : interrupted,
       // Measured from the mic while they spoke (fluency): see features() in scoring.js.
       timing: body.timing && Number.isFinite(Number(body.timing.spanSec)) ? {
         spanSec: Number(body.timing.spanSec), voicedSec: Number(body.timing.voicedSec) || 0,
@@ -109,10 +114,10 @@ async function handleSessionTurn(req, res) {
     }, trace, {
       // A model that streams: her reaction is known before the turn is finished, so its voice is generated now.
       // By the time the app asks for the line it is ready, or well on its way (the app joins it).
-      onReply: speakAhead,
+      onReply: join ? null : speakAhead,
       // ... and it is sent to an app that takes the turn in parts, which starts saying it at once. From then on
       // it is her reaction for this turn (conversation.js keeps to it).
-      commit: inParts ? (lines) => { part({ part: 'reply', say: lines }); return true; } : null,
+      commit: inParts && !join ? (lines) => { part({ part: 'reply', say: lines }); return true; } : null,
     }));
   } catch (e) {
     if (!res.headersSent) throw e; // nothing sent yet: the usual error answer
@@ -123,6 +128,13 @@ async function handleSessionTurn(req, res) {
   // The app asks for one line at a time, as it reaches it; without this her question would only start being
   // made after her reply had been played, and she would pause between the two. (A line already made, or being
   // made, is not made again.)
+  s.joined = null;
+  if (join && turn.say?.length > 1) {
+    const fixed = fixedLines(), j = joinLines(turn.say, turn.cue, (t) => fixed.has(t));
+    s.joined = { say: j.say, groups: j.groups, original: turn.say };
+    s.voiceLines = [...(s.voiceLines || []), ...j.say.map((l) => l.text)].slice(-40);
+    turn = { ...turn, say: j.say, ...(turn.cue ? { cue: j.cue } : {}) };
+  }
   if (s.mode === 'conversation') withLedger(s.ledger, () => speakAhead(turn.say || []));
   if (inParts) { part({ part: 'turn', ...withTeamData(turn, trace, s) }); res.end(); }
   else send(res, 200, withTeamData(turn, trace, s));
@@ -155,6 +167,9 @@ async function handleAccount(req, res, url) {
   if (route === 'DELETE /api/me') { await payments.cancelAllFor(user.id); return send(res, 200, await accounts.erase(user)); } // no more charges, then erase
   send(res, 404, { error: 'not found' });
 }
+
+/** One voice request per turn: a Google voice is in use and the admin setting is on. */
+const joinTurns = () => sarvam.voiceInUse().source !== 'sarvam' && settings.get('voice')?.oneRequestPerTurn !== false;
 
 let fixed = null;
 const fixedLines = () => (fixed ||= new Set(scriptedLines().map((l) => l.text)));

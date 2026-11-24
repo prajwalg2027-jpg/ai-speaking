@@ -65,6 +65,9 @@ export const SECTIONS = {
       voice: z.string().min(1).max(100),                 // for Google, e.g. Sulafat; Sarvam uses SARVAM_TTS_SPEAKER
       style: z.string().max(300),                        // for Google: how to speak, in words
       fallbackToSarvam: z.boolean(),                     // a Google voice that fails before any sound: Sarvam says the line
+      // Google voices: a turn's lines are joined into one voice request (server/voicejoin.js). Fewer requests a
+      // minute; her first sound comes a little later. Given a default so settings saved before it still load.
+      oneRequestPerTurn: z.boolean().default(true),
     }),
     defaults: {
       source: 'gemini',
@@ -72,6 +75,7 @@ export const SECTIONS = {
       voice: 'Sulafat',
       style: 'Speak warmly and patiently, like a kind, friendly Indian tutor.',
       fallbackToSarvam: true,
+      oneRequestPerTurn: true,
     },
   },
   corrections: {

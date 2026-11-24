@@ -47,7 +47,7 @@ after(() => { srv.close(); vertex.close(); });
 
 test('the default voice is Gemini 3.8 Flash-Lite TTS, through Vertex AI (Google Cloud)', async () => {
   const { SECTIONS } = await import('../server/settings.js');
-  assert.deepEqual({ ...SECTIONS.voice.defaults, style: undefined }, { source: 'gemini', model: 'gemini-3.8-flash-lite-tts', voice: 'Sulafat', style: undefined, fallbackToSarvam: true });
+  assert.deepEqual({ ...SECTIONS.voice.defaults, style: undefined }, { source: 'gemini', model: 'gemini-3.8-flash-lite-tts', voice: 'Sulafat', style: undefined, fallbackToSarvam: true, oneRequestPerTurn: true });
 });
 
 test('without Google sign-in on the server (a laptop), Sarvam speaks', async () => {
