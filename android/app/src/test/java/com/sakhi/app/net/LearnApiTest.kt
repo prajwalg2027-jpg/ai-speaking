@@ -94,7 +94,7 @@ class LearnApiTest {
         assertEquals("""{"correctionIntensity":"strict"}""", patch.body!!.utf8())
     }
 
-    @Test fun `what Sakhi remembers: read, forget one, forget all, switch off`() = runTest {
+    @Test fun `what Sakhi remembers - read, forget one, forget all, switch off`() = runTest {
         server.enqueue(MockResponse.Builder().body("""{"enabled":true,"items":[{"id":7,"kind":"event","content":"Has a job interview at TCS","dueOn":"2026-11-28","source":"conversation","createdAt":"x"}],
             "conversations":[{"id":"c1","summary":"Talked about cricket.","topics":["cricket"],"startedAt":"x"}]}""").build())
         val m = api.memory()
