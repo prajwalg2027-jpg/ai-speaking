@@ -46,8 +46,8 @@ import kotlin.random.Random
  * in public/styles.css (the look). An ember glass ball (swirling silk, folds, sheen, highlight) with a teal tint
  * cloud that clings to the glass wall and drifts with Sakhi's voice. On the learner's turn the cloud slides down
  * and pours into teal liquid that rises with their voice (the hand-off); when Sakhi takes the turn back, the
- * cloud reappears at a fresh spot on the wall. While she thinks, the glass stays still: the molten colours and the
- * cloud swirl faster inside it, and the ball breathes slowly with its glow (the shine never turns).
+ * cloud reappears at a fresh spot on the wall. While she thinks, the glass stays still and the ball breathes
+ * slowly with its glow (the ball never turns, so its shine stays put).
  *
  * Sizes are the design's pixels on its 200 px orb, scaled to this one. CSS blurs are drawn as soft gradients
  * (they work on every Android version), and the soft-light/overlay blends as plain see-through white.
@@ -384,7 +384,7 @@ internal class OrbSim(private val rnd: Random = Random.Default) {
         time += dt
         val tgt = when (phase) { Phase.THINKING -> 0.12f; Phase.IDLE -> 0f; else -> target.coerceIn(0f, 1f) }
         lvl += (tgt - lvl) * (if (tgt > lvl) 0.38f else 0.14f)
-        val speed = when (phase) { Phase.IDLE -> 16f; Phase.SPEAKING -> 51f; Phase.LISTENING -> 22f; Phase.THINKING -> 170f }
+        val speed = when (phase) { Phase.IDLE -> 16f; Phase.SPEAKING -> 51f; Phase.LISTENING -> 22f; Phase.THINKING -> 16f }
         tsp += (speed - tsp) * min(1f, dt * 2.5f)
         turn = (turn + tsp * dt) % 360f
         think += ((if (phase == Phase.THINKING) 1f else 0f) - think) * min(1f, dt * 5f)
@@ -422,7 +422,7 @@ internal class OrbSim(private val rnd: Random = Random.Default) {
         val h = handRaw.coerceIn(0f, 1.08f)
         if (h < 0.5f) {
             angV += (g() * 46 * energy - 0.7f * angV + (if (kick != 0f) g() * kick * 0.6f else 0f)) * dt
-            angV = cl(angV, 70f); angA = (angA + (angV + think * 150f) * dt) % 360f // the cloud swirls round while she thinks
+            angV = cl(angV, 70f); angA = (angA + angV * dt) % 360f
         }
         val d = ((180f - angA) % 360f + 540f) % 360f - 180f
         val e = min(1f, h)
