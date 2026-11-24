@@ -11,6 +11,7 @@ import com.sakhi.app.audio.AudioRouting
 import com.sakhi.app.audio.MicCapture
 import com.sakhi.app.audio.SpeechMeter
 import com.sakhi.app.audio.VoicePlayer
+import com.sakhi.app.net.AppEvent
 import com.sakhi.app.net.Card
 import com.sakhi.app.net.Interrupted
 import com.sakhi.app.net.LiveEvent
@@ -36,6 +37,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.ByteArrayInputStream
 import java.io.IOException
+import java.time.Instant
+import java.util.UUID
 import kotlin.random.Random
 
 enum class Phase { IDLE, THINKING, SPEAKING, LISTENING }
@@ -121,6 +124,17 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
     }
 
     fun restart() { stop(); _state.value = UiState(); start() }
+
+    /** Report what Sakhi said ([AiReport.kt]). Sent at once, not best effort: the person is told if it didn't arrive. */
+    suspend fun report(text: String, reason: ReportReason): Boolean = try {
+        c.api.sendEvents(listOf(AppEvent(REPORT_EVENT, UUID.randomUUID().toString(), Instant.now().toString(), reportProperties(text, reason), sessionId)))
+        true
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "report not sent: ${e.message}")
+        false
+    }
 
     /** The app went to the background: a voice conversation can't continue unseen, so it stops. */
     fun onBackgrounded() {

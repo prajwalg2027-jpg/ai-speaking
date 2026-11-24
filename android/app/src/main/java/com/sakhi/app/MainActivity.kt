@@ -51,6 +51,8 @@ import com.razorpay.PaymentResultWithDataListener
 import com.sakhi.app.conversation.ConversationViewModel
 import com.sakhi.app.ui.LoginActions
 import com.sakhi.app.ui.LoginFlow
+import com.sakhi.app.ui.ReportDialog
+import com.sakhi.app.conversation.reportableText
 import com.sakhi.app.ui.SakhiScreen
 import com.sakhi.app.ui.theme.SakhiTheme
 import kotlinx.coroutines.launch
@@ -135,6 +137,7 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                 var accountOpen by remember { mutableStateOf(false) }
                 var micBlocked by remember { mutableStateOf(false) }
                 var serverDialog by remember { mutableStateOf(false) }
+                var reportText by remember { mutableStateOf<String?>(null) }
                 val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
                     micBlocked = !granted
                     if (granted) vm.onOrbTap()
@@ -150,6 +153,7 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                     micBlocked = micBlocked,
                     onAccount = if (container.auth.configured) ({ payVm.loadAccount(); accountOpen = true }) else null,
                     onStartLearning = payVm::open,
+                    onReport = { reportText = it },
                     onAllowMic = {
                         if (hasMic()) { micBlocked = false; vm.onOrbTap() }
                         else if (shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)) ask.launch(Manifest.permission.RECORD_AUDIO)
@@ -168,7 +172,9 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                     onDismiss = { accountOpen = false },
                     onSignOut = { accountOpen = false; vm.onBackgrounded(); authVm.signOut() },
                     onDelete = { authVm.deleteAccount().also { if (it) { accountOpen = false; vm.onBackgrounded() } } },
+                    onReport = { accountOpen = false; reportText = reportableText(vm.state.value) },
                 )
+                reportText?.let { text -> ReportDialog(text, onSend = { reason -> vm.report(text, reason) }, onDismiss = { reportText = null }) }
                 if (serverDialog) ServerDialog(container.server.baseUrl, container.server.default) { url ->
                     serverDialog = false
                     if (url != null) container.server.baseUrl = url
@@ -205,7 +211,7 @@ private fun UpdateScreen(onUpdate: () -> Unit) {
 @androidx.compose.runtime.Composable
 private fun AccountDialog(
     phone: String?, onDismiss: () -> Unit, onSignOut: () -> Unit, onDelete: suspend () -> Boolean,
-    subscription: String? = null, onCancelSubscription: (suspend () -> Boolean)? = null,
+    subscription: String? = null, onCancelSubscription: (suspend () -> Boolean)? = null, onReport: () -> Unit = {},
 ) {
     var cancelling by remember { mutableStateOf(false) }
     var cancelFailed by remember { mutableStateOf(false) }
@@ -229,12 +235,19 @@ private fun AccountDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(if (confirming) "Delete your account?" else "Your account") },
         text = {
-            Text(when {
-                failed -> "Couldn't delete right now. Check your internet and try again."
-                confirming -> "This permanently deletes your account, your voice recordings, and everything Adam knows about you. It can't be undone."
-                else -> "Signed in as ${phone ?: "your phone number"}." + (subscription?.let { "\n\n$it" } ?: "")
-            })
-            if (!confirming && !failed && onCancelSubscription != null) LinkButton("Cancel subscription") { cancelling = true }
+            // One column: the AlertDialog text slot stacks its children on top of each other otherwise.
+            androidx.compose.foundation.layout.Column {
+                Text(when {
+                    failed -> "Couldn't delete right now. Check your internet and try again."
+                    confirming -> "This permanently deletes your account, your voice recordings, and everything Adam knows about you. It can't be undone."
+                    else -> "Signed in as ${phone ?: "your phone number"}." + (subscription?.let { "\n\n$it" } ?: "")
+                })
+                if (!confirming && !failed) {
+                    // Google Play's AI-generated content policy: a way to flag what the AI said, inside the app.
+                    LinkButton("Report what Sakhi said", onReport)
+                    if (onCancelSubscription != null) LinkButton("Cancel subscription") { cancelling = true }
+                }
+            }
         },
         confirmButton = {
             if (confirming) TextButton({ busy = true; scope.launch { failed = !onDelete(); busy = false } }, enabled = !busy) { Text(if (busy) "Deleting…" else "Delete everything") }

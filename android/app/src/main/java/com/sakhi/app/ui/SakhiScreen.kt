@@ -72,6 +72,7 @@ import com.sakhi.app.conversation.Message
 import com.sakhi.app.conversation.Phase
 import com.sakhi.app.conversation.SessionState
 import com.sakhi.app.conversation.UiState
+import com.sakhi.app.conversation.resultText
 import com.sakhi.app.net.Result
 import com.sakhi.app.ui.theme.Sakhi
 import kotlinx.coroutines.delay
@@ -90,6 +91,7 @@ fun SakhiScreen(
     onAllowMic: () -> Unit,
     onAccount: (() -> Unit)? = null,
     onStartLearning: () -> Unit = {},
+    onReport: (String) -> Unit = {},
 ) {
     val c = Sakhi.colors
     Box(
@@ -101,9 +103,9 @@ fun SakhiScreen(
             Header(onLogoLongPress, onAccount)
             if (micBlocked) { MicScreen(onAllowMic); return@Column }
             if (state.session == SessionState.RESULT && state.result != null) {
-                ResultView(state.result, onStartLearning, onRestart, Modifier.weight(1f)); return@Column
+                ResultView(state.result, onStartLearning, onRestart, onReport, Modifier.weight(1f)); return@Column
             }
-            Conversation(state.messages, Modifier.weight(1f))
+            Conversation(state.messages, onReport, Modifier.weight(1f))
             AnimatedVisibility(state.card != null) { state.card?.let { TaskCard(it, reducedMotion) } }
             Box(Modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) {
                 val label = when (state.phase) {
@@ -152,7 +154,7 @@ private fun Header(onLongPress: (() -> Unit)?, onAccount: (() -> Unit)?) {
 }
 
 @Composable
-private fun Conversation(messages: List<Message>, modifier: Modifier) {
+private fun Conversation(messages: List<Message>, onReport: (String) -> Unit, modifier: Modifier) {
     val list = rememberLazyListState()
     LaunchedEffect(messages.size, messages.lastOrNull()?.text) { if (messages.isNotEmpty()) list.animateScrollToItem(messages.size - 1) }
     val lastSakhi = messages.lastOrNull { it.fromSakhi }?.id
@@ -160,17 +162,22 @@ private fun Conversation(messages: List<Message>, modifier: Modifier) {
     LazyColumn(modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }, state = list, verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom)) {
         items(messages, key = { it.id }) { m ->
             Box(Modifier.fillMaxWidth().animateItem(), contentAlignment = if (m.fromSakhi) Alignment.CenterStart else Alignment.CenterEnd) {
-                if (m.fromSakhi) SakhiBubble(m, focus = m.id == lastSakhi) else YouBubble(m, focus = m.id == lastYou)
+                if (m.fromSakhi) SakhiBubble(m, focus = m.id == lastSakhi, onReport) else YouBubble(m, focus = m.id == lastYou)
             }
         }
     }
 }
 
 @Composable
-private fun SakhiBubble(m: Message, focus: Boolean) {
+private fun SakhiBubble(m: Message, focus: Boolean, onReport: (String) -> Unit) {
     val c = Sakhi.colors
     val shape = RoundedCornerShape(22.dp)
+    // Press and hold one of Sakhi's replies to report it (Google Play's AI-generated content policy).
     val mod = Modifier.widthIn(max = 340.dp).clip(shape)
+        .combinedClickable(
+            remember { MutableInteractionSource() }, indication = null, enabled = !m.thinking && m.text.isNotBlank(),
+            onLongClickLabel = "Report this reply", onLongClick = { onReport(m.text) }, onClick = {},
+        )
         .background(if (focus) c.surface else c.surface.copy(alpha = 0.6f))
         .then(if (focus) Modifier.border(1.5.dp, Brush.linearGradient(listOf(c.saffron, c.accent, c.rust)), shape) else Modifier.border(1.dp, c.line, shape))
         .padding(horizontal = 18.dp, vertical = 14.dp)
@@ -282,7 +289,7 @@ private val SKILLS = listOf("comprehension" to "Understanding", "vocabulary" to 
 private val SKILL_WORDS = listOf("Just starting", "Growing", "Steady", "Strong", "Shining")
 
 @Composable
-private fun ResultView(r: Result, onStartLearning: () -> Unit, onRestart: () -> Unit, modifier: Modifier) {
+private fun ResultView(r: Result, onStartLearning: () -> Unit, onRestart: () -> Unit, onReport: (String) -> Unit, modifier: Modifier) {
     val c = Sakhi.colors
     var how by remember { mutableStateOf(false) }
     Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -324,6 +331,9 @@ private fun ResultView(r: Result, onStartLearning: () -> Unit, onRestart: () -> 
                         style = MaterialTheme.typography.bodySmall.copy(color = c.ink2))
                 }
             }
+        }
+        TextButton({ onReport(resultText(r)) }, Modifier.fillMaxWidth()) {
+            Text("Report a problem with this feedback", color = c.ink2, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
