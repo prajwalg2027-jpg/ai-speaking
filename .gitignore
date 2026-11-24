@@ -7,3 +7,6 @@ node_modules/
 *.jks
 *.keystore
 *service-account*.json
+website/dist/
+.firebase/
+website/.firebase/

@@ -32,7 +32,7 @@ voice, Sarvam-105B). The server holds the Sarvam key and all conversation logic;
 | Server's account | `adam-runtime@cool-arch-515210-b0.iam.gserviceaccount.com` (only these resources) |
 | Phone login | SMS OTP through MSG91, sent and checked by the server, then the server’s own sessions (`server/login.js`, `docs/LOGIN.md`; setup `deploy/msg91-setup.sh`). Firebase logins from older builds are still accepted |
 | Android apps | `in.adamspeaks.app` (release), `in.adamspeaks.app.dev` (test build; shared signing key `android/app/debug.keystore`) |
-| Website | `adamspeaks.in` on Firebase Hosting, built from branch `claude/dazzling-cray-ni75q7` folder `website/` (DNS at GoDaddy) |
+| Website | `adamspeaks.in` on Firebase Hosting, built from branch `tutor-conversation` folder `website/` (DNS at GoDaddy) |
 | App settings file | `https://adamspeaks.in/app-config.json` (server address, minimum app version; the app reads it at start) |
 
 ## Releasing and checking

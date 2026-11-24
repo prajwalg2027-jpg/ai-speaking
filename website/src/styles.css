@@ -1,0 +1,161 @@
+/* adamspeaks.in: same tokens, type and orb as the Adam app (design handoff v1.0: Molten · Terracotta & Peacock). */
+@font-face { font-family: "Anek Latin"; font-weight: 400; font-display: swap; src: url("/fonts/anek-regular.woff2") format("woff2"); }
+@font-face { font-family: "Anek Latin"; font-weight: 600; font-display: swap; src: url("/fonts/anek-semibold.woff2") format("woff2"); }
+@font-face { font-family: "Anek Latin"; font-weight: 700; font-display: swap; src: url("/fonts/anek-bold.woff2") format("woff2"); }
+
+:root {
+  --bg: #FCF0E9; --glow: #FFD8C6; --surface: #FFFBF6; --surface-2: #F7E3D9;
+  --ink: #2F1810; --ink-2: #694E45; --line: #E2CCC0; --line-2: #D1B8AA;
+  --accent: #D87248; --accent-deep: #993C25; --accent-2: #00828D; --saffron: #EFB062; --rust: #D15D4D;
+  --pool: #C45A3A; --pool-light: #E39A6A; --hot: #993C25; --on-primary: #FFFFFF;
+  --shadow: 0 14px 30px -18px rgba(153, 60, 37, .5);
+  --f-ui: "Anek Latin", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --f-deva: "Anek Devanagari", "Noto Sans Devanagari", "Kohinoor Devanagari", "Mangal", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #05151A; --glow: #002D34; --surface: #0B2227; --surface-2: #122D34;
+    --ink: #F6ECE5; --ink-2: #C1B5AB; --line: #30474C; --line-2: #40575D;
+    --accent: #ED845B; --accent-deep: #B44D34; --accent-2: #48B7BD; --hot: #FDA578; --on-primary: #01151B;
+    --shadow: 0 14px 30px -18px #000c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #05151A; --glow: #002D34; --surface: #0B2227; --surface-2: #122D34;
+  --ink: #F6ECE5; --ink-2: #C1B5AB; --line: #30474C; --line-2: #40575D;
+  --accent: #ED845B; --accent-deep: #B44D34; --accent-2: #48B7BD; --hot: #FDA578; --on-primary: #01151B;
+  --shadow: 0 14px 30px -18px #000c;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; min-height: 100dvh; display: flex; flex-direction: column;
+  background: radial-gradient(130% 50% at 50% 0%, var(--glow), transparent 62%) no-repeat, var(--bg);
+  color: var(--ink); font: 400 18px/1.55 var(--f-ui); -webkit-font-smoothing: antialiased;
+}
+[lang="hi"] { font-family: var(--f-deva); }
+a { color: var(--hot); text-underline-offset: 3px; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
+.wrap { width: 100%; max-width: 680px; margin: 0 auto; padding: 0 20px; }
+
+/* header: logo + wordmark, as in the app */
+.top { padding: 18px 0 0; }
+.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; }
+.logo { width: 22px; height: 22px; border-radius: 50%; flex: none;
+  background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.7), transparent 45%), linear-gradient(150deg, var(--accent), var(--accent-deep)); }
+.wordmark { font-size: 26px; font-weight: 600; line-height: 1; letter-spacing: -0.01em; }
+
+/* ---------- landing ---------- */
+.hero { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding-top: 28px; padding-bottom: 40px; }
+h1 { font-size: clamp(40px, 9vw, 60px); line-height: 1.02; font-weight: 700; letter-spacing: -0.02em; margin: 28px 0 14px; text-wrap: balance; }
+h1 .hot { color: var(--hot); }
+.lede { font-size: 20px; color: var(--ink-2); margin: 0 auto; max-width: 26em; text-wrap: pretty; }
+.lede-hi { font-size: 18px; color: var(--ink-2); margin: 8px 0 0; }
+
+.soon { display: inline-block; margin: 34px 0 12px; font-size: 13px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-2); }
+.stores { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+.store {
+  display: inline-flex; align-items: center; gap: 12px; min-width: 196px; padding: 10px 20px 10px 16px;
+  border-radius: 18px; background: var(--ink); color: var(--bg); text-align: left; box-shadow: var(--shadow);
+}
+.store svg { width: 28px; height: 28px; flex: none; }
+.store small { display: block; font-size: 12px; line-height: 1.1; opacity: .8; }
+.store b { display: block; font-size: 21px; line-height: 1.15; font-weight: 600; letter-spacing: -0.01em; }
+
+/* ---------- molten orb (static rendering of the app's orb) ---------- */
+.orb { position: relative; width: 200px; height: 200px; }
+.orb > * { position: absolute; }
+/* iOS Safari clips blurred, animated layers to a square and lets blend modes escape rounded clipping,
+   so the glow is a plain gradient (no blur filter) and the layers inside the blob use normal blending. */
+.o-glow { inset: -22%; border-radius: 50%; pointer-events: none; transform: translateY(6%);
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 42%, transparent) 0%, color-mix(in srgb, var(--accent) 16%, transparent) 50%, transparent 100%); }
+.o-blob { inset: 9%; overflow: hidden; border-radius: 50%; background: var(--accent-deep);
+  isolation: isolate; -webkit-mask-image: -webkit-radial-gradient(white, black); transform: translateZ(0); animation: sk-morph 3.2s ease-in-out infinite, sk-breathe 4.2s cubic-bezier(.45,0,.55,1) infinite; }
+.o-blob > * { position: absolute; }
+.o-silk { inset: -20%; filter: blur(16px) saturate(1.1); }
+.o-pool { border-radius: 50%; }
+.o-pool.p0 { left: -12%; top: -8%; width: 72%; height: 72%; background: var(--accent); animation: sk-flow1 4.2s ease-in-out infinite; }
+.o-pool.p1 { left: 34%; top: 34%; width: 66%; height: 66%; background: var(--accent-deep); animation: sk-flow2 5.39s ease-in-out -1.3s infinite; }
+.o-pool.p2 { left: 2%; top: 40%; width: 56%; height: 56%; background: var(--pool); animation: sk-flow3 6.58s ease-in-out -2.6s infinite; }
+.o-pool.p3 { left: 40%; top: -6%; width: 44%; height: 44%; background: var(--pool-light); animation: sk-flow1 7.77s ease-in-out -3.9s infinite; }
+.o-folds { inset: -30%; background: repeating-linear-gradient(115deg, transparent 0 9%, rgba(255,176,128,.55) 13%, transparent 18% 27%); filter: blur(7px); opacity: .45; animation: sk-fold 8s linear infinite; }
+.o-sheen { inset: 4%; border-radius: 50%; background: conic-gradient(from 0deg, transparent 0 14%, rgba(255,182,132,.38) 22%, transparent 34% 56%, rgba(255,182,132,.22) 66%, transparent 78%); filter: blur(9px); animation: sk-spin-r 9s linear infinite; }
+.o-wisp { left: 20%; top: 6%; width: 60%; height: 22%; border-radius: 50%; background: radial-gradient(ellipse, rgba(255, 214, 178, .4), transparent 70%); filter: blur(6px); }
+@keyframes sk-spin-r { to { transform: rotate(-360deg) } }
+@keyframes sk-morph { 0%,100% { border-radius: 48% 52% 46% 54%/52% 46% 54% 48% } 33% { border-radius: 57% 43% 52% 48%/44% 56% 45% 55% } 66% { border-radius: 43% 57% 50% 50%/55% 47% 53% 45% } }
+@keyframes sk-flow1 { 0%,100% { transform: translate(-8%,-6%) scale(1) } 33% { transform: translate(14%,4%) scale(1.15) } 66% { transform: translate(-2%,16%) scale(.9) } }
+@keyframes sk-flow2 { 0%,100% { transform: translate(10%,12%) scale(1.05) } 40% { transform: translate(-14%,-4%) scale(.88) } 75% { transform: translate(6%,-14%) scale(1.12) } }
+@keyframes sk-flow3 { 0%,100% { transform: translate(0,14%) scale(.95) rotate(0) } 50% { transform: translate(-10%,-12%) scale(1.18) rotate(40deg) } }
+@keyframes sk-fold { 0% { transform: rotate(0) translateY(-6%) } 50% { transform: rotate(180deg) translateY(6%) } 100% { transform: rotate(360deg) translateY(-6%) } }
+@keyframes sk-breathe { 0%,100% { scale: 1 } 50% { scale: 1.04 } }
+
+/* ---------- footer ---------- */
+.foot { padding: 20px 0 calc(24px + env(safe-area-inset-bottom)); font-size: 15px; color: var(--ink-2); }
+.foot .wrap { display: flex; flex-wrap: wrap; gap: 8px 20px; justify-content: center; }
+.foot a { color: var(--ink-2); text-decoration: none; }
+.foot a:hover { color: var(--ink); text-decoration: underline; }
+
+/* ---------- legal pages ---------- */
+.legal { flex: 1; padding: 28px 0 40px; }
+.legal h1 { font-size: clamp(32px, 7vw, 40px); margin: 12px 0 4px; }
+.legal .sub { color: var(--ink-2); margin: 0 0 24px; font-size: 16px; }
+.legal h2 { font-size: 21px; font-weight: 600; margin: 32px 0 6px; letter-spacing: -0.005em; }
+.legal p, .legal li { color: var(--ink); }
+.legal ul, .legal ol { padding-left: 22px; }
+.legal li { margin: 6px 0; }
+.legal li::marker { color: var(--accent); }
+.legal .card { background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 18px 20px; margin: 12px 0; }
+.legal .card h2 { margin-top: 0; }
+.legal .card :last-child { margin-bottom: 0; }
+.legal .two { display: grid; gap: 12px; }
+@media (min-width: 640px) { .legal .two { grid-template-columns: 1fr 1fr; } }
+.legal .tag { display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--accent-deep); margin-bottom: 4px; }
+.legal .kept .tag { color: var(--accent-2); }
+.legal .ui { font-weight: 600; white-space: nowrap; }
+.btn { display: inline-flex; align-items: center; justify-content: center; min-height: 52px; padding: 0 24px; border-radius: 18px; background: var(--accent-deep); color: var(--on-primary); font-weight: 600; font-size: 17px; text-decoration: none; }
+.btn:hover { filter: brightness(1.06); }
+
+/* ---------- home: chat bubbles (desktop only) in the app's bubble shapes ---------- */
+.hero-art { position: relative; display: grid; place-items: center; }
+.bubble { display: none; }
+
+/* ---------- home: desktop layout ---------- */
+@media (min-width: 960px) {
+  .home .wrap { max-width: 1180px; padding: 0 56px; }
+  .home .top { padding-top: 28px; }
+  .home .hero {
+    display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr); align-items: center; gap: 40px;
+    text-align: left; padding-top: 24px; padding-bottom: 56px;
+  }
+  .home .hero-art { order: 2; min-height: 520px; }
+  .home .orb { width: min(400px, 100%); height: auto; aspect-ratio: 1; }
+  .home .o-glow { inset: -26%; }
+  .home .o-silk { filter: blur(26px) saturate(1.1); }
+  .home .o-folds { filter: blur(12px); }
+  .home .o-sheen { filter: blur(16px); }
+  .home h1 { font-size: clamp(56px, 5.3vw, 80px); margin: 0 0 22px; }
+  .home .lede { font-size: 23px; margin: 0; max-width: 20em; text-wrap: balance; }
+  .home .lede-hi { font-size: 20px; margin-top: 10px; }
+  .home .soon { margin-top: 44px; }
+  .home .stores { justify-content: flex-start; }
+
+  .bubble {
+    display: block; position: absolute; margin: 0; max-width: 300px; padding: 12px 16px 13px;
+    font-size: 17px; line-height: 1.42; box-shadow: var(--shadow);
+  }
+  .bubble small { display: block; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 2px; }
+  .bubble.adam { top: 36px; left: -8px; border-radius: 26px 26px 26px 6px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
+  .bubble.adam small { color: var(--hot); }
+  .bubble.you { bottom: 44px; right: -8px; border-radius: 22px 22px 6px 22px; background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line); }
+  .bubble.you small { color: var(--ink-2); }
+
+  .home .foot { padding-bottom: 32px; }
+  .home .foot .wrap { justify-content: flex-start; gap: 8px 28px; border-top: 1px solid var(--line); width: calc(100% - 112px); max-width: 1068px; padding: 20px 0 0; }
+  .home .foot .copy { order: -1; margin-right: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) { .orb *, .o-blob { animation: none !important; } }
