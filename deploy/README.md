@@ -94,8 +94,8 @@ At **https://adamspeaks.in/admin** (the website forwards `/admin` and the admin 
 always **owners**; owners add everyone else on the console's **Team** page, each with a role (Owner, Admin, Analyst,
 Support, or your own) that decides what they can see and change. See `docs/LEARNING.md` › Team and roles.
 
-*Before MSG91:* phone login used Firebase (`deploy/firebase-setup.sh`, `deploy/admin-setup.sh`). The server
-still accepts Firebase logins from older app builds while people update; new builds use MSG91 only.
+*Before MSG91* (until Nov 2026), phone login used Firebase. That login was removed; accounts made then keep working
+when the same number signs in with an SMS code.
 
 ## Deploying a new version
 
@@ -112,7 +112,7 @@ old instance can finish for up to 10 seconds, so deploy when few learners are on
 | Listening time per conversation | 20 min | `SAKHI_LISTEN_SEC_PER_SESSION` |
 | Daily Sarvam spend cap (₹, all conversations) | 3000 | `SAKHI_DAILY_BUDGET_INR` (also a variable of the deploy script) |
 | Sakhi's voice | Only lines she said in that conversation, or her fixed lines | — |
-| Login | Required: phone OTP (Firebase) on every request and on the live speech connection | `SAKHI_ALLOW_NO_LOGIN=1` only for a closed test without accounts |
+| Login | Required: phone OTP (MSG91) on every request and on the live speech connection | `SAKHI_ALLOW_NO_LOGIN=1` only for a closed test without accounts |
 | Before a first test | Agreed to terms, privacy, 18 or older, and keeping voice recordings | — |
 
 Change a setting without redeploying the code:

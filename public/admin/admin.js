@@ -38,25 +38,18 @@ document.addEventListener('mousemove', (e) => {
 });
 
 // ---- sign-in and API -------------------------------------------------------------------------------
-// Sign-in: by OTP through this server (MSG91) when it's set up, else Firebase's phone sign-in in the browser.
-// The OTP session token is kept for this browser tab only (sessionStorage), never in the page's address.
-let auth = null; // Firebase, when that's the way in
+// Sign-in: by an SMS code through this server (MSG91). The session token is kept for this browser tab only
+// (sessionStorage), never in the page's address.
 const TOKEN_KEY = 'adam.admin.token';
 const tokenStore = {
   get() { try { return sessionStorage.getItem(TOKEN_KEY); } catch { return null; } },
   set(v) { try { if (v) sessionStorage.setItem(TOKEN_KEY, v); else sessionStorage.removeItem(TOKEN_KEY); } catch { /* private mode */ } },
 };
-const FIREBASE = 'https://www.gstatic.com/firebasejs/10.12.2';
-const loadScript = (src) => new Promise((ok, fail) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => fail(new Error(`could not load ${src}`)); document.head.append(s); });
-
-async function bearer() {
-  if (auth?.currentUser) return auth.currentUser.getIdToken();
-  return tokenStore.get();
-}
+const bearer = () => tokenStore.get();
 
 async function api(path, { method = 'GET', body } = {}) {
   const headers = body ? { 'content-type': 'application/json' } : {};
-  const token = await bearer();
+  const token = bearer();
   if (token) headers.authorization = `Bearer ${token}`;
   const res = await fetch(`/api/admin${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
   const data = await res.json().catch(() => ({}));
@@ -72,7 +65,6 @@ async function post(path, body, token) {
 }
 
 async function signOut() {
-  if (auth) await auth.signOut();
   const t = tokenStore.get();
   tokenStore.set(null);
   if (t) await post('/api/auth/logout', {}, t).catch(() => {});
@@ -89,13 +81,7 @@ async function boot() {
   if (cfg.loginRequired && cfg.login === 'otp') {
     if (!tokenStore.get()) return otpLoginPage();
   } else if (cfg.loginRequired) {
-    if (!cfg.firebase) return show(html`<div class="card login"><h1>Sign-in isn't set up</h1><p>This server has no OTP sign-in (MSG91) and no <code>FIREBASE_WEB_API_KEY</code>. See <code>deploy/README.md</code> → "Admin console".</p></div>`);
-    await loadScript(`${FIREBASE}/firebase-app-compat.js`);
-    await loadScript(`${FIREBASE}/firebase-auth-compat.js`);
-    firebase.initializeApp(cfg.firebase);
-    auth = firebase.auth();
-    await new Promise((ok) => { const off = auth.onAuthStateChanged(() => { off(); ok(); }); });
-    if (!auth.currentUser) return firebaseLoginPage();
+    return show(html`<div class="card login"><h1>Sign-in isn't set up</h1><p>This server has no SMS sign-in (MSG91). See <code>deploy/msg91-setup.sh</code>.</p></div>`);
   }
   const signedIn = cfg.loginRequired;
   try {
@@ -138,22 +124,6 @@ function otpLoginPage() {
     e.preventDefault(); $('#lerr').textContent = ''; busy(e.target, true);
     try { const s = await post('/api/auth/otp/verify', { requestId, code: $('#code').value.trim(), client: 'admin' }); tokenStore.set(s.token); location.reload(); }
     catch (x) { $('#lerr').textContent = x.message; busy(e.target, false); }
-  });
-}
-
-function firebaseLoginPage() {
-  show(loginForm());
-  $('#again').hidden = true;
-  const verifier = new firebase.auth.RecaptchaVerifier('send', { size: 'invisible' });
-  let confirmation = null;
-  $('#step1').addEventListener('submit', async (e) => {
-    e.preventDefault(); $('#lerr').textContent = '';
-    try { confirmation = await auth.signInWithPhoneNumber($('#phone').value.replace(/\s+/g, ''), verifier); $('#step1').hidden = true; $('#step2').hidden = false; $('#code').focus(); }
-    catch (x) { $('#lerr').textContent = x.message; }
-  });
-  $('#step2').addEventListener('submit', async (e) => {
-    e.preventDefault(); $('#lerr').textContent = '';
-    try { await confirmation.confirm($('#code').value.trim()); location.reload(); } catch (x) { $('#lerr').textContent = x.message; }
   });
 }
 

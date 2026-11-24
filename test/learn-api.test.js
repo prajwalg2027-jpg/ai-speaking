@@ -1,43 +1,36 @@
 // The learning API and the admin console's API over HTTP, against a real PostgreSQL (TEST_DATABASE_URL; skipped
 // without it) and the mock Sarvam: phone login, ownership, streaming (reply first), retries, lessons, admin access
 // by phone number, live settings with an audit trail, the playground.
+import { login, signInAll, SESSION_ENV } from './phone-login.js';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync, createSign } from 'node:crypto';
 import { startMockRest } from './mock-sarvam-rest.js';
 
 const url = process.env.TEST_DATABASE_URL;
-const PROJECT = 'sakhi-test';
-const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 let server, base, mock, pool;
 
 before(async () => {
   if (!url) return;
   mock = await startMockRest();
-  Object.assign(process.env, { SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url, DATABASE_URL: url, FIREBASE_PROJECT_ID: PROJECT, ADMIN_PHONES: '+919800009999,+919999900000', FIREBASE_WEB_API_KEY: 'web-key', GOOGLE_GENAI_USE_VERTEXAI: 'false' }); // no Google Cloud sign-in (Vertex AI) in tests
+  Object.assign(process.env, { ...SESSION_ENV, SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url, DATABASE_URL: url, ADMIN_PHONES: '+919800009999,+919999900000', GOOGLE_GENAI_USE_VERTEXAI: 'false' }); // no Google Cloud sign-in (Vertex AI) in tests
   ({ pool } = await import('../server/db/pool.js'));
   await pool.query('drop schema public cascade; create schema public');
   await (await import('../server/db/migrate.js')).migrate(pool, () => {});
-  (await import('../server/auth.js')).setKeyResolver(async () => ({ k1: publicKey }));
   await (await import('../server/learning/lessons.js')).sync(() => {});
   ({ server } = await import('../server/index.js'));
+  await signInAll();
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${server.address().port}`;
 });
 after(async () => { server?.close(); mock?.close(); await pool?.end(); });
 const t = (name, fn) => test(name, { skip: !url && 'set TEST_DATABASE_URL to run' }, fn);
 
-const now = Math.floor(Date.now() / 1000);
-function login(uid, phone) {
-  const enc = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
-  const head = `${enc({ alg: 'RS256', kid: 'k1' })}.${enc({ aud: PROJECT, iss: `https://securetoken.google.com/${PROJECT}`, sub: uid, iat: now, exp: now + 3600, auth_time: now, phone_number: phone, firebase: { sign_in_provider: 'phone' } })}`;
-  return { authorization: `Bearer ${head}.${createSign('RSA-SHA256').update(head).sign(privateKey).toString('base64url')}` };
-}
 const call = async (method, path, headers = {}, body) => {
   const r = await fetch(`${base}${path}`, { method, headers: { 'content-type': 'application/json', ...headers }, body: body && JSON.stringify(body) });
   return { status: r.status, json: await r.json().catch(() => null), headers: r.headers };
 };
-const asha = login('u-asha', '+919800000011'), ravi = login('u-ravi', '+919800000012'), admin = login('u-admin', '+919800009999');
+const asha = login('+919800000011'), ravi = login('+919800000012'), admin = login('+919800009999');
+const testNumber = login('+919999900000');
 
 let convId;
 t('the learning API needs the phone login', async () => {
@@ -112,13 +105,13 @@ t('Sakhi\'s voice only for her own replies in the learner\'s conversations', asy
 });
 
 t('the admin console: config is public, everything else needs an admin phone number', async () => {
-  assert.deepEqual((await call('GET', '/api/admin/config')).json, { loginRequired: true, login: 'firebase', firebase: { apiKey: 'web-key', authDomain: `${PROJECT}.firebaseapp.com`, projectId: PROJECT } });
+  assert.deepEqual((await call('GET', '/api/admin/config')).json, { loginRequired: true, login: 'otp' });
   assert.equal((await call('GET', '/api/admin/overview')).status, 401);
   assert.equal((await call('GET', '/api/admin/overview', asha)).status, 403);
-  assert.equal((await call('GET', '/api/admin/overview', login('u-test', '+919999900000'))).status, 403, 'the shared test number is never an admin');
+  assert.equal((await call('GET', '/api/admin/overview', testNumber)).status, 403, 'the shared test number is never an admin');
   const o = await call('GET', '/api/admin/overview', admin);
   assert.equal(o.status, 200);
-  assert.equal(o.json.totals.learners, 2, 'Asha and Ravi (admins are not learners)');
+  assert.equal(o.json.totals.learners, 4, 'every signed-in number: Asha, Ravi, the admin and the test number');
   assert.equal(o.json.series.days.length, 14);
   assert.equal(o.json.series.messages.at(-1), 1);
 });
