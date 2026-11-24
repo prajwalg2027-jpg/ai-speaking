@@ -3,6 +3,7 @@ package com.sakhi.app.ui
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -111,10 +112,11 @@ fun SakhiScreen(
                     Phase.THINKING -> "Sakhi is thinking"
                     Phase.IDLE -> "Start talking with Sakhi"
                 }
+                // Not clipped (animateContentSize would clip): the glow and the thinking aura spread softly past the ball.
+                val orbSize by animateDpAsState(if (state.card != null) 96.dp else 132.dp, label = "orb size")
                 Orb(
                     state.phase, level, reducedMotion,
-                    Modifier.size(if (state.card != null) 96.dp else 132.dp).animateContentSize()
-                        .clip(CircleShape)
+                    Modifier.size(orbSize)
                         .clickable(remember { MutableInteractionSource() }, indication = null, role = Role.Button, onClick = onOrb)
                         .semantics { contentDescription = label },
                 )
