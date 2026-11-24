@@ -83,7 +83,7 @@ class PlayPaywallTest {
         assertEquals("""{"purchaseToken":"token-1"}""", verify.body!!.utf8())
     }
 
-    @Test fun `Razorpay picked on Play's screen: Checkout opens, and the server gets Play's token`() = runBlocking {
+    @Test fun `Razorpay picked on Play's screen opens Checkout, and the server gets Play's token`() = runBlocking {
         reply(notSubscribed)
         vm.open(); waitFor { it is Paywall.Offer }
         vm.subscribe(openPlay = { true }) { error("Checkout isn't opened directly") }
@@ -98,7 +98,7 @@ class PlayPaywallTest {
         assertEquals("""{"playExternalToken":"ext-1"}""", start.body!!.utf8())
     }
 
-    @Test fun `a phone Play can't sell on (a test build): Razorpay directly`() {
+    @Test fun `a phone Play can't sell on (a test build) goes to Razorpay directly`() {
         play.canSell = false
         reply(notSubscribed)
         vm.open()
@@ -111,7 +111,7 @@ class PlayPaywallTest {
         assertTrue(play.opened.isEmpty())
     }
 
-    @Test fun `bought on Play before, the server didn't know: sent on opening`() {
+    @Test fun `bought on Play before, the server didn't know, sent on opening`() {
         play.bought = listOf("token-old")
         reply(notSubscribed)
         reply(subscribed)
@@ -121,7 +121,7 @@ class PlayPaywallTest {
         assertEquals("/api/pay/play/verify", server.takeRequest().target)
     }
 
-    @Test fun `closing Play's screen says nothing; pending says it's waiting`() {
+    @Test fun `closing Play's screen says nothing, pending says it's waiting`() {
         reply(notSubscribed)
         vm.open(); waitFor { it is Paywall.Offer }
         vm.subscribe(openPlay = { true }) { }
