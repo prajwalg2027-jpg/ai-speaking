@@ -1,4 +1,4 @@
-# Payments (Razorpay subscriptions)
+# Payments (Razorpay and Google Play subscriptions)
 
 The placement test and its score stay free. **"Start learning"** on the result screen opens the paywall: the
 learning module (practice with Sakhi, lessons) is **₹299 a month**, renewing until cancelled. The price is a
@@ -75,27 +75,71 @@ Razorpay's standard fee is about 2% per payment plus GST on the fee (check your 
 e-mandate rules, renewals up to ₹15,000 go through without the customer approving each one; Razorpay sends the
 required pre-debit notice.
 
-## Google Play: needed before the Play Store release
+## Google Play billing (Play Store builds)
 
-Razorpay in the app is fine for the sideloaded test builds. **For the Play Store**, Google requires Google Play
-Billing for digital content such as this subscription. In India, Google also allows **user choice billing**: show
-Play Billing *and* Razorpay side by side, and the person picks. That's the plan:
+Google requires Google Play Billing for digital content such as this subscription on Play Store builds. In India,
+Google also allows **user choice billing**: Play shows its own screen with **Google Play** *and* **Razorpay**, and the
+learner picks. That's what the app does:
 
-1. Play Console: enrol in user choice billing (India) and accept its terms. It needs a PCI DSS attestation for
-   the alternative payment (Razorpay is PCI DSS certified; we never handle card data).
-2. Add Google Play Billing (`com.android.billingclient`) with a ₹299 monthly subscription product in Play
-   Console. The server records Play purchases with `provider = 'play'` (the column already exists) after checking
-   them with the Google Play Developer API.
-3. The paywall's "Subscribe" opens Play's user choice screen; choosing Razorpay goes through this flow.
-4. Each Razorpay purchase made in the Play build is reported to Google within 24 hours (the alternative billing
-   reporting API). Google's service fee is 4 percentage points lower on those.
+```
+app ("Subscribe")                       Adam server (server/payments.js, server/play.js)       Google Play
+  │ GET /api/pay/status ──────────────▶│ … play: { productId, accountId }  (when set up)          │
+  │ Play's screen (product, accountId = the learner's id) ──────────────────────────────────────▶│
+  │                                                                                               │
+  │ picked Google Play: purchaseToken ◀──────────────────────────────────────────────────────────│
+  │ POST /api/pay/play/verify ────────▶│ purchase fetched from Google: our product? this learner? ▶│ subscriptionsv2.get
+  │                                    │ acknowledged (else Google refunds it after 3 days) ──────▶│ :acknowledge
+  │◀── {active: true, paidUntil} ──────│                                                           │
+  │                                    │◀── real-time notifications (Pub/Sub push): renewals, ────│
+  │                                    │    holds, cancellations; state fetched from Google again  │
+  │                                                                                               │
+  │ picked Razorpay: externalTransactionToken ◀──────────────────────────────────────────────────│
+  │ POST /api/pay/razorpay/subscription {playExternalToken} → Razorpay Checkout → verify (as above)│
+  │                                    │ each Razorpay payment reported to Google within 24 h ────▶│ externalTransactions
+```
 
-Until that's built, keep Razorpay builds off the Play Store. The rules here are under legal challenge in India
-(as of November 2026), so check Google's current policy before starting.
+- **The server still decides.** A Play purchase counts only after Google confirms it is for our product and was
+  bought for this learner (Play keeps the learner's id on the purchase; it's a random id, not personal data).
+  Notifications are only a hint: the state is always fetched from Google. They need the secret in the push address.
+- **Same access rules.** Google's states map onto the ones above: active; grace period (renewal being retried) keeps
+  access; on hold ends it; cancelled keeps access to the end of the paid month. Each Play order is a payment row.
+- **Bought but the app closed first:** the notification links the purchase to the learner by that id, and the app
+  also sends Play's purchases the next time the paywall opens.
+- **Cancelling** in Account works for both (the server asks Google to stop renewing). Deleting an account cancels.
+- **Razorpay through Play's screen:** the first payment is reported with Play's token, later monthly ones point at
+  the first. Amounts are sent as ₹ before tax and tax. GST is 0% by default (not GST-registered, under the ₹20 lakh
+  threshold); once registered, set it to 18 in the admin console › Settings › Payments › "GST in the price" (check
+  with your accountant). Failed reports are tried again with the subscription's next payment or webhook.
+- **Test builds:** Play can't sell to the `.dev` test app (it isn't on Play), so it goes straight to Razorpay, as before.
+
+### Setting it up
+
+1. Play Console › your app › Monetize with Play › Products › Subscriptions: create **`learning_monthly`** with a
+   monthly auto-renewing base plan at ₹299, and activate it.
+2. Monetize with Play › Monetization setup › Alternative billing: enrol in **user choice billing (India)** and
+   accept its terms. It asks for a PCI DSS attestation for the alternative payment (Razorpay is PCI DSS certified;
+   we never handle card data). Check Google's current policy first: the rules are under legal challenge in India
+   (as of November 2026).
+3. In Cloud Shell, with the latest code deployed:
+
+   ```bash
+   PROJECT=cool-arch-515210-b0 PLAY_PRODUCT_ID=learning_monthly ./deploy/play-setup.sh
+   ```
+
+   It turns on the Play API, makes the notifications topic and pushes it to the server, and gives the server the
+   package and product. It ends with two Play Console steps: invite the server's account
+   (`adam-runtime@…`, "View financial data" and "Manage orders and subscriptions"), and set the topic under
+   Real-time developer notifications.
+4. Try it with a closed test track build and a licence tester (Play Console › Settings › License testing):
+   "Subscribe" shows Play's choice screen; both ways should end with "You're in".
+
+Until steps 1 to 3 are done, the server doesn't offer Play and the app uses Razorpay only, so keep Play Store
+releases waiting for them.
 
 ## Where things are
 
-`server/razorpay.js` (Razorpay's API and signatures), `server/payments.js` (access, routes, webhooks),
-`server/db/migrations/005_payments.sql` and `006_payment_mode.sql`, `test/payments.test.js` (a fake Razorpay);
-app: `android/app/src/main/java/com/sakhi/app/pay/` (paywall sheet, view model, Checkout), `MainActivity.kt`
-(Checkout's result, the account dialog's subscription line and cancel).
+`server/razorpay.js` (Razorpay's API and signatures), `server/play.js` (Google Play's API), `server/payments.js`
+(access, routes, webhooks, Play notifications), `server/db/migrations/005_payments.sql`, `006_payment_mode.sql` and
+`008_play_billing.sql`, `test/payments.test.js` (a fake Razorpay), `test/play-billing.test.js` (a fake Google Play);
+app: `android/app/src/main/java/com/sakhi/app/pay/` (paywall sheet, view model, Checkout, `PlayBilling.kt`),
+`MainActivity.kt` (Checkout's result, the account dialog's subscription line and cancel).

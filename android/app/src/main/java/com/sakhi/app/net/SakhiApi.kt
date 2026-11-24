@@ -78,7 +78,9 @@ class SakhiApi(private val client: OkHttpClient, private val baseUrl: () -> Stri
 
     // Payments: the learning module's subscription.
     suspend fun payStatus(): PayStatus = get("/api/pay/status")
-    suspend fun startRazorpay(): CheckoutStart = post("/api/pay/razorpay/subscription", "{}")
+    suspend fun startRazorpay(playExternalToken: String? = null): CheckoutStart =
+        post("/api/pay/razorpay/subscription", SakhiJson.encodeToString(RazorpayStart(playExternalToken)))
+    suspend fun verifyPlay(purchaseToken: String): PayStatus = post("/api/pay/play/verify", SakhiJson.encodeToString(PlayPurchase(purchaseToken)))
     suspend fun verifyRazorpay(v: VerifyPayment): PayStatus = post("/api/pay/razorpay/verify", SakhiJson.encodeToString(v))
     suspend fun cancelSubscription(): PayStatus = post("/api/pay/cancel", "{}")
 

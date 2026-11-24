@@ -105,7 +105,16 @@ data class Me(
     val status: String? = null,
     val paidUntil: String? = null,
     val cancelAtEnd: Boolean = false,
+    /** "razorpay" or "play": who the latest subscription is with. */
+    val provider: String? = null,
+    /** Set when the server can take Google Play purchases (Play builds use them; null: Razorpay only). */
+    val play: PlayOffer? = null,
 )
+/** The Play subscription product, and the id Play keeps on the purchase so the server knows whose it is. */
+@Serializable data class PlayOffer(val productId: String, val accountId: String)
+@Serializable data class PlayPurchase(val purchaseToken: String)
+/** Starting a Razorpay subscription; [playExternalToken] when it was picked on Play's choice screen. */
+@Serializable data class RazorpayStart(val playExternalToken: String? = null)
 /** What Razorpay Checkout needs to take the first payment of a subscription. */
 @Serializable data class CheckoutStart(val subscriptionId: String, val keyId: String, val priceInr: Int, val name: String, val description: String, val contact: String? = null)
 @Serializable data class VerifyPayment(val paymentId: String, val subscriptionId: String, val signature: String)

@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import com.sakhi.app.net.LiveConnection
 import com.sakhi.app.net.SakhiApi
 import com.sakhi.app.net.LearnApi
+import com.sakhi.app.pay.PlayBilling
+import com.sakhi.app.pay.PlayStore
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -40,6 +42,8 @@ class AppContainer(app: Application, authFor: ((ServerConfig) -> PhoneAuth)? = n
     /** The learning module: practice conversations, lessons, progress (/api/learn). */
     val learn = LearnApi(http, BuildConfig.VERSION_NAME) { server.baseUrl }
     val events = EventLog({ api }, scope) { auth.currentUser != null }
+    /** Google Play Billing (made on first use; Play builds sell the subscription through it). */
+    val play: PlayStore by lazy { PlayBilling(app) }
     /** The server refused a request (login expired, consent missing): the sign-in flow takes over. */
     val refusals = MutableSharedFlow<ServerException>(extraBufferCapacity = 4)
     fun newLiveConnection() = LiveConnection(http) { server.baseUrl }
