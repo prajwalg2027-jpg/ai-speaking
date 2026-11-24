@@ -235,3 +235,38 @@ test("the turn in parts: an app that asks for it gets Sakhi's reaction before th
   } finally { await settings.reset('placement', 'test'); }
 });
 
+
+test('a Google voice: her turn comes as one line (one voice request), and talking over it is understood', async () => {
+  const voices = await import('../server/voices/index.js');
+  const googleCalls = [];
+  voices.setCloudTtsClient({ streamingSynthesize() {
+    const call = { writes: [] }; googleCalls.push(call);
+    return { write: (m) => call.writes.push(m), end: () => {}, async *[Symbol.asyncIterator]() { yield { audioContent: Buffer.alloc(4800) }; } };
+  } });
+  process.env.CLOUD_TTS = 'on';
+  await settings.set('voice', { ...settings.get('voice'), source: 'cloudtts', model: 'gemini-2.5-flash-tts' }, 'test');
+  await settings.set('placement', { ...settings.get('placement'), mode: 'conversation' }, 'test');
+  try {
+    const start = (await post('/api/session')).json;
+    const t = (await post('/api/session/turn', { sessionId: start.sessionId, event: 'answer', transcript: 'My name is Ravi', speechSec: 5 })).json;
+    assert.equal(t.say.length, 1, 'reaction and question joined');
+    assert.match(t.say[0].text, /^Nice to meet you, Ravi! A picture is on your screen/);
+    if (t.cue) assert.equal(t.cue.line, 0);
+    await new Promise((ok) => setTimeout(ok, 60));
+    assert.equal(googleCalls.length, 1, 'one request to Google for the whole turn');
+    const r = await fetch(`${base}/api/tts/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: t.say[0].text, lang: t.say[0].lang, pace: t.say[0].pace, sessionId: start.sessionId }) });
+    assert.equal(r.status, 200); await r.arrayBuffer();
+    assert.equal(googleCalls.length, 1, 'the app gets the line already made');
+    // The learner talks over her early: the turn still goes on.
+    const next = await post('/api/session/turn', { sessionId: start.sessionId, event: 'answer', transcript: 'dog', speechSec: 2, interrupted: { index: 0, heardSec: 0.5 } });
+    assert.equal(next.status, 200);
+    // The switch off: lines come apart again.
+    await settings.set('voice', { ...settings.get('voice'), oneRequestPerTurn: false }, 'test');
+    const apart = (await post('/api/session/turn', { sessionId: start.sessionId, event: 'answer', transcript: 'It is a house', speechSec: 3 })).json;
+    assert.ok(apart.say.length >= 1);
+  } finally {
+    delete process.env.CLOUD_TTS;
+    await settings.set('voice', settings.SECTIONS.voice.defaults, 'test');
+    await settings.set('placement', { ...settings.get('placement'), mode: 'classic' }, 'test');
+  }
+});

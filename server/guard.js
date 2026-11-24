@@ -60,6 +60,7 @@ export function isHerLine(text, session, fixedLines) {
   // The app may trim a repeated "Okay!" from the start of a line, so a line can be the end of one she said.
   const hers = (line) => line === text || line.endsWith(text);
   // saying: her reaction, sent to the app before the rest of her turn was written (it is not in the talk yet).
-  return session.history.some((h) => h.who === 'sakhi' && hers(h.text)) || (session.saying || []).some(hers);
+  // voiceLines: her lines as the app got them, when a turn's lines were joined into one (server/voicejoin.js).
+  return session.history.some((h) => h.who === 'sakhi' && hers(h.text)) || (session.saying || []).some(hers) || (session.voiceLines || []).some(hers);
 }
 
