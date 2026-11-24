@@ -2,7 +2,7 @@
 // learner only ever sees their own data. In local development without login, everything belongs to one local user.
 //
 //   GET    /api/learn/profile                         → profile and preferences
-//   PATCH  /api/learn/preferences                     { correctionIntensity?, goals?, supportLanguage? }
+//   PATCH  /api/learn/preferences                     { correctionIntensity?, goals?, supportLanguage?, memoryEnabled? }
 //   GET    /api/learn/progress                        → level, activity, skills, focus areas
 //   GET    /api/learn/conversations                   → recent conversations
 //   POST   /api/learn/conversations                   { title? } → a new free-practice conversation, with Sakhi's greeting
@@ -15,6 +15,9 @@
 //   POST   /api/learn/lessons/:id/start               → a lesson session (new, or the one in progress)
 //   GET    /api/learn/lesson-sessions/:id             → where the learner is in a lesson
 //   POST   /api/learn/lesson-sessions/:id/attempts    { exerciseId, answer, channel?, clientAttemptId? } → verdict, feedback, next
+//   GET    /api/learn/memory                          → what Sakhi remembers (items, past conversations' summaries)
+//   DELETE /api/learn/memory/:id                      → forget one item
+//   DELETE /api/learn/memory                          → forget everything
 //   POST   /api/learn/voice/transcribe                body: 16 kHz WAV (≤ 30 s) → { text, languageCode }
 //   POST   /api/learn/messages/:id/speech             → Sakhi's voice for one of her replies (16-bit PCM, streamed)
 import * as settings from '../settings.js';
@@ -27,6 +30,7 @@ import { spentToday, addSpeechToText, shared } from '../costs.js';
 import { readBody, readJson, send, fail, route, isUuid } from '../http.js';
 import * as repo from './repo.js';
 import * as lessons from './lessons.js';
+import * as memory from './memory.js';
 import { runtime as defaultRuntime } from './runtime.js';
 import { requireAccess } from '../payments.js';
 import { z } from 'zod';
@@ -53,9 +57,8 @@ const Preferences = z.strictObject({
   correctionIntensity: z.enum(['gentle', 'balanced', 'strict']).optional(),
   goals: z.array(z.string().trim().min(1).max(100)).max(5).optional(),
   supportLanguage: z.enum(['hi-IN', 'en-IN']).nullable().optional(),
+  memoryEnabled: z.boolean().optional(),
 });
-
-const greeting = (name) => `Hi${name ? ` ${name}` : ''}! I'm Sakhi. What would you like to talk about today? It can be anything — your day, your work, or something you're planning.`;
 
 const conversationView = (c) => ({ id: c.id, mode: c.mode, title: c.title, lessonSessionId: c.lesson_session_id, startedAt: c.started_at, lastMessageAt: c.last_message_at, lastMessage: c.last_message, messageCount: c.message_count });
 const messageView = (m) => ({
@@ -84,13 +87,22 @@ export async function handleLearn(req, res, url, deps = {}) {
 
   if (m === 'GET' && p === '/api/learn/profile') {
     const pr = await repo.profile(user.id, settings.get('corrections').defaultIntensity);
-    return send(res, 200, { name: pr.name, correctionIntensity: pr.correctionIntensity, goals: pr.goals, supportLanguage: pr.supportLanguage, level: pr.level, placementLevel: pr.placementLevel, levelConfidence: pr.levelConfidence }), true;
+    return send(res, 200, { name: pr.name, correctionIntensity: pr.correctionIntensity, goals: pr.goals, supportLanguage: pr.supportLanguage, level: pr.level, placementLevel: pr.placementLevel, levelConfidence: pr.levelConfidence, memoryEnabled: pr.memoryEnabled }), true;
   }
   if (m === 'PATCH' && p === '/api/learn/preferences') {
     const b = Preferences.safeParse(await readJson(req));
     if (!b.success) throw fail(400, b.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
     await repo.profile(user.id, settings.get('corrections').defaultIntensity);
     await repo.updatePreferences(user.id, b.data);
+    return send(res, 200, { ok: true }), true;
+  }
+  if (m === 'GET' && p === '/api/learn/memory') return send(res, 200, await memory.view(user.id)), true;
+  if (m === 'DELETE' && p === '/api/learn/memory') {
+    await repo.tx((c) => memory.forgetAll(user.id, c));
+    return send(res, 200, { ok: true }), true;
+  }
+  if (m === 'DELETE' && (a = route('/api/learn/memory/:id', p))) {
+    if (!/^\d{1,15}$/.test(a.id) || !(await memory.forget(user.id, Number(a.id)))) throw fail(404, 'not found');
     return send(res, 200, { ok: true }), true;
   }
   if (m === 'GET' && p === '/api/learn/progress') return send(res, 200, await repo.progress(user.id)), true;
@@ -103,8 +115,9 @@ export async function handleLearn(req, res, url, deps = {}) {
   if (m === 'POST' && p === '/api/learn/conversations') {
     const b = await readJson(req);
     const pr = await repo.profile(user.id, settings.get('corrections').defaultIntensity);
-    const c = await repo.createConversation({ userId: user.id, mode: 'conversation', title: typeof b.title === 'string' ? b.title.slice(0, 100) : null });
-    const g = await repo.addTutorMessage({ conversationId: c.id, content: greeting(pr.name), metadata: { kind: 'greeting' } });
+    if (settings.get('memory').enabled) withinBudget(); // the personal greeting may ask the AI
+    const rt = deps.runtime || defaultRuntime;
+    const { conversation: c, greeting: g } = await rt.startConversation({ userId: user.id, profile: pr, title: typeof b.title === 'string' ? b.title.slice(0, 100) : null });
     return send(res, 201, { conversation: conversationView(c), messages: [messageView(g)] }), true;
   }
   if (m === 'GET' && (a = route('/api/learn/conversations/:id', p))) {

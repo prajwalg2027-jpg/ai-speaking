@@ -28,13 +28,15 @@ export async function profile(userId, defaultIntensity = 'balanced') {
     placementLevel: r.placement_level, level: r.estimated_level ?? r.placement_level ?? null,
     levelConfidence: r.level_confidence == null ? null : Number(r.level_confidence), levelUpdatedAt: r.level_updated_at,
     facts: Array.isArray(r.attributes?.conversation_facts) ? r.attributes.conversation_facts : [],
+    memoryEnabled: r.memory_enabled !== false,
   };
 }
 
-export async function updatePreferences(userId, { correctionIntensity, goals, supportLanguage }) {
+export async function updatePreferences(userId, { correctionIntensity, goals, supportLanguage, memoryEnabled }) {
   await q(`update learner_profiles set correction_intensity = coalesce($2, correction_intensity), goals = coalesce($3, goals),
-             support_language = case when $4::boolean then $5 else support_language end, updated_at = now() where user_id = $1`,
-  [userId, correctionIntensity ?? null, goals ? JSON.stringify(goals) : null, supportLanguage !== undefined, supportLanguage ?? null]);
+             support_language = case when $4::boolean then $5 else support_language end,
+             memory_enabled = coalesce($6, memory_enabled), updated_at = now() where user_id = $1`,
+  [userId, correctionIntensity ?? null, goals ? JSON.stringify(goals) : null, supportLanguage !== undefined, supportLanguage ?? null, memoryEnabled ?? null]);
 }
 
 /** What the tutor should remember: mistakes the learner keeps making, and what was explained recently. */

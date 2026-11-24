@@ -8,6 +8,10 @@
 // 4. One tutor turn (server/learning/tutor.js): the reply goes out first (onReply), then corrections are filtered
 //    by the correction policy and, with strategy B, checked.
 // 5. Save the reply, the corrections and the learning evidence in one transaction; update the level estimate.
+// 6. Every few learner messages (or when they say "forget"), a memory note in the background (memory.js).
+//
+// startConversation() opens a free-practice conversation: earlier conversations' notes are written first (briefly
+// waited for), then Sakhi greets the learner with something she remembers, or the plain greeting.
 //
 // The AI's answer is validated before anything is saved; if it fails, the learner's message stays saved without a
 // reply, and retrying with the same client id carries on from there.
@@ -17,6 +21,7 @@ import { structured as defaultStructured } from '../llm/index.js';
 import * as repo from './repo.js';
 import { tutorTurn } from './tutor.js';
 import * as lessons from './lessons.js';
+import * as memoryStore from './memory.js';
 
 export const RespondInput = z.strictObject({
   userId: z.uuid(),
@@ -57,9 +62,10 @@ export function createRuntime({ structured = defaultStructured } = {}) {
     }
 
     const cfg = { corrections: settings.get('corrections'), conversation: settings.get('conversation') };
-    const [profile, memory, history] = await Promise.all([
+    const [profile, memory, learnerMemory, history] = await Promise.all([
       repo.profile(userId, cfg.corrections.defaultIntensity),
       repo.memory(userId),
+      memoryStore.recall(userId, { excludeConversationId: conv.id }).catch((e) => { console.warn('[memory] recall failed:', e.message); return null; }),
       repo.messages(conv.id, { limit: cfg.conversation.historyMessages, excludeId: learner.id }),
     ]);
     const lessonCtx = conv.mode === 'lesson' && conv.lesson_session_id ? await lessons.context(conv.lesson_session_id) : {};
@@ -68,7 +74,7 @@ export function createRuntime({ structured = defaultStructured } = {}) {
     try {
       turn = await tutorTurn({
         structured, settings: cfg, message: learner.content, channel: learner.channel, mode: conv.mode,
-        intensity: profile.correctionIntensity, profile, memory: { ...memory, facts: profile.facts },
+        intensity: profile.correctionIntensity, profile, memory: { ...memory, facts: profile.facts, learner: learnerMemory },
         history: history.map((m) => ({ role: m.role, content: m.content })), lesson: lessonCtx.lesson, exercise: lessonCtx.exercise, onReply,
       });
     } catch (e) {
@@ -82,11 +88,40 @@ export function createRuntime({ structured = defaultStructured } = {}) {
       return result({ conv, learner, reply: stored.reply, corrections: stored.corrections, meta: stored.reply.metadata, replayed: true });
     }
     repo.updateLevel(userId).catch((e) => console.warn('[learn] level update failed:', e.message));
+    maybeNote(userId, conv.id, learner.content);
     return result({ conv, learner, reply: saved.reply, corrections: saved.corrections, meta: saved.reply.metadata, replayed: false });
   }
 
-  return { respond };
+  /** A memory note in the background when enough is new, or at once when the learner asks Sakhi to forget. */
+  function maybeNote(userId, conversationId, message) {
+    const cfg = settings.get('memory');
+    if (!cfg.enabled) return;
+    memoryStore.inBackground(async () => {
+      if (!memoryStore.asksToForget(message) && await memoryStore.unreadCount(conversationId) < cfg.everyMessages) return;
+      await memoryStore.noteConversation({ userId, conversationId, structured });
+    });
+  }
+
+  /** A new free-practice conversation with Sakhi's first line. → { conversation, greeting (the saved message) } */
+  async function startConversation({ userId, title = null, profile, waitMs = 8000 }) {
+    if (settings.get('memory').enabled) {
+      // Earlier conversations the memory hasn't read yet: note them now, so the greeting can use them.
+      const pending = Promise.all((await memoryStore.unnoted(userId)).map((id) => memoryStore.noteConversation({ userId, conversationId: id, structured })
+        .catch((e) => console.warn(`[memory] note failed (${e.kind || 'error'}): ${e.message}`))));
+      let timer;
+      await Promise.race([pending, new Promise((r) => { timer = setTimeout(r, waitMs); })]).finally(() => clearTimeout(timer));
+    }
+    const personal = await memoryStore.greeting({ userId, profile, structured });
+    const conversation = await repo.createConversation({ userId, mode: 'conversation', title });
+    const greeting = await repo.addTutorMessage({ conversationId: conversation.id, content: personal?.text || plainGreeting(profile?.name),
+      metadata: personal ? { kind: 'greeting', personal: true, askedAbout: personal.askedAbout, provider: personal.provider, model: personal.model } : { kind: 'greeting' } });
+    return { conversation, greeting };
+  }
+
+  return { respond, startConversation };
 }
+
+export const plainGreeting = (name) => `Hi${name ? ` ${name}` : ''}! I'm Sakhi. What would you like to talk about today? It can be anything — your day, your work, or something you're planning.`;
 
 function result({ conv, learner, reply, corrections, meta, replayed }) {
   return {

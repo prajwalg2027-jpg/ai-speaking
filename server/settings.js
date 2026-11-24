@@ -19,11 +19,13 @@ const llmJob = z.strictObject({
 export const SECTIONS = {
   llm: {
     label: 'AI models',
-    schema: z.strictObject({ tutor: llmJob, verify: llmJob, lessonEval: llmJob }),
+    // memory: the background memory note (server/learning/memory.js). Given a default so settings saved before it still load.
+    schema: z.strictObject({ tutor: llmJob, verify: llmJob, lessonEval: llmJob, memory: llmJob.default({ provider: 'sarvam', model: 'sarvam-105b', temperature: 0.2 }) }),
     defaults: {
       tutor: { provider: 'sarvam', model: 'sarvam-105b-conversations', temperature: 0.6 },
       verify: { provider: 'sarvam', model: 'sarvam-105b', temperature: 0 },
       lessonEval: { provider: 'sarvam', model: 'sarvam-105b', temperature: 0 },
+      memory: { provider: 'sarvam', model: 'sarvam-105b', temperature: 0.2 },
     },
   },
   // The placement test. 'classic': the five-part test (server/session.js). 'conversation': a short talk run by one
@@ -92,6 +94,20 @@ export const SECTIONS = {
     label: 'Conversation',
     schema: z.strictObject({ historyMessages: z.number().int().min(2).max(30) }),
     defaults: { historyMessages: 10 },
+  },
+  // Sakhi's memory of each learner (server/learning/memory.js). Off: practice works exactly as before the memory.
+  memory: {
+    label: "Sakhi's memory of learners",
+    schema: z.strictObject({
+      enabled: z.boolean(),
+      everyMessages: z.number().int().min(2).max(50),     // a memory note after this many new learner messages
+      maxItems: z.number().int().min(5).max(200),         // active items per learner; the least important old ones fade
+      inPrompt: z.number().int().min(0).max(40),          // items given to Sakhi on each turn
+      pastConversations: z.number().int().min(0).max(5),  // summaries of earlier conversations given to Sakhi
+      personalGreeting: z.boolean(),                      // a new conversation opens with something from memory
+      keepSummariesDays: z.number().int().min(7).max(3650),
+    }),
+    defaults: { enabled: true, everyMessages: 8, maxItems: 40, inPrompt: 12, pastConversations: 2, personalGreeting: true, keepSummariesDays: 365 },
   },
   limits: {
     label: 'Limits and budget',

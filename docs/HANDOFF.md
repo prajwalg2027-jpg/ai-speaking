@@ -68,6 +68,8 @@ an admin console at **adamspeaks.in/admin** (dashboard, live settings, playgroun
 precision 96.5% vs 93.9%, wrong corrections on correct English 3.2% vs 7.3%, recall 93.2% vs 96.0%. The Android
 app uses it (practice chat, lessons, progress; see LEARNING.md). Admin setup on Google Cloud: `deploy/admin-setup.sh` (not yet run).
 Keep prompt examples apart from `shared/eval/` sentences, or evaluations stop meaning anything.
+Sakhi also **remembers each learner across conversations** (facts, goals, coming events, past conversations' summaries;
+table `learner_memories`, admin Settings › Sakhi's memory of learners): LEARNING.md "Learner memory".
 
 ## Placement test: classic and conversation (Nov 2026)
 
