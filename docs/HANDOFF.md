@@ -33,7 +33,7 @@ TTS** through Vertex AI (billed to Google Cloud) by default, Sarvam Bulbul v4 Fl
 | Server's account | `adam-runtime@cool-arch-515210-b0.iam.gserviceaccount.com` (only these resources) |
 | Phone login | SMS OTP through MSG91, sent and checked by the server, then the server’s own sessions (`server/login.js`, `docs/LOGIN.md`; setup `deploy/msg91-setup.sh`). Firebase logins from older builds are still accepted |
 | Android apps | `in.adamspeaks.app` (release), `in.adamspeaks.app.dev` (test build; shared signing key `android/app/debug.keystore`) |
-| Website | `adamspeaks.in` on Firebase Hosting, built from branch `claude/dazzling-cray-ni75q7` folder `website/` (DNS at GoDaddy) |
+| Website | `adamspeaks.in` on Firebase Hosting, built from branch `tutor-conversation` folder `website/` (DNS at GoDaddy) |
 | App settings file | `https://adamspeaks.in/app-config.json` (server address, minimum app version; the app reads it at start) |
 
 ## Releasing and checking
@@ -65,7 +65,7 @@ Practice conversations and lessons with personalised corrections, learner memory
 an admin console at **adamspeaks.in/admin** (dashboard, live settings, playground, evaluations). Everything is in
 `docs/LEARNING.md`, including the A vs B comparison (runs 3+4, 296 turns): **B (one call + a check of corrections) is the default**:
 precision 96.5% vs 93.9%, wrong corrections on correct English 3.2% vs 7.3%, recall 93.2% vs 96.0%. The Android
-app doesn't use the learning API yet. Admin setup on Google Cloud: `deploy/admin-setup.sh` (not yet run).
+app uses it (practice chat, lessons, progress; see LEARNING.md). Admin setup on Google Cloud: `deploy/admin-setup.sh` (not yet run).
 Keep prompt examples apart from `shared/eval/` sentences, or evaluations stop meaning anything.
 
 ## Placement test: classic and conversation (Nov 2026)
@@ -82,8 +82,9 @@ Everything is in `docs/PLACEMENT.md`. Comparing Sakhi's voices (Sarvam's and Goo
 
 The score is free; "Start learning" opens a ₹299/month subscription through Razorpay (`docs/PAYMENTS.md`). The
 server decides access (signatures checked, state from Razorpay); test and live mode are kept apart. Razorpay is for
-sideloaded builds now; **before the Play release**, add Google Play Billing with user choice billing (the plan is in
-`docs/PAYMENTS.md`). Setup: `deploy/razorpay-setup.sh` (test keys first).
+sideloaded builds; Play builds use Google Play Billing with user choice billing (Play's screen offers Google Play or
+Razorpay; `docs/PAYMENTS.md`). Setup: `deploy/razorpay-setup.sh` (test keys first), then `deploy/play-setup.sh` and
+the Play Console steps it prints.
 
 ## Before production (Prajwal asked: remove these at launch)
 
@@ -92,7 +93,7 @@ sideloaded builds now; **before the Play release**, add Google Play Billing with
   `deploy/builds-teardown.sh`, then delete `server/builds.js` (and its two lines in `server/index.js`),
   `test/builds.test.js`, the "test build page" steps in `.github/workflows/android.yml`, the `/internal/**`
   rewrite in the website's `firebase.json`, the three GitHub variables, and both `deploy/builds-*.sh` scripts.
-- Razorpay-only builds stay off the Play Store until Play Billing is in (`docs/PAYMENTS.md`).
+- No Play Store release until Play billing is set up (`deploy/play-setup.sh`, Play Console steps in `docs/PAYMENTS.md`).
 
 ## Pending (as of the handoff)
 

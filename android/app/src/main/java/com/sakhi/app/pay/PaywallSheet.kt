@@ -36,7 +36,7 @@ fun paidUntilText(iso: String?): String? = iso?.let {
 /** The paywall after "Start learning": the offer, Razorpay, then a thank-you. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PaywallSheet(state: Paywall, onSubscribe: () -> Unit, onRetry: () -> Unit, onDismiss: () -> Unit) {
+fun PaywallSheet(state: Paywall, onSubscribe: () -> Unit, onRetry: () -> Unit, onDismiss: () -> Unit, onStartLearning: () -> Unit = onDismiss) {
     if (state == Paywall.Hidden) return
     val busy = state is Paywall.Checking || (state as? Paywall.Offer)?.busy == true
     ModalBottomSheet(
@@ -48,7 +48,7 @@ fun PaywallSheet(state: Paywall, onSubscribe: () -> Unit, onRetry: () -> Unit, o
             when (state) {
                 Paywall.Checking -> Box(Modifier.fillMaxWidth().padding(32.dp), Alignment.Center) { CircularProgressIndicator(color = Sakhi.colors.accent) }
                 is Paywall.Offer -> Offer(state, onSubscribe)
-                is Paywall.Subscribed -> Subscribed(state, onDismiss)
+                is Paywall.Subscribed -> Subscribed(state, onStartLearning)
                 is Paywall.Failed -> {
                     Text("Can't open this right now", style = MaterialTheme.typography.headlineSmall)
                     Text(state.message, style = MaterialTheme.typography.bodyLarge)
@@ -77,17 +77,18 @@ private fun Offer(o: Paywall.Offer, onSubscribe: () -> Unit) {
     ).forEach { Text("•  $it", style = MaterialTheme.typography.bodyLarge) }
     o.error?.let { Text(it, style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.error)) }
     Primary("Subscribe · ₹${o.priceInr} a month", busy = o.busy, onClick = onSubscribe)
-    Text("Payments by Razorpay: UPI, cards or net banking. Renews every month until you cancel, in Account.",
+    Text(if (o.play) "Pay with Google Play, or with Razorpay: UPI, cards or net banking. Renews every month until you cancel, in Account."
+        else "Payments by Razorpay: UPI, cards or net banking. Renews every month until you cancel, in Account.",
         style = MaterialTheme.typography.bodySmall.copy(color = c.ink2))
 }
 
 @Composable
-private fun Subscribed(s: Paywall.Subscribed, onDone: () -> Unit) {
+private fun Subscribed(s: Paywall.Subscribed, onStart: () -> Unit) {
     val until = paidUntilText(s.paidUntil)
     Text(if (s.justPaid) "You're in. Thank you!" else if (until != null) "You're subscribed" else "Learning with Sakhi", style = MaterialTheme.typography.headlineMedium)
     if (until != null) Text(if (s.cancelAtEnd) "Your subscription ends on $until." else "Paid until $until; it renews every month.", style = MaterialTheme.typography.bodyLarge)
-    Text("Daily practice and lessons with Sakhi are coming to the app very soon. We'll let you know as soon as they're here.", style = MaterialTheme.typography.bodyLarge)
-    Primary("Done", busy = false, onClick = onDone)
+    Text("Talk with Sakhi about anything, get gentle corrections, and take short lessons made for your level.", style = MaterialTheme.typography.bodyLarge)
+    Primary("Start learning", busy = false, onClick = onStart)
 }
 
 @Composable

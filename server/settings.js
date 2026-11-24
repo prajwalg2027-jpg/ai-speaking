@@ -111,8 +111,11 @@ export const SECTIONS = {
     schema: z.strictObject({
       enabled: z.boolean(),                              // the learning module needs a subscription
       priceInr: z.number().int().min(1).max(100_000),    // a month; a new price makes a new Razorpay plan
+      // GST included in the price, for the amounts reported to Google Play (user choice billing). 0 while not
+      // GST-registered (under ₹20 lakh a year); 18 once registered. Older saved settings don't have it: 0.
+      gstPercent: z.number().min(0).max(28).default(num('PLAY_GST_PERCENT', 0)),
     }),
-    defaults: { enabled: false, priceInr: 299 },
+    defaults: { enabled: false, priceInr: 299, gstPercent: num('PLAY_GST_PERCENT', 0) },
   },
   features: {
     label: 'Features',

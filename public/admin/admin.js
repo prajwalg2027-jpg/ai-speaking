@@ -285,6 +285,7 @@ const META = {
   'limits.learnMessagesPerDay': { label: 'Practice messages per learner per day' },
   'payments.enabled': { type: 'bool', label: 'Learning needs a subscription (the paywall is on)' },
   'payments.priceInr': { label: 'Price per month (₹)', help: 'A new price makes a new Razorpay plan; people already subscribed keep their price.' },
+  'payments.gstPercent': { label: 'GST in the price (%)', help: 'For the amounts reported to Google Play when someone pays with Razorpay through Play’s screen. 0 while you’re not GST-registered (under ₹20 lakh a year); 18 once registered.' },
   'features.learningModule': { type: 'bool', label: 'Learning module (practice conversations and lessons) is on' },
   'scoring.levelCutoffs': { label: 'Level cut-offs (overall score needed)' },
   'scoring.firstGuess': { label: 'First guess after the opening answer' },
