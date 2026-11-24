@@ -81,8 +81,9 @@ Everything is in `docs/PLACEMENT.md`. Comparing Sakhi's voices (Sarvam's and Goo
 
 The score is free; "Start learning" opens a ₹299/month subscription through Razorpay (`docs/PAYMENTS.md`). The
 server decides access (signatures checked, state from Razorpay); test and live mode are kept apart. Razorpay is for
-sideloaded builds now; **before the Play release**, add Google Play Billing with user choice billing (the plan is in
-`docs/PAYMENTS.md`). Setup: `deploy/razorpay-setup.sh` (test keys first).
+sideloaded builds; Play builds use Google Play Billing with user choice billing (Play's screen offers Google Play or
+Razorpay; `docs/PAYMENTS.md`). Setup: `deploy/razorpay-setup.sh` (test keys first), then `deploy/play-setup.sh` and
+the Play Console steps it prints.
 
 ## Before production (Prajwal asked: remove these at launch)
 
@@ -91,7 +92,7 @@ sideloaded builds now; **before the Play release**, add Google Play Billing with
   `deploy/builds-teardown.sh`, then delete `server/builds.js` (and its two lines in `server/index.js`),
   `test/builds.test.js`, the "test build page" steps in `.github/workflows/android.yml`, the `/internal/**`
   rewrite in the website's `firebase.json`, the three GitHub variables, and both `deploy/builds-*.sh` scripts.
-- Razorpay-only builds stay off the Play Store until Play Billing is in (`docs/PAYMENTS.md`).
+- No Play Store release until Play billing is set up (`deploy/play-setup.sh`, Play Console steps in `docs/PAYMENTS.md`).
 
 ## Pending (as of the handoff)
 

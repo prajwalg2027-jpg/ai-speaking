@@ -1,15 +1,17 @@
 // Google Cloud calls made with the server's own service account (Cloud Run's metadata server gives the
-// token; nothing is stored). Used for voice recordings in Cloud Storage and for deleting a Firebase login.
+// token; nothing is stored). Used for voice recordings in Cloud Storage, deleting a Firebase login, and Google Play.
 const META = 'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token';
-let token = { value: null, until: 0 };
+const tokens = new Map(); // scopes ('' = the default) → { value, until }
 
-async function accessToken() {
-  if (token.value && Date.now() < token.until) return token.value;
-  const res = await fetch(META, { headers: { 'Metadata-Flavor': 'Google' } });
+/** An access token for the server's own service account; [scopes] for APIs outside Cloud's default scope (Google Play's). */
+export async function accessToken(scopes = '') {
+  const t = tokens.get(scopes);
+  if (t && Date.now() < t.until) return t.value;
+  const res = await fetch(scopes ? `${META}?scopes=${encodeURIComponent(scopes)}` : META, { headers: { 'Metadata-Flavor': 'Google' } });
   if (!res.ok) throw new Error(`metadata token: HTTP ${res.status}`);
   const j = await res.json();
-  token = { value: j.access_token, until: Date.now() + (j.expires_in - 60) * 1000 };
-  return token.value;
+  tokens.set(scopes, { value: j.access_token, until: Date.now() + (j.expires_in - 60) * 1000 });
+  return j.access_token;
 }
 
 const enc = encodeURIComponent;

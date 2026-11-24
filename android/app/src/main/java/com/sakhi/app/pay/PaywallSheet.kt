@@ -77,7 +77,8 @@ private fun Offer(o: Paywall.Offer, onSubscribe: () -> Unit) {
     ).forEach { Text("•  $it", style = MaterialTheme.typography.bodyLarge) }
     o.error?.let { Text(it, style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.error)) }
     Primary("Subscribe · ₹${o.priceInr} a month", busy = o.busy, onClick = onSubscribe)
-    Text("Payments by Razorpay: UPI, cards or net banking. Renews every month until you cancel, in Account.",
+    Text(if (o.play) "Pay with Google Play, or with Razorpay: UPI, cards or net banking. Renews every month until you cancel, in Account."
+        else "Payments by Razorpay: UPI, cards or net banking. Renews every month until you cancel, in Account.",
         style = MaterialTheme.typography.bodySmall.copy(color = c.ink2))
 }
 

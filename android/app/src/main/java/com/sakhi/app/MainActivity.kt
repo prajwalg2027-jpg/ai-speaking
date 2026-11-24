@@ -66,7 +66,7 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
         viewModelFactory { initializer { ConversationViewModel(application, container) } }
     }
     private val payVm: PaywallViewModel by viewModels {
-        viewModelFactory { initializer { PaywallViewModel(container.api, container.events) } }
+        viewModelFactory { initializer { PaywallViewModel(container.api, container.events, container.play) } }
     }
     private val authVm: AuthViewModel by viewModels {
         viewModelFactory { initializer { AuthViewModel(container.auth, container.api, container.events) } }
@@ -161,8 +161,10 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                     },
                 )
                 val paywall by payVm.state.collectAsStateWithLifecycle()
+                // Razorpay picked on Google Play's choice screen: Checkout opens for it.
+                LaunchedEffect(Unit) { payVm.checkouts.collect { s -> RazorpayCheckout.open(this@MainActivity, s, BRAND_HEX) } }
                 PaywallSheet(paywall,
-                    onSubscribe = { payVm.subscribe { s -> RazorpayCheckout.open(this@MainActivity, s, BRAND_HEX) } },
+                    onSubscribe = { payVm.subscribe(openPlay = { accountId -> container.play.buy(this@MainActivity, accountId) }) { s -> RazorpayCheckout.open(this@MainActivity, s, BRAND_HEX) } },
                     onRetry = payVm::open, onDismiss = payVm::dismiss)
                 val pay by payVm.account.collectAsStateWithLifecycle()
                 if (accountOpen) AccountDialog(
