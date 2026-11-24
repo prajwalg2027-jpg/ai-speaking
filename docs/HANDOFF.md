@@ -44,6 +44,7 @@ TTS** through Vertex AI (billed to Google Cloud) by default, Sarvam Bulbul v4 Fl
 - **Login setup:** `deploy/msg91-setup.sh` (MSG91 widget id, authkey into Secret Manager, admin numbers).
 - **Start-up log:** `gcloud run services logs read adam --region=asia-south1 --project=cool-arch-515210-b0 --limit=50`
   (look for `Pre-generated … (124 from the voice store, 0 new)`).
+- **Diagnostics from a team phone:** `scripts/diag-logs.sh <code> 2h` (see `docs/DIAGNOSTICS.md`).
 - **Health:** `GET /api/health` (Cloud Run reserves `/healthz`).
 - **Data:** Cloud SQL Studio on `adam-db`. Tables: `users` (flexible `attributes` jsonb; allowed keys in
   `attribute_definitions`), `attribute_history`, `consents`, `assessments`, `assessment_answers`, `recordings`,

@@ -26,6 +26,7 @@ import { handleBuilds } from './builds.js'; // pre-production only: remove befor
 import * as lessons from './learning/lessons.js';
 import * as evalRuns from './learning/evalRuns.js';
 import { requestId, logRequest } from './http.js';
+import * as diag from './diag.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
@@ -69,6 +70,7 @@ async function handleSessionStart(req, res) {
   const s = getSession(turn.sessionId);
   await accounts.testStarted(s, { user, client: req.headers['x-sakhi-client'] || 'web', appVersion: req.headers['x-sakhi-version'] || null });
   send(res, 200, withTeamData(turn, trace, s));
+  diag.record(req, [{ name: 'session.started', sid: turn.sessionId, data: { mode: s.mode, say: (turn.say || []).map((l) => l.text) } }]);
 }
 
 /** The conversation, if it belongs to the caller (any caller when login is off). */
@@ -126,6 +128,9 @@ async function handleSessionTurn(req, res) {
   if (s.mode === 'conversation') withLedger(s.ledger, () => speakAhead(turn.say || []));
   if (inParts) { part({ part: 'turn', ...withTeamData(turn, trace, s) }); res.end(); }
   else send(res, 200, withTeamData(turn, trace, s));
+  // A team phone sending diagnostics: what the server made of the turn, step by step, with timings.
+  diag.record(req, [{ name: 'turn', sid: s.id, data: { event: body.event, serverMs: trace.total(), say: (turn.say || []).map((l) => l.text),
+    listen: turn.listen || null, done: turn.done ? { level: turn.done.level } : null, steps: trace.list } }]);
   accounts.afterTurn(s, { event: body.event }); // saved after the reply, so it adds no delay
 }
 
@@ -254,6 +259,12 @@ async function handleApi(req, res, url, fn) {
 
 export const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
+  // A team phone sending diagnostics: each of its requests goes into its log, with the status and the time taken.
+  if (diag.codeOf(req) && !url.pathname.startsWith('/api/diag/')) {
+    const t0 = performance.now();
+    res.on('close', () => diag.record(req, [{ name: 'http', data: { method: req.method, path: url.pathname, status: res.statusCode, ms: Math.round(performance.now() - t0), complete: res.writableFinished } }]));
+  }
+  if (url.pathname.startsWith('/api/diag/')) return handleApi(req, res, url, () => diag.handleDiag(req, res, url));
   if (url.pathname.startsWith('/api/learn/')) return handleApi(req, res, url, () => handleLearn(req, res, url, { speak: speakTo }));
   if (url.pathname.startsWith('/api/admin/')) return handleApi(req, res, url, () => handleAdmin(req, res, url));
   if (url.pathname.startsWith('/api/auth/')) return handleApi(req, res, url, () => handleLogin(req, res, url));

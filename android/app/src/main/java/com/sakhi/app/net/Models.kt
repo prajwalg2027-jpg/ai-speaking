@@ -133,5 +133,8 @@ data class AppEvent(
 )
 @Serializable data class EventsRequest(val events: List<AppEvent>)
 
+/** GET /api/diag/status: whether this phone sends its diagnostic log (team numbers). */
+@Serializable data class DiagStatus(val enabled: Boolean = false)
+
 /** The server's error body: { error, reason?, missing? }. */
 @Serializable data class ErrorBody(val error: String = "", val reason: String? = null, val missing: List<String> = emptyList())

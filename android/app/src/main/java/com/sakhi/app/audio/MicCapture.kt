@@ -9,6 +9,7 @@ import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
 import android.os.Process
 import android.os.SystemClock
+import com.sakhi.app.diag.Diag
 import kotlin.math.sqrt
 
 /**
@@ -39,8 +40,8 @@ class MicCapture(private val meter: SpeechMeter) {
         val rec = runCatching {
             AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, RATE, AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT, maxOf(min, FRAME * 2 * 8))
-        }.getOrNull() ?: return false
-        if (rec.state != AudioRecord.STATE_INITIALIZED) { rec.release(); return false }
+        }.onFailure { Diag.error("mic", "open_failed", it) }.getOrNull() ?: return false
+        if (rec.state != AudioRecord.STATE_INITIALIZED) { Diag.log("mic", "not_initialized", "state" to rec.state); rec.release(); return false }
         val id = rec.audioSessionId
         if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(id)?.also { it.enabled = true; effects += it }
         if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(id)?.also { it.enabled = true; effects += it }
@@ -48,6 +49,8 @@ class MicCapture(private val meter: SpeechMeter) {
         record = rec
         running = true
         rec.startRecording()
+        Diag.log("mic", "start", "minBuffer" to min, "recording" to rec.recordingState, "echoCanceller" to AcousticEchoCanceler.isAvailable(),
+            "noiseSuppressor" to NoiseSuppressor.isAvailable(), "gainControl" to AutomaticGainControl.isAvailable(), "effects" to effects.size)
         thread = Thread({ loop(rec) }, "sakhi-mic").apply { start() }
         return true
     }
@@ -55,12 +58,13 @@ class MicCapture(private val meter: SpeechMeter) {
     private fun loop(rec: AudioRecord) {
         Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
         val ms = FRAME * 1000f / RATE
+        var readErrors = 0
         while (running) {
             val buf = ShortArray(FRAME)
             var got = 0
             while (got < FRAME && running) {
                 val n = rec.read(buf, got, FRAME - got)
-                if (n <= 0) break
+                if (n <= 0) { if (readErrors++ % 500 == 0) Diag.log("mic", "read_error", "code" to n, "count" to readErrors); break }
                 got += n
             }
             if (got < FRAME) continue
@@ -75,6 +79,7 @@ class MicCapture(private val meter: SpeechMeter) {
     }
 
     fun stop() {
+        if (running) Diag.log("mic", "stop")
         running = false
         thread?.join(500); thread = null
         effects.forEach { runCatching { it.release() } }; effects.clear()
