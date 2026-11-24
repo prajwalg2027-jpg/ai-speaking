@@ -78,8 +78,8 @@ class VoicePlayer {
         var complete = false
         var started = false
         var heardFrames = 0L
-        @Volatile var lastBytesAt = SystemClock.elapsedRealtime()
-        @Volatile var stalled = false
+        var lastBytesAt = SystemClock.elapsedRealtime()
+        var stalled = false
         try {
             coroutineScope {
                 val ticker = launch {
