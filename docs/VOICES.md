@@ -1,4 +1,28 @@
-# Comparing voices
+# Sakhi's voice, and comparing voices
+
+## The voice the app uses
+
+Admin console › **Settings** › **Sakhi's voice** (settings section `voice`, `server/settings.js`; spoken by
+`streamSpeech` in `server/sarvam.js`). It can be changed there without a deploy.
+
+- **Default: Gemini 3.8 Flash-Lite TTS through Vertex AI**, voice **Sulafat** (warm), told to speak "warmly and
+  patiently, like a kind, friendly Indian tutor". Google calls Flash-Lite its fast model; it is also the cheapest
+  (about ₹0.80 a minute, doubling on 1 Jan 2027). It signs in as the server's Cloud Run account (which already has
+  Vertex AI access for Gemini as the AI), so it is **billed to the Google Cloud project** and credits pay for it.
+  No key. Vertex AI's price for these models is taken to be Google's Gemini API price.
+- Also: 3.8 Flash TTS (best quality) through Vertex AI; the older Gemini models through Google Cloud
+  Text-to-Speech (also billed to the project); or Sarvam Bulbul (`SARVAM_TTS_MODEL`, `SARVAM_TTS_SPEAKER`).
+  The Gemini API with a key is used only if the server is switched off Vertex AI (`GOOGLE_GENAI_USE_VERTEXAI=false`).
+- **Sarvam stays the safety net**: if the Google voice fails before any sound, Sarvam says that line (and it is not
+  kept, so Google is tried again next time). Where Google can't be reached at all (a laptop without Google sign-in,
+  not on Vertex AI), Sarvam speaks.
+- Slower lines (listening passages, `pace` below 1) are asked for "a little slower" in words; Google's voices
+  are told how to speak, not given a speed.
+- Fixed lines are kept per voice, so after a change they are made again once (about 124 lines) and stored.
+- What Google charges is counted in each conversation's cost and the daily budget (by seconds of sound).
+- The app reads the sample rate from the server (24 kHz for both), so no new app build is needed.
+
+## Comparing voices
 
 Admin console › **Compare voices** (`server/admin/voices.js`, `server/voices/index.js`). It plays Sakhi's words in
 several voices side by side. Nothing on this page changes the app's voice. Three sources:
@@ -56,8 +80,8 @@ Pieces sent apart are joined with a short gap, as the app plays separate lines.
 | Cloud TTS: Gemini 3.1 Flash TTS (preview), 2.5 Pro TTS | the same | $20 / $1 |
 
 The page's table puts them side by side assuming Sakhi speaks about 20 characters a second (what Sarvam's voice
-measured); each card uses what its own clip really took. $1 = ₹88 unless `USD_INR` is set. Google's spending is
-not counted in the daily budget; Sarvam's is.
+measured); each card uses what its own clip really took. $1 = ₹88 unless `USD_INR` is set. What this page spends
+on Google is not counted in the daily budget; Sarvam's is, and so is the app's own voice, whichever it is.
 
 ## To try Google's voices
 

@@ -4,6 +4,8 @@ import { createHash } from 'node:crypto';
 import { addVoice, addChat } from './costs.js';
 import { config } from './config.js';
 import * as voiceStore from './voicecache.js';
+import * as settings from './settings.js';
+import { speakPiece, configured as voiceConfigured } from './voices/index.js';
 
 const S = config.sarvam;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -87,14 +89,28 @@ function keep(key, pcm) {
   voiceStore.save(key, pcm).catch((e) => { kept.delete(key); console.warn('[voice] not kept for the next start:', e.message); });
 }
 
-const ttsKey = (text, lang, pace) => createHash('sha1').update([text, lang, pace, S.ttsSpeaker, S.ttsModel, TTS_RATE].join('|')).digest('hex');
+/**
+ * The voice Sakhi speaks with now: the admin's choice (settings section "voice"), or Sarvam's Bulbul when that is
+ * chosen or when the chosen Google route isn't set up on this server (no Google sign-in locally, no Gemini key).
+ * → { source, model, voice, style?, fallback }
+ */
+export function voiceInUse() {
+  const v = settings.get('voice');
+  if (v && v.source !== 'sarvam' && voiceConfigured[v.source]?.()) return { source: v.source, model: v.model, voice: v.voice, style: v.style || '', fallback: v.fallbackToSarvam };
+  return { source: 'sarvam', model: S.ttsModel, voice: S.ttsSpeaker, fallback: false };
+}
+// A clip's key: the words and the voice that said them. Sarvam's keys are as they always were, so its stored lines stay good.
+const ttsKey = (text, lang, pace, v = voiceInUse()) => createHash('sha1').update(
+  (v.source === 'sarvam' ? [text, lang, pace, S.ttsSpeaker, S.ttsModel, TTS_RATE] : [text, lang, pace, v.source, v.model, v.voice, v.style, TTS_RATE]).join('|'),
+).digest('hex');
 
 /**
  * Speak `text`, calling onChunk(Buffer) as audio arrives. Resolves { cached, bytes, firstByteMs }.
  * Identical requests share one generation.
  */
 export async function streamSpeech(text, { lang = 'en-IN', pace = 1.0, pin = false } = {}, onChunk = () => {}) {
-  const key = ttsKey(text, lang, pace);
+  const voice = voiceInUse();
+  const key = ttsKey(text, lang, pace, voice);
   // A cached line (or one another request is already generating) costs this conversation nothing.
   if (pcmCache.has(key)) {
     const b = pcmCache.get(key); remember(key, b, pin);
@@ -123,43 +139,62 @@ export async function streamSpeech(text, { lang = 'en-IN', pace = 1.0, pin = fal
   const t0 = performance.now();
   let firstByteMs = null;
   const entry = { job: null, parts: [], listeners: new Set() };
+  const send = (b) => {
+    firstByteMs ??= Math.round(performance.now() - t0);
+    entry.parts.push(b);
+    onChunk(b);
+    for (const hear of entry.listeners) { try { hear(b); } catch { /* that listener went away */ } }
+  };
+  const finish = (all) => { if (all.length) { remember(key, all, pin); if (pin) keep(key, all); } return all; };
   const job = (async () => {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 20_000);
-    try {
-      // Busy or briefly down: try again (up to twice) before any audio has been sent, so the learner only
-      // notices a short pause.
-      let res;
-      for (let attempt = 0; ; attempt++) {
-        res = await fetch(`${S.baseUrl}/text-to-speech/stream`, {
-          method: 'POST', signal: ctrl.signal,
-          headers: { 'api-subscription-key': S.apiKey, 'content-type': 'application/json' },
-          body: JSON.stringify({ text, language_code: lang, speaker: S.ttsSpeaker, model: S.ttsModel, pace, speech_sample_rate: TTS_RATE, output_audio_codec: 'linear16' }),
-        });
-        if (!retryable(res.status) || attempt >= 2) break;
-        await res.body?.cancel().catch(() => {});
-        await sleep(retryWait(res, attempt));
+    if (voice.source !== 'sarvam') {
+      // A Google Gemini voice, streamed. If it fails before any sound was sent, Sarvam says the line instead (not
+      // kept, so the Google voice is tried again next time); after some sound, the line can't be patched: fail.
+      try {
+        // Google is told the pace in words: a number for the speed isn't something every Gemini voice takes.
+        const style = [voice.style, pace < 1 ? 'Speak a little slower than usual, clearly.' : ''].filter(Boolean).join(' ');
+        const r = await speakPiece(voice.source, text, { model: voice.model, voice: voice.voice, style, timeoutMs: 20_000 }, send);
+        addVoice(text.length, { cached: false, inr: r.costInr });
+        return finish(r.pcm);
+      } catch (e) {
+        if (entry.parts.length || !voice.fallback) throw e;
+        console.warn(`[voice] ${voice.source} ${voice.model} failed, Sarvam says this line instead: ${e.message}`);
+        return sarvamSpeech(text, lang, pace, send);
       }
-      if (!res.ok) throw new Error(`Sarvam /text-to-speech/stream ${res.status}: ${(await res.text()).slice(0, 300)}`);
-      addVoice(text.length, { cached: false }); // billed per character sent
-      const parts = entry.parts;
-      for await (const chunk of res.body) {
-        const b = Buffer.from(chunk);
-        firstByteMs ??= Math.round(performance.now() - t0);
-        parts.push(b);
-        onChunk(b);
-        for (const hear of entry.listeners) { try { hear(b); } catch { /* that listener went away */ } }
-      }
-      const all = Buffer.concat(parts);
-      if (all.length) { remember(key, all, pin); if (pin) keep(key, all); }
-      return all;
-    } finally { clearTimeout(timer); }
+    }
+    return finish(await sarvamSpeech(text, lang, pace, send));
   })();
   entry.job = job;
   job.catch(() => {}); // listeners that joined handle a failure themselves
   pending.set(key, entry);
   try { const all = await job; return { cached: false, bytes: all.length, firstByteMs }; }
   finally { pending.delete(key); }
+}
+
+/** One line in Sarvam's Bulbul voice, streamed to send(Buffer). → the whole clip. */
+async function sarvamSpeech(text, lang, pace, send) {
+  const parts = [];
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20_000);
+  try {
+    // Busy or briefly down: try again (up to twice) before any audio has been sent, so the learner only
+    // notices a short pause.
+    let res;
+    for (let attempt = 0; ; attempt++) {
+      res = await fetch(`${S.baseUrl}/text-to-speech/stream`, {
+        method: 'POST', signal: ctrl.signal,
+        headers: { 'api-subscription-key': S.apiKey, 'content-type': 'application/json' },
+        body: JSON.stringify({ text, language_code: lang, speaker: S.ttsSpeaker, model: S.ttsModel, pace, speech_sample_rate: TTS_RATE, output_audio_codec: 'linear16' }),
+      });
+      if (!retryable(res.status) || attempt >= 2) break;
+      await res.body?.cancel().catch(() => {});
+      await sleep(retryWait(res, attempt));
+    }
+    if (!res.ok) throw new Error(`Sarvam /text-to-speech/stream ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    addVoice(text.length, { cached: false }); // billed per character sent
+    for await (const chunk of res.body) { const b = Buffer.from(chunk); parts.push(b); send(b); }
+    return Buffer.concat(parts);
+  } finally { clearTimeout(timer); }
 }
 
 export const isSpeechCached = (text, { lang = 'en-IN', pace = 1.0 } = {}) => pcmCache.has(ttsKey(text, lang, pace));
@@ -197,7 +232,7 @@ export async function pregenerate(lines, { gapMs = 100, busyWaitMs = 15_000, par
     }
     catch (e) {
       failed++;
-      if (/ 429/.test(e.message)) { if (++busyInARow >= 3) break; await sleep(busyWaitMs); }
+      if (/ 429|RESOURCE_EXHAUSTED|quota/i.test(e.message)) { if (++busyInARow >= 3) break; await sleep(busyWaitMs); }
     }
     await sleep(gapMs);
   }

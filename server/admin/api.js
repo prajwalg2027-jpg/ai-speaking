@@ -21,6 +21,7 @@
 //   /api/admin/voices/**                   → compare voices, Sarvam's and Google's, with costs (voices.js)
 import { pool } from '../db/pool.js';
 import * as settings from '../settings.js';
+import { configured as voiceConfigured, MODELS as VOICE_MODELS } from '../voices/index.js';
 import { loginEnabled, firebaseEnabled, otpEnabled, projectId } from '../auth.js';
 import { LIMITS } from '../guard.js';
 import { whoIs, need, handleTeam, PERMISSIONS } from './team.js';
@@ -129,6 +130,10 @@ export async function handleAdmin(req, res, url, deps = {}) {
     need(who, 'settings.edit');
     const b = await readJson(req);
     if (a.key === 'llm') for (const [job, cfg] of Object.entries(b.value || {})) if (cfg?.provider && !providers[cfg.provider]?.configured()) throw fail(400, `${cfg.provider} is not set up on the server (its API key is missing), so ${job} can't use it`);
+    if (a.key === 'voice' && b.value?.source && b.value.source !== 'sarvam') {
+      if (!voiceConfigured[b.value.source]?.()) throw fail(400, 'Google\'s voices work only on the deployed server (it signs in to Google Cloud as its service account).');
+      if (!VOICE_MODELS[b.value.source]?.[b.value.model]) throw fail(400, `${b.value.model} is not one of the voice models for ${b.value.source}: ${Object.keys(VOICE_MODELS[b.value.source] || {}).join(', ')}`);
+    }
     return send(res, 200, { value: await settings.set(a.key, b.value, who.phone) }), true;
   }
   if (m === 'POST' && (a = route('/api/admin/settings/:key/reset', p))) {

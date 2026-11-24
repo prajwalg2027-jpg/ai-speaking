@@ -1,6 +1,6 @@
 // Comparing voices for Sakhi (admin console › Compare voices): Sarvam's and Google's, side by side, on the same
 // words, with how long each took to start and to finish, and what it cost. Nothing is saved; the app's own
-// voice is not changed here.
+// voice is not changed here (that is Settings › Sakhi's voice).
 //
 //   GET  /api/admin/voices         → { providers, models, voices, prices, samples, modes }
 //   POST /api/admin/voices/speak   { provider: sarvam|cloudtts|gemini, model, voice, text, mode, style?, pace?, pitch?, loudness?, temperature? }
@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { readJson, send, fail } from '../http.js';
 import * as voices from '../voices/index.js';
 import { config } from '../config.js';
+import * as settings from '../settings.js';
 
 // Sakhi's real lines, to hear each voice on what it would really say. "|" marks where her reaction ends and her
 // question begins (the app sends the two apart today).
@@ -50,7 +51,7 @@ export async function handleVoices(req, res, url) {
         gemini: await voices.geminiVoices(),
         cloudtts: voices.GEMINI_VOICES, // the same 30 voices, by name
       },
-      current: { provider: 'sarvam', model: config.sarvam.ttsModel, voice: config.sarvam.ttsSpeaker }, // what the app speaks with now
+      current: (({ source, model, voice }) => (source === 'sarvam' ? { provider: 'sarvam', model: config.sarvam.ttsModel, voice: config.sarvam.ttsSpeaker } : { provider: source, model, voice }))(settings.get('voice')), // what the app speaks with now (admin settings)
       prices: voices.priceTable(), samples: SAMPLES, modes: MODES,
     }), true;
   }

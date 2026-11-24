@@ -249,7 +249,7 @@ async function overview() {
 }
 
 // ---- Settings -------------------------------------------------------------------------------------
-const ORDER = ['placement', 'payments', 'corrections', 'llm', 'conversation', 'limits', 'features', 'scoring'];
+const ORDER = ['voice', 'placement', 'payments', 'corrections', 'llm', 'conversation', 'limits', 'features', 'scoring'];
 const JOBS = { tutor: 'Tutor replies', verify: 'Correction check (strategy B)', lessonEval: 'Lesson marking' };
 const EFFORT_OPTIONS = [['default', "The model's own default"], ['none', 'None (fastest)'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Most (slowest)']];
 const TAKES_THINKING = ['openai', 'anthropic', 'gemini']; // the providers that can be told how hard to think
@@ -269,6 +269,14 @@ const META = {
   'placement.speed': { type: 'select', label: 'OpenAI speed', help: "Fast is OpenAI's Fast mode: up to 2.5 times quicker, at about twice the price per token. Only some OpenAI models have it (gpt-6-luna does); others answer at standard speed.", options: [['fast', 'Fast (dearer)'], ['standard', 'Standard']] },
   'placement.turnEffort': { type: 'select', label: 'Thinking on each turn', help: 'How hard the model thinks before Sakhi replies. Less is faster. Used by OpenAI, Claude and Gemini models; Sarvam ignores it.', options: EFFORT_OPTIONS },
   'placement.finalEffort': { type: 'select', label: 'Thinking for the final level and feedback', help: 'If the AI ends the talk on a turn with less thinking than this, that turn is asked once more at this level.', options: EFFORT_OPTIONS },
+  'voice.source': { type: 'select', label: 'Where the voice comes from', help: 'Both Google routes are billed to the Google Cloud project (credits pay for them). If a Google voice fails, Sarvam says that line.', options: [
+    ['gemini', 'Google Gemini voice, through Vertex AI (default)'], ['cloudtts', 'Google Gemini voice, through Cloud Text-to-Speech (older models)'], ['sarvam', 'Sarvam Bulbul (Roopa)']] },
+  'voice.model': { type: 'select', label: 'Voice model (Google)', help: 'Must match where the voice comes from. Prices are on the Compare voices page.', options: [
+    ['gemini-3.8-flash-lite-tts', 'Vertex AI · Gemini 3.8 Flash-Lite TTS (fast, cheapest)'], ['gemini-3.8-flash-tts', 'Vertex AI · Gemini 3.8 Flash TTS (best quality)'], ['gemini-3.1-flash-tts-preview', 'Either · Gemini 3.1 Flash TTS (preview)'],
+    ['gemini-2.5-flash-tts', 'Cloud Text-to-Speech · Gemini 2.5 Flash TTS'], ['gemini-2.5-flash-lite-preview-tts', 'Cloud Text-to-Speech · Gemini 2.5 Flash-Lite TTS (preview)'], ['gemini-2.5-pro-tts', 'Cloud Text-to-Speech · Gemini 2.5 Pro TTS']] },
+  'voice.voice': { label: 'Voice name (Google)', help: 'One of Google’s voices, e.g. Sulafat (warm), Vindemiatrix (gentle), Achernar (soft), Kore (firm), Aoede (breezy), Leda (youthful). Hear them on Compare voices.' },
+  'voice.style': { label: 'How she speaks (Google)', help: 'In plain words. Slower lines (listening passages) add “a little slower” on their own.' },
+  'voice.fallbackToSarvam': { type: 'bool', label: 'If the Google voice fails, Sarvam says the line' },
   'conversation.historyMessages': { label: 'Recent messages the tutor reads', help: 'More = better memory of the conversation, slightly slower and costlier.' },
   'limits.dailyBudgetInr': { label: 'Daily budget (₹)', help: 'When today’s AI spend reaches this, new conversations and messages pause until tomorrow.' },
   'limits.sessionsPerIpPerHour': { label: 'Placement tests per learner per hour' },
@@ -297,7 +305,7 @@ function field(path, value, providers) {
   if (path.endsWith('.provider')) {
     return html`<label class="f">Provider<select data-path="${path}" data-type="string">${Object.entries(providers).map(([p, v]) => html`<option value="${p}" ${p === value ? raw('selected') : ''} ${!v.configured && p !== value ? raw('disabled') : ''}>${p === 'sarvam' ? 'Sarvam (default)' : providerName(p, v)}${v.configured ? '' : ' (no API key on the server)'}</option>`)}</select></label>`;
   }
-  if (path.endsWith('.model')) return html`<label class="f">Model<input data-path="${path}" data-type="string" value="${value}" list="models"></label>`;
+  if (path.endsWith('.model') && m.type !== 'select') return html`<label class="f">Model<input data-path="${path}" data-type="string" value="${value}" list="models"></label>`;
   if (m.type === 'choice') return html`<div class="choices" role="radiogroup" aria-label="${label}">${m.options.map(([v, t, d]) => html`<label class="choice"><input type="radio" name="${path}" data-path="${path}" data-type="radio" value="${v}" ${v === value ? raw('checked') : ''}><div><strong>${t}</strong><span>${d}</span></div></label>`)}</div>`;
   if (m.type === 'select') return html`<label class="f">${label}<select data-path="${path}" data-type="string">${m.options.map(([v, t]) => html`<option value="${v}" ${v === value ? raw('selected') : ''}>${t}</option>`)}</select>${m.help ? html`<span class="help">${m.help}</span>` : ''}</label>`;
   if (typeof value === 'boolean') return html`<label class="check"><input type="checkbox" data-path="${path}" data-type="bool" ${value ? raw('checked') : ''}> ${label}</label>`;
@@ -336,6 +344,7 @@ async function settings() {
     return html`<form class="card section" data-key="${k}">
       <div class="section-head"><h2>${sec.label}</h2><span>${sec.changed ? html`<span class="badge on">changed from default</span>` : html`<span class="badge">default</span>`}</span></div>
       ${k === 'llm' ? html`<p class="muted small">Sarvam is the default for everything. Another provider can be chosen only when its API key is set on the server (in Secret Manager); keys never appear here.</p>` : ''}
+      ${k === 'voice' ? html`<p class="muted small">The voice of every line Sakhi says in the app. A change applies to new lines at once (already-made lines in another voice are made again the first time they're needed). Try voices first on the <a href="#voices">Compare voices</a> page.</p>` : ''}
       ${k === 'placement' ? html`<p class="muted small">New tests use the chosen kind; a test in progress keeps its kind. Try models first on the <a href="#models">Compare models</a> page.</p>` : ''}
       ${k === 'scoring' ? html`<p class="muted small">The placement test's scoring. Changes apply to tests started from now on; each test stores the cut-offs it used.</p>` : ''}
       ${fields(k, sec.value, s.providers)}
@@ -824,7 +833,7 @@ async function models() {
 // Sarvam's and Google's voices side by side, on the same words: hear each, see how soon it started and how long it
 // took, what it cost, and what a whole talk would cost with it (server/admin/voices.js). Nothing is saved.
 let voicePicks = null; // the voice rows, kept for later visits
-const VOICE_PROVIDERS = { sarvam: 'Sarvam', cloudtts: 'Google Cloud TTS', gemini: 'Google Gemini API' };
+const VOICE_PROVIDERS = { sarvam: 'Sarvam', cloudtts: 'Google Cloud TTS', gemini: 'Google Gemini (newest models)' };
 const inr4 = (x) => (x == null ? '–' : x < 0.01 ? `₹${x.toFixed(4)}` : `₹${x.toFixed(3)}`);
 const b64ToBlob = (b64, type) => { const bin = atob(b64), bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); return new Blob([bytes], { type }); };
 
@@ -853,7 +862,7 @@ async function voicesPage() {
       <label class="f"><span>Words ("|" marks where her reaction ends and her question begins)</span><textarea id="vtext" rows="3" maxlength="1200">${info.samples[0].text}</textarea></label>
       <div class="choices" role="radiogroup" aria-label="How it is sent">${info.modes.map(([v, t], i) => html`<label class="choice"><input type="radio" name="vmode" value="${v}" ${i === 0 ? raw('checked') : ''}><div><strong>${t}</strong></div></label>`)}</div>
       <h2>Voices</h2>
-      ${Object.keys(VOICE_PROVIDERS).filter((p) => !info.providers[p]?.configured).map((p) => html`<p class="small err">${{ gemini: 'Google Gemini API: no Gemini key on the server yet, so these voices will fail. Add it with deploy/llm-keys-setup.sh (PROVIDERS=gemini).', cloudtts: 'Google Cloud TTS works only on the deployed server (it signs in as its Google Cloud service account), so these voices fail when the console runs elsewhere.', sarvam: 'No Sarvam key on the server.' }[p]}</p>`)}
+      ${Object.keys(VOICE_PROVIDERS).filter((p) => !info.providers[p]?.configured).map((p) => html`<p class="small err">${{ gemini: 'Google Gemini: works only on the deployed server (through Vertex AI, signed in as its Google Cloud account), so these voices fail when the console runs elsewhere.', cloudtts: 'Google Cloud TTS works only on the deployed server (it signs in as its Google Cloud service account), so these voices fail when the console runs elsewhere.', sarvam: 'No Sarvam key on the server.' }[p]}</p>`)}
       <div id="vrows"></div>
       <p><button type="button" id="vadd">Add a voice</button></p>
       <p class="muted small">Sarvam: ${info.voices.sarvam['bulbul:v4-flash'].length} voices for Bulbul v4 Flash and ${info.voices.sarvam['bulbul:v3'].length} for v3 (Sarvam's list on ${info.voices.sarvam.asOf}); each name is person_language_style, so <code>roopa_hi_companion</code> is Roopa, Hindi, companion style. Pace, pitch and steadiness are Sarvam's own controls. Google: the same 30 voices through Google Cloud TTS (streamed, signed in as the server's Google Cloud account, billed to the project; Gemini 3.1 Flash preview and the 2.5 models) or through the Gemini API (an API key; the newest 3.8 models, which Cloud TTS does not have); either is told how to speak in words, not with numbers.</p>
@@ -872,7 +881,7 @@ async function voicesPage() {
 
   const rowsBox = $('#vrows');
   const rowHtml = (v, i) => html`<div class="card vrow" data-i="${i}"><div class="row end">
-      <label class="f">Provider<select data-k="provider">${Object.entries(VOICE_PROVIDERS).map(([p, t]) => html`<option value="${p}" ${p === v.provider ? raw('selected') : ''}>${t}${info.providers[p].configured ? '' : ' (no key on the server)'}</option>`)}</select></label>
+      <label class="f">Provider<select data-k="provider">${Object.entries(VOICE_PROVIDERS).map(([p, t]) => html`<option value="${p}" ${p === v.provider ? raw('selected') : ''}>${t}${info.providers[p].configured ? '' : ' (not set up on this server)'}</option>`)}</select></label>
       <label class="f">Model<select data-k="model">${info.models[v.provider].map((m) => html`<option value="${m.id}" ${m.id === v.model ? raw('selected') : ''}>${m.label}</option>`)}</select></label>
       <label class="f grow">Voice<input data-k="voice" value="${v.voice}" list="${v.provider === 'sarvam' ? `vl-sarvam-${v.model}` : `vl-${v.provider}`}" autocomplete="off"></label>
       <button type="button" class="link danger" data-remove>Remove</button></div>
