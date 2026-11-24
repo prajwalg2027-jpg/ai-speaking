@@ -85,6 +85,16 @@ export async function addConversationFacts(userId, facts) {
   const list = [...(u?.attributes?.conversation_facts || [])];
   for (const f of facts) if (typeof f === 'string' && f.trim() && !list.includes(f.trim())) list.push(f.trim().slice(0, 300));
   await setAttributes(userId, { conversation_facts: list.slice(-50) }, 'conversation');
+  // Sakhi's memory of the learner (server/learning/memory.js) starts from the same facts. Not for a learner who
+  // switched their memory off; a fact already remembered (any wording case) isn't added twice.
+  for (const f of facts) {
+    const text = typeof f === 'string' ? f.trim().slice(0, 300) : '';
+    if (!text) continue;
+    await q(`insert into learner_memories (user_id, kind, content, source, importance)
+             select $1, 'fact', $2, 'placement', 2
+             where not exists (select 1 from learner_memories where user_id = $1 and lower(content) = lower($2))
+               and not exists (select 1 from learner_profiles where user_id = $1 and memory_enabled = false)`, [userId, text]);
+  }
 }
 
 // ---- consents -------------------------------------------------------------------

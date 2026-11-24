@@ -219,8 +219,8 @@ async function overview() {
 }
 
 // ---- Settings -------------------------------------------------------------------------------------
-const ORDER = ['voice', 'placement', 'payments', 'corrections', 'llm', 'conversation', 'limits', 'features', 'scoring'];
-const JOBS = { tutor: 'Tutor replies', verify: 'Correction check (strategy B)', lessonEval: 'Lesson marking' };
+const ORDER = ['voice', 'placement', 'payments', 'corrections', 'llm', 'conversation', 'memory', 'limits', 'features', 'scoring'];
+const JOBS = { tutor: 'Tutor replies', verify: 'Correction check (strategy B)', lessonEval: 'Lesson marking', memory: 'Memory notes and personal greetings' };
 const EFFORT_OPTIONS = [['default', "The model's own default"], ['none', 'None (fastest)'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Most (slowest)']];
 const TAKES_THINKING = ['openai', 'anthropic', 'gemini']; // the providers that can be told how hard to think
 const META = {
@@ -249,6 +249,13 @@ const META = {
   'voice.fallbackToSarvam': { type: 'bool', label: 'If the Google voice fails, Sarvam says the line' },
   'voice.oneRequestPerTurn': { type: 'bool', label: 'One voice request per turn: join each turn’s lines (Google voices). Fewer requests a minute (the free trial allows 10); she starts speaking a little later' },
   'conversation.historyMessages': { label: 'Recent messages the tutor reads', help: 'More = better memory of the conversation, slightly slower and costlier.' },
+  'memory.enabled': { type: 'bool', label: 'Sakhi remembers each learner (facts, goals, coming events, past conversations). Off: practice works as before' },
+  'memory.everyMessages': { label: 'Memory note after this many learner messages', help: 'Also when the learner starts a new conversation or says "forget". Lower = fresher memory, a little more AI cost.' },
+  'memory.maxItems': { label: 'Most things remembered per learner', help: 'Past this, the least important old items fade.' },
+  'memory.inPrompt': { label: 'Remembered things Sakhi reads on each turn' },
+  'memory.pastConversations': { label: 'Earlier conversations Sakhi recalls (summaries)' },
+  'memory.personalGreeting': { type: 'bool', label: 'Open a new conversation with something Sakhi remembers (one small AI call; the plain greeting if it fails)' },
+  'memory.keepSummariesDays': { label: 'Keep conversation summaries for (days)' },
   'limits.dailyBudgetInr': { label: 'Daily budget (₹)', help: 'When today’s AI spend reaches this, new conversations and messages pause until tomorrow.' },
   'limits.sessionsPerIpPerHour': { label: 'Placement tests per learner per hour' },
   'limits.turnsPerSession': { label: 'Turns in one placement test' },

@@ -34,6 +34,7 @@ is built this way, how to run and test it, and what is still open.
 | `server/learning/verifier.js` | Strategy B's check, and matching its decisions to corrections |
 | `server/learning/schemas.js` | Zod schemas for everything the AI returns, and repairs for near-miss labels |
 | `server/learning/repo.js` | Database access: profile, memory, messages, evidence, skills, level, progress |
+| `server/learning/memory.js` | Sakhi's memory of each learner across conversations: memory notes, recall for the prompt, the personal greeting, forgetting |
 | `server/learning/progress.js` | Mastery and level estimation from evidence (pure functions) |
 | `server/learning/lessons.js` + `shared/lessons.json` | Lessons: content, sync to the database, sessions, marking |
 | `server/learning/api.js` | `/api/learn/*` |
@@ -149,6 +150,7 @@ Every answer is learning evidence. Each lesson session also has a conversation, 
 
 - **Short-term:** the last N messages of the conversation (admin setting, default 10).
 - **Learner profile:** name, goals, correction intensity, support language (Hindi for hard explanations), placement level.
+- **Learner memory** (below): what the learner has told Sakhi across conversations, and what past conversations were about.
 - **Learning memory:** concepts the learner keeps getting wrong (≥2 mistakes, not mastered), concepts explained in the
   last day (so Sakhi doesn't repeat a full explanation), and facts from the placement conversation.
 - **Mastery per concept** (`progress.js`): recent evidence weighs more (each older item 0.85×), starting neutral;
@@ -157,12 +159,43 @@ Every answer is learning evidence. Each lesson session also has a conversation, 
   (≥85% right → up, ≤40% → down), at most once per 14 days; recorded in `level_history` (source `practice`).
   These thresholds are a reasoned start, not yet calibrated against real learners.
 
+## Learner memory (Nov 2026)
+
+Sakhi remembers each learner across conversations (`server/learning/memory.js`, migration `010_learner_memory.sql`).
+The ideas and choices behind it: [Sakhi's memory of each learner: ideas](https://claude.ai/artifact/7CexmLNLBuees6rrVtP2md).
+
+- **What is kept:** short English notes in `learner_memories`, each a `fact` (work, city, family), `goal`, `event`
+  (with a date, so Sakhi asks how it went), `interest` or `preference` (how they like to learn), with importance 1–3;
+  and a one- or two-sentence `summary` + `topics` on each practice conversation. Text only, no audio. Facts from the
+  placement test go in too (`store.addConversationFacts`), and the migration copied in those saved before.
+- **How it's written:** a background *memory note* (AI job `memory`, admin › AI models) reads the messages since the
+  last note and what's already known, and returns what to add, update, forget or mark done, plus the summary. It runs
+  after every N learner messages (admin setting, default 8), at once when the learner says "forget" (or "bhool jao"),
+  and for earlier unread conversations when a new conversation starts. It never delays a reply.
+- **Never kept:** health, religion, caste, politics, money, love life, contact details: the prompt forbids them and
+  `sensitive()` drops anything that slips through. "Forget everything" from the AI is honoured only when the
+  learner actually said "forget".
+- **How it's used:** every tutor turn gets the most useful items (`inPrompt`, default 12), coming and past events,
+  and the summaries of the last conversations (`pastConversations`, default 2), with rules: at most one memory per
+  reply, never recite them, believe the learner if something changed. A new conversation opens with a personal
+  greeting from memory (one small AI call; the plain greeting if nothing is remembered or it fails). An event asked
+  about is marked done. Past the limit (`maxItems`, default 40) the least important old items fade.
+- **The learner's control:** `GET /api/learn/memory` (items and past conversations' summaries),
+  `DELETE /api/learn/memory/:id`, `DELETE /api/learn/memory` (everything, including the placement facts),
+  `PATCH /preferences {memoryEnabled}`. Account deletion removes it all (on delete cascade).
+  The app screen for this ("What Sakhi remembers") is not built yet.
+- **Admin:** Settings › Sakhi's memory of learners: on/off (off = practice works exactly as before), how often,
+  limits, personal greeting, and how long summaries are kept (default 365 days, cleaned daily).
+- **Still to do:** the app screen and switch; a privacy policy line ("Sakhi keeps short notes about what you share
+  to personalise practice; you can see and delete them in the app"); the placement test reading memory on a retake.
+
 ## API (`/api/learn`, phone login required)
 
 | Method and path | Body → result |
 |---|---|
-| `GET /profile` | name, correctionIntensity, goals, supportLanguage, level, placementLevel, levelConfidence |
-| `PATCH /preferences` | `{correctionIntensity?, goals?, supportLanguage?}` |
+| `GET /profile` | name, correctionIntensity, goals, supportLanguage, level, placementLevel, levelConfidence, memoryEnabled |
+| `PATCH /preferences` | `{correctionIntensity?, goals?, supportLanguage?, memoryEnabled?}` |
+| `GET /memory` · `DELETE /memory/:id` · `DELETE /memory` | what Sakhi remembers · forget one · forget everything |
 | `GET /progress` | level, activity counts, skills, focus (top 3 to practise) |
 | `GET /conversations` · `POST /conversations` | list · new free-practice conversation with Sakhi's greeting |
 | `GET /conversations/:id` | messages with their corrections |

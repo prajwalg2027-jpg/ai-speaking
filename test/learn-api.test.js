@@ -82,6 +82,25 @@ t('preferences and progress', async () => {
   assert.equal(p.skills[0].concept, 'past_simple');
 });
 
+t('what Sakhi remembers: seen, forgotten one by one or all, and the learner\'s switch', async () => {
+  const id = (await pool.query(`select id from users where phone = '+919800000011'`)).rows[0].id;
+  await pool.query(`insert into learner_memories (user_id, kind, content) values ($1, 'fact', 'Works in a shop'), ($1, 'interest', 'Likes cricket')`, [id]);
+  const m = (await call('GET', '/api/learn/memory', asha)).json;
+  assert.equal(m.enabled, true);
+  assert.deepEqual(m.items.map((i) => i.content).sort(), ['Likes cricket', 'Works in a shop']);
+  assert.deepEqual((await call('GET', '/api/learn/memory', ravi)).json.items, [], 'only their own');
+  assert.equal((await call('DELETE', `/api/learn/memory/${m.items[0].id}`, ravi)).status, 404, 'not Ravi\'s');
+  assert.equal((await call('DELETE', '/api/learn/memory/abc', asha)).status, 404);
+  assert.equal((await call('DELETE', `/api/learn/memory/${m.items[0].id}`, asha)).status, 200);
+  assert.equal((await call('GET', '/api/learn/memory', asha)).json.items.length, 1);
+  assert.equal((await call('DELETE', '/api/learn/memory', asha)).status, 200);
+  assert.equal((await call('GET', '/api/learn/memory', asha)).json.items.length, 0);
+  assert.equal((await call('PATCH', '/api/learn/preferences', asha, { memoryEnabled: false })).status, 200);
+  assert.equal((await call('GET', '/api/learn/profile', asha)).json.memoryEnabled, false);
+  assert.equal((await call('GET', '/api/learn/memory', asha)).json.enabled, false);
+  assert.equal((await call('PATCH', '/api/learn/preferences', asha, { memoryEnabled: true })).status, 200);
+});
+
 t('lessons over HTTP: list, start, answer', async () => {
   const list = (await call('GET', '/api/learn/lessons', asha)).json.lessons;
   assert.ok(list.find((l) => l.id === 'articles-a-an-the'));

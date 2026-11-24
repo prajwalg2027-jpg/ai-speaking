@@ -26,6 +26,7 @@ import * as payments from './payments.js';
 import { handleBuilds } from './builds.js'; // pre-production only: remove before launch
 import * as lessons from './learning/lessons.js';
 import * as evalRuns from './learning/evalRuns.js';
+import { expireSummaries } from './learning/memory.js';
 import { requestId, logRequest } from './http.js';
 import * as diag from './diag.js';
 
@@ -342,6 +343,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     await settings.load();
     await lessons.sync();
     await evalRuns.cleanUp();
+    // Retention of conversation summaries (Sakhi's memory): now and once a day.
+    const expire = () => expireSummaries().then((n) => n && console.log(`[memory] removed ${n} old conversation summaries`)).catch((e) => console.warn('[memory] retention failed:', e.message));
+    expire();
+    setInterval(expire, 24 * 60 * 60 * 1000).unref();
   }
   server.listen(config.port, () => {
     console.log(`AI English Coach on http://localhost:${config.port}${production ? ' (production)' : ''}${ready() ? '' : '  (not ready: SARVAM_API_KEY is not set)'}`);

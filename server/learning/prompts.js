@@ -3,7 +3,7 @@
 // Bump the version whenever a section's wording changes.
 import { CATEGORIES, CONCEPTS } from './schemas.js';
 
-export const PROMPT_VERSION = 'tutor-v3'; // v3: check gives an explicit verdict; examples kept apart from the evaluation set
+export const PROMPT_VERSION = 'tutor-v4'; // v4: learner memory across conversations; v3: check gives an explicit verdict; examples kept apart from the evaluation set
 
 const LEVEL_WORDS = {
   1: 'a beginner (knows everyday words, short broken sentences)',
@@ -27,7 +27,14 @@ export function learnerSection(profile = {}, memory = {}) {
   if (profile.supportLanguage) lines.push(`If an explanation is hard, you may add one short sentence in ${profile.supportLanguage === 'hi-IN' ? 'Hindi (Devanagari)' : profile.supportLanguage}.`);
   if (memory.recurring?.length) lines.push(`Mistakes they often repeat: ${memory.recurring.map((m) => `${m.concept} (${m.mistakes}×)`).join(', ')}. If one appears again, you can point out it's a pattern.`);
   if (memory.recentlyExplained?.length) lines.push(`Already explained recently (don't explain these again in full; a short reminder is enough): ${memory.recentlyExplained.join(', ')}.`);
-  if (memory.facts?.length) lines.push(`Things they've told you about their life (use one only if it fits naturally): ${memory.facts.slice(-5).join('; ')}.`);
+  const L = memory.learner; // Sakhi's memory across conversations (memory.js recall); null when the admin switched it off
+  if (L) {
+    if (L.items?.length) lines.push(`What you remember about them from earlier talks (bring in at most one, only when it fits naturally; never list these back): ${L.items.map((m) => m.content).join('; ')}.`);
+    if (L.upcoming?.length) lines.push(`Coming up for them: ${L.upcoming.map((e) => `${e.content} (${e.due_on})`).join('; ')}. Today is ${L.today}.`);
+    if (L.dueEvents?.length) lines.push(`These have happened by now; if the moment fits, ask once how it went: ${L.dueEvents.map((e) => `${e.content} (${e.due_on})`).join('; ')}.`);
+    if (L.past?.length) lines.push(`Your earlier conversations with them (most recent first): ${L.past.map((p) => p.summary).join(' | ')}`);
+    if (L.items?.length || L.past?.length) lines.push("If they say something you remember is wrong or has changed, believe them. Never mention health, religion, money or other private matters unless they bring it up now.");
+  } else if (memory.facts?.length) lines.push(`Things they've told you about their life (use one only if it fits naturally): ${memory.facts.slice(-5).join('; ')}.`);
   return lines.join('\n');
 }
 
