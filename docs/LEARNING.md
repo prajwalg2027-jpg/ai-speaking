@@ -265,8 +265,10 @@ validation and audit, playground (`test/learn-api.test.js`). Live AI quality is 
 
 ## Limitations and next steps
 
-- **The Android app doesn't use the learning module yet.** The API is ready; the screens (practice chat with a
-  correction card, lessons, progress) are the next step.
+- **The Android app** uses the learning module (Nov 2026): practice chat (typed or spoken, Sakhi's reply first, the
+  correction card a moment later, her voice on request), lessons (explanation, examples, exercises with feedback and a
+  second try) and progress, in `android/app/src/main/java/com/sakhi/app/learn/` and `ui/LearnScreens.kt`. Not yet:
+  editing goals or the support language, a full skills page, and live streaming speech for practice.
 - Spoken practice uses one recording per message (`/voice/transcribe`, ≤30 s). Live streaming speech like the
   placement test can come later.
 - Pronunciation feedback is out of scope (kept separate on purpose); the placement test still scores it.
