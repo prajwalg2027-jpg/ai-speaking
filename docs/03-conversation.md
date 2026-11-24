@@ -1,5 +1,8 @@
 # Conversational placement: how Sakhi talks
 
+> The browser client this note describes (`public/app.js`, `live.js`, `audio.js`, `ui.js`, `orb.js`) was removed in
+> Nov 2026; the Android app is its port (`android/`). The old files are in git history.
+
 The placement used to sound like a quiz: the same scripted questions for everyone, generic reactions
 ("Nice!"), no link between questions, a "2 / 4" counter, and 2–4 s of silence while each reply was prepared.
 It now runs as a conversation with a tutor, and the assessment happens inside it.

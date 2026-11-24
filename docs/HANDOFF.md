@@ -108,5 +108,5 @@ results; optionally move the project under the adamspeaks.in organization; load 
 
 `server/` (index.js routes, session.js conversation, tutor.js Sakhi's lines, learning/ the learning module, admin/ and `public/admin/` the console, llm/ AI providers, settings.js live settings, scoring.js levels with
 `shared/scoring-config.json`, accounts.js/store.js customer data, live.js speech relay, recordings.js,
-voicecache.js), `shared/` (question bank, phrases), `public/` (web client, team tools), `android/` (Kotlin app,
+voicecache.js), `shared/` (question bank, phrases), `public/` (admin console and the team tools; the old browser client was removed in Nov 2026, the Android app replaced it), `android/` (Kotlin app,
 README inside), `deploy/` (scripts, README), `docs/` (design notes, this file).
