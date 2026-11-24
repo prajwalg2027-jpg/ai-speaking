@@ -99,7 +99,7 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // The launch screen (Theme.Sakhi.Starting): the orb pops in with a voice ripple (splash_icon_animated.xml).
+        // The launch screen (Theme.Sakhi.Starting): the orb rises into place as its glow warms up ("Sunrise", splash_icon_animated.xml).
         // It stays only while we check who's signed in (at most 2 s), never for the animation: once the app is ready
         // it goes, even mid-animation, with a 0.2 s fade as the orb grows a touch.
         val splash = installSplashScreen()
