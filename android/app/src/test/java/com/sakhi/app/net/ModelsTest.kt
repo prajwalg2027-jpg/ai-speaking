@@ -44,7 +44,7 @@ class ModelsTest {
         assertEquals(3, ins.level)
         assertEquals(3, ins.answers.size)
         assertEquals(listOf("wake", "woke"), ins.answers[0].diff.filter { it.k != "same" }.take(2).map { it.t })
-        assertEquals(4, assertNotNull(ins.ladder).rungs.size)
+        assertEquals(4, ins.ladder!!.rungs.size)
         assertEquals(2, ins.habit!!.examples.size)
         assertEquals(listOf("and", "because", "then"), ins.counts!!.joiningWords)
         val bare = SakhiJson.decodeFromString<Insights>("""{"status":"ready","level":1,"counts":{"answers":0}}""")
