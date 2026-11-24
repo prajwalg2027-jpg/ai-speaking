@@ -59,7 +59,7 @@ export async function handleVoices(req, res, url) {
     const r = Speak.safeParse(await readJson(req));
     if (!r.success) throw fail(400, r.error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`).join('; '));
     const o = r.data;
-    if (!voices.MODELS[o.provider][o.model] && !/^(bulbul:|gemini-)/.test(o.model)) throw fail(400, `Unknown voice model "${o.model}".`);
+    if (!voices.MODELS[o.provider][o.model] && !/^(bulbul:|gemini-|chirp3-hd$)/.test(o.model)) throw fail(400, `Unknown voice model "${o.model}".`);
     let out;
     try { out = await voices.say(o); }
     // The provider's own words are shown to the team (this page is the admin's only).

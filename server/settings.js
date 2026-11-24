@@ -56,7 +56,7 @@ export const SECTIONS = {
   },
   // Sakhi's voice in the app (server/sarvam.js streamSpeech). 'gemini': Google's Gemini voices with the newest models
   // (3.8 Flash and Flash-Lite TTS) through Vertex AI. 'cloudtts': the same voices, older models, through Google Cloud
-  // Text-to-Speech. Both sign in as the server's Google Cloud account and are billed to the project (so Google Cloud
+  // Text-to-Speech, or (model 'chirp3-hd') Google's regular Chirp 3 HD voices there, same names, no style. Both sign in as the server's Google Cloud account and are billed to the project (so Google Cloud
   // credits pay for them, like Gemini as the AI). 'sarvam': Bulbul (SARVAM_TTS_MODEL, SARVAM_TTS_SPEAKER). Compare them first on the admin
   // console's Compare voices page (docs/VOICES.md). If a Google voice can't be reached, Sarvam speaks instead.
   voice: {

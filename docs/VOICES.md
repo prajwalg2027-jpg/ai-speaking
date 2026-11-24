@@ -39,7 +39,7 @@ several voices side by side. Nothing on this page changes the app's voice. Three
 | | How it is called | Models | Sign-in | Streamed |
 | --- | --- | --- | --- | --- |
 | **Sarvam** | REST, streamed | Bulbul v4 Flash, v3 (the app uses v4 Flash, `roopa_hi_companion`) | Sarvam key | yes |
-| **Google Cloud TTS** | Cloud Text-to-Speech, `StreamingSynthesize` (gRPC) | Gemini 2.5 Flash TTS, 2.5 Flash-Lite (preview), 3.1 Flash (preview), 2.5 Pro | the server's Google Cloud service account (no key); billed to the project | yes: the sound comes back in pieces as it is made, once the text is in |
+| **Google Cloud TTS** | Cloud Text-to-Speech, `StreamingSynthesize` (gRPC) | Gemini 2.5 Flash TTS, 2.5 Flash-Lite (preview), 3.1 Flash (preview), 2.5 Pro; and Chirp 3 HD (`chirp3-hd`: Google's regular voices with the same names, sent as `en-IN-Chirp3-HD-<voice>` / `hi-IN-…`; no style prompt; $30 per million characters, 1 million free a month; 200 requests a minute on a paid project) | the server's Google Cloud service account (no key); billed to the project | yes: the sound comes back in pieces as it is made, once the text is in |
 | **Google Gemini API** | Interactions API, `stream: true` | Gemini 3.8 Flash TTS, 3.8 Flash-Lite TTS, and the previews | a Gemini API key | Google's guide says so; not yet checked against Google |
 
 Google's Cloud TTS guide says the newest models (3.8 Flash and Flash-Lite TTS) are **not** available through

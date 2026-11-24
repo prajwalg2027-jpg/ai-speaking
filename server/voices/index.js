@@ -29,6 +29,7 @@ const SARVAM_VOICES = JSON.parse(readFileSync(new URL('./sarvam-voices.json', im
 // prices for the same models are taken to be the same); the
 // sound is billed as output tokens, 25 for every second of it. Google has announced that its 3.8 prices double on
 // 1 Jan 2027 ("later"); the price for the day is used.
+export const CHIRP = 'chirp3-hd';
 export const MODELS = {
   sarvam: {
     'bulbul:v4-flash': { label: 'Bulbul v4 Flash (what the app uses)', inrPer1000Chars: () => PRICES.ttsPer10kChars / 10 },
@@ -40,6 +41,10 @@ export const MODELS = {
     'gemini-2.5-flash-lite-preview-tts': { label: 'Gemini 2.5 Flash-Lite TTS (preview)', usd: { input: 0.5, output: 10 } },
     'gemini-3.1-flash-tts-preview': { label: 'Gemini 3.1 Flash TTS (preview)', usd: { input: 1, output: 20 } },
     'gemini-2.5-pro-tts': { label: 'Gemini 2.5 Pro TTS', usd: { input: 1, output: 20 } },
+    // Google's regular (non-Gemini) voices, with the same 30 names: priced per character, not per second of
+    // sound, with 1 million characters free each month (not counted here). No style prompt; speed as a number.
+    // A higher limit than the Gemini voices (200 requests a minute on a paid project, Gemini 2.5 Flash TTS 150).
+    [CHIRP]: { label: 'Chirp 3 HD (not Gemini, billed per character)', usdPerMillionChars: 30 },
   },
   gemini: {
     'gemini-3.8-flash-tts': { label: 'Gemini 3.8 Flash TTS', usd: { input: 0.5, output: 9, later: { from: '2027-01-01', input: 1, output: 18 } } },
@@ -50,6 +55,8 @@ export const MODELS = {
   },
 };
 const AUDIO_TOKENS_PER_SECOND = 25;
+/** Chirp 3 HD voices are named by language and voice: en-IN-Chirp3-HD-Sulafat. */
+export const chirpVoiceName = (voice, languageCode) => `${languageCode}-Chirp3-HD-${voice}`;
 // Google's 30 studio voices and what they sound like (its own words). More are in its voice library.
 export const GEMINI_VOICES = [
   ['Zephyr', 'Bright'], ['Puck', 'Upbeat'], ['Charon', 'Informative'], ['Kore', 'Firm'], ['Fenrir', 'Excitable'], ['Leda', 'Youthful'],
@@ -102,7 +109,11 @@ export function priceTable() {
     const per1000 = m.inrPer1000Chars();
     rows.push({ provider: 'sarvam', model, label: m.label, per1000Chars: per1000, perMinute: (per1000 / 1000) * CHARS_PER_SECOND * 60, billedBy: 'characters' });
   }
-  for (const [provider, model, m] of [...Object.entries(MODELS.cloudtts).map(([k, v]) => ['cloudtts', k, v]), ...Object.entries(MODELS.gemini).map(([k, v]) => ['gemini', k, v])]) {
+  for (const [model, m] of Object.entries(MODELS.cloudtts).filter(([, x]) => x.usdPerMillionChars)) {
+    const per1000 = (m.usdPerMillionChars / 1000) * usdInr();
+    rows.push({ provider: 'cloudtts', model, label: m.label, per1000Chars: per1000, perMinute: (per1000 / 1000) * CHARS_PER_SECOND * 60, billedBy: 'characters (1 million free a month)', usdPerMillionChars: m.usdPerMillionChars });
+  }
+  for (const [provider, model, m] of [...Object.entries(MODELS.cloudtts).filter(([, x]) => x.usd).map(([k, v]) => ['cloudtts', k, v]), ...Object.entries(MODELS.gemini).map(([k, v]) => ['gemini', k, v])]) {
     const p = onDay(m.usd), outPerSecond = (p.output / 1e6) * AUDIO_TOKENS_PER_SECOND * usdInr();
     const inPer1000 = (p.input / 1e6) * (1000 / 4) * usdInr(); // about 4 characters a token
     rows.push({ provider, model, label: m.label, perMinute: outPerSecond * 60 + inPer1000 * (CHARS_PER_SECOND * 60 / 1000),
@@ -168,13 +179,15 @@ const cloud = () => (cloudClient ||= new textToSpeech.TextToSpeechClient());
  */
 async function cloudPiece(text, o, onChunk) {
   const t0 = performance.now();
+  const chirp = o.model === CHIRP, languageCode = sarvamLanguage(text);
   const call = cloud().streamingSynthesize();
   const timer = setTimeout(() => call.cancel?.(), o.timeoutMs || 30_000);
   call.write({ streamingConfig: {
-    voice: { name: o.voice, languageCode: sarvamLanguage(text), modelName: o.model },
+    // Chirp 3 HD: the voice's full name says the model; it takes no style prompt.
+    voice: chirp ? { name: chirpVoiceName(o.voice, languageCode), languageCode } : { name: o.voice, languageCode, modelName: o.model },
     streamingAudioConfig: { audioEncoding: 'PCM', sampleRateHertz: SAMPLE_RATE, ...(o.pace && o.pace !== 1 ? { speakingRate: o.pace } : {}) },
   } });
-  call.write({ input: { text, ...(o.style ? { prompt: o.style } : {}) } });
+  call.write({ input: { text, ...(o.style && !chirp ? { prompt: o.style } : {}) } });
   call.end();
   const parts = []; let firstByteMs = null;
   try {
@@ -189,6 +202,7 @@ async function cloudPiece(text, o, onChunk) {
   finally { clearTimeout(timer); }
   const pcm = Buffer.concat(parts);
   if (!pcm.length) throw new Error('Google Cloud sent no sound');
+  if (chirp) return { pcm, firstByteMs, ms: Math.round(performance.now() - t0), chars: text.length, costInr: (text.length * MODELS.cloudtts[CHIRP].usdPerMillionChars / 1e6) * usdInr() };
   // Google does not report tokens here: about 4 characters a text token, 25 sound tokens a second.
   const seconds = pcm.length / 2 / SAMPLE_RATE;
   const input = Math.ceil((text.length + (o.style || '').length) / 4), output = Math.round(seconds * AUDIO_TOKENS_PER_SECOND);
