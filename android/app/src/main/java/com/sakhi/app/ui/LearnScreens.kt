@@ -32,6 +32,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -64,7 +66,9 @@ import com.sakhi.app.learn.LearnPage
 import com.sakhi.app.learn.LearnUi
 import com.sakhi.app.learn.LearnViewModel
 import com.sakhi.app.learn.LessonUi
+import com.sakhi.app.learn.MemoryUi
 import com.sakhi.app.learn.Mic
+import com.sakhi.app.net.MemoryItem
 import com.sakhi.app.net.Correction
 import com.sakhi.app.net.Lesson
 import com.sakhi.app.ui.theme.Sakhi
@@ -90,6 +94,11 @@ data class LearnActions(
     val placement: (() -> Unit)? = null,
     val account: (() -> Unit)? = null,
     val report: (String) -> Unit = {},
+    val openMemory: () -> Unit = {},
+    val forget: (Long) -> Unit = {},
+    val forgetAll: () -> Unit = {},
+    val cancelForgetAll: () -> Unit = {},
+    val setMemoryEnabled: (Boolean) -> Unit = {},
 )
 
 /** The learning area: home, a practice conversation, or a lesson. */
@@ -110,6 +119,10 @@ fun LearnScreen(ui: LearnUi, micLevel: () -> Float, actions: LearnActions) {
                 is LearnPage.LessonPage -> {
                     TopBar(ui.lesson.state?.lesson?.title ?: "Lesson", onBack = actions.back, onAccount = null)
                     LessonView(ui.lesson, micLevel, actions, Modifier.weight(1f))
+                }
+                LearnPage.Memory -> {
+                    TopBar("What Sakhi remembers", onBack = actions.back, onAccount = null)
+                    MemoryView(ui.memory, actions, Modifier.weight(1f))
                 }
             }
         }
@@ -190,7 +203,88 @@ private fun HomeView(h: HomeState, a: LearnActions, modifier: Modifier) {
                 }, style = MaterialTheme.typography.bodySmall.copy(color = c.ink2))
             }
         }
+        h.profile?.let { pr ->
+            Panel(Modifier.clickable(role = Role.Button, onClickLabel = "Open", onClick = a.openMemory)) {
+                PanelTitle("What Sakhi remembers about you")
+                Text(if (pr.memoryEnabled) "Sakhi keeps short notes about what you tell her, so she can ask how things went. See them or delete them here."
+                     else "Memory is off: Sakhi doesn't keep notes about you.", style = MaterialTheme.typography.bodySmall.copy(color = c.ink2))
+            }
+        }
         a.placement?.let { TextButton(it, Modifier.fillMaxWidth()) { Text("Take the level test again", color = c.ink2) } }
+    }
+}
+
+// ---- what Sakhi remembers ------------------------------------------------------------------------------
+
+private val KIND_TITLES = listOf("fact" to "About you", "goal" to "Your goals", "event" to "Coming up", "interest" to "What you like", "preference" to "How you like to learn")
+
+@Composable
+private fun MemoryView(m: MemoryUi, a: LearnActions, modifier: Modifier) {
+    val c = Sakhi.colors
+    Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        val mem = m.memory
+        if (mem != null) m.error?.let { ErrorLine(it, null) {} }
+        if (mem == null) {
+            if (m.loading) Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = c.accent) }
+            else ErrorLine(m.error ?: "Couldn't load your notes.", "Try again", a.openMemory)
+            return@Column
+        }
+        Panel {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    PanelTitle("Let Sakhi remember me")
+                    Text(if (mem.enabled) "She notes what you share (your work, goals, plans) to make practice personal. Never your health, money or contact details."
+                         else "Off: she won't note or use anything you tell her. Notes already kept stay until you delete them.",
+                        style = MaterialTheme.typography.bodySmall.copy(color = c.ink2))
+                }
+                Switch(mem.enabled, { a.setMemoryEnabled(it) }, Modifier.padding(start = 12.dp).semantics { contentDescription = "Let Sakhi remember me" },
+                    colors = SwitchDefaults.colors(checkedTrackColor = c.accentDeep))
+            }
+        }
+        if (mem.items.isEmpty() && mem.conversations.isEmpty()) {
+            Text("Sakhi doesn't remember anything about you yet. Tell her about your day, your work or your plans when you practise.",
+                style = MaterialTheme.typography.bodyMedium.copy(color = c.ink2))
+        }
+        KIND_TITLES.forEach { (kind, title) ->
+            val list = mem.items.filter { it.kind == kind }
+            if (list.isNotEmpty()) Panel {
+                PanelTitle(title)
+                list.forEach { MemoryRow(it) { a.forget(it.id) } }
+            }
+        }
+        val other = mem.items.filter { i -> KIND_TITLES.none { it.first == i.kind } }
+        if (other.isNotEmpty()) Panel { PanelTitle("Other"); other.forEach { MemoryRow(it) { a.forget(it.id) } } }
+        if (mem.conversations.isNotEmpty()) Panel {
+            PanelTitle("Your last conversations")
+            mem.conversations.take(5).forEach { Text("•  ${it.summary}", style = MaterialTheme.typography.bodyMedium) }
+        }
+        if (mem.items.isNotEmpty() || mem.conversations.isNotEmpty()) {
+            if (m.confirmingForgetAll) {
+                Text("Delete everything Sakhi remembers about you? This can't be undone.", style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(a.cancelForgetAll, Modifier.weight(1f)) { Text("Keep", color = c.ink) }
+                    Button(a.forgetAll, Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Delete all") }
+                }
+            } else {
+                TextButton(a.forgetAll, Modifier.fillMaxWidth(), enabled = !m.busy) {
+                    if (m.busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    else Text("Forget everything", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+        Text("You can also say \"forget that\" to Sakhi while you talk.", style = MaterialTheme.typography.bodySmall.copy(color = c.ink2))
+    }
+}
+
+@Composable
+private fun MemoryRow(item: MemoryItem, onForget: () -> Unit) {
+    val c = Sakhi.colors
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(item.content, style = MaterialTheme.typography.bodyMedium)
+            item.dueOn?.let { Text(it, style = MaterialTheme.typography.bodySmall.copy(color = c.ink2)) }
+        }
+        TextButton(onForget, Modifier.semantics { contentDescription = "Forget: ${item.content}" }) { Text("✕", color = c.ink2) }
     }
 }
 

@@ -149,4 +149,44 @@ class LearnViewModelTest {
         assertTrue(vm.back())
         assertEquals(LearnPage.LessonPage("s1"), vm.ui.value.page)
     }
+
+    @Test fun `memory - see it, forget one, forget all after a second tap, switch it off`() {
+        reply("""{"enabled":true,"items":[{"id":1,"kind":"fact","content":"Works in a call centre"},{"id":2,"kind":"interest","content":"Likes cricket"}],"conversations":[{"id":"c1","summary":"Talked about cricket."}]}""")
+        vm.openMemory()
+        var u = waitFor { it.memory.memory != null }
+        assertEquals(LearnPage.Memory, u.page)
+        assertEquals(2, u.memory.memory!!.items.size)
+        server.takeRequest()
+
+        reply("""{"ok":true}""")
+        vm.forget(1)
+        u = waitFor { it.memory.memory!!.items.size == 1 }
+        assertEquals("Likes cricket", u.memory.memory!!.items.single().content)
+        assertEquals("DELETE", server.takeRequest().method)
+
+        vm.forgetAll()
+        assertTrue("the first tap only asks", vm.ui.value.memory.confirmingForgetAll)
+        reply("""{"ok":true}""")
+        vm.forgetAll()
+        u = waitFor { !it.memory.busy && it.memory.memory!!.items.isEmpty() }
+        assertTrue(u.memory.memory!!.conversations.isEmpty())
+        assertEquals("/api/learn/memory", server.takeRequest().url.encodedPath)
+
+        reply("""{"ok":true}""")
+        vm.setMemoryEnabled(false)
+        assertFalse(vm.ui.value.memory.memory!!.enabled)
+        assertEquals("""{"memoryEnabled":false}""", server.takeRequest().body!!.utf8())
+        assertTrue(vm.back())
+        assertEquals(LearnPage.Home, vm.ui.value.page)
+    }
+
+    @Test fun `memory - a failed delete puts the item back with the reason`() {
+        reply("""{"enabled":true,"items":[{"id":1,"kind":"fact","content":"Works in a call centre"}]}""")
+        vm.openMemory()
+        waitFor { it.memory.memory != null }
+        reply("""{"error":"not found"}""", code = 404)
+        vm.forget(1)
+        val u = waitFor { it.memory.error != null }
+        assertEquals(1, u.memory.memory!!.items.size)
+    }
 }

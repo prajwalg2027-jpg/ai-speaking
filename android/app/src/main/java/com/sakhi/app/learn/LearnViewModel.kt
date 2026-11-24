@@ -12,6 +12,7 @@ import com.sakhi.app.net.LearnApi
 import com.sakhi.app.net.LearnPreferences
 import com.sakhi.app.net.LearnProfile
 import com.sakhi.app.net.LearnProgress
+import com.sakhi.app.net.LearnerMemory
 import com.sakhi.app.net.Lesson
 import com.sakhi.app.net.LessonState
 import com.sakhi.app.net.SendMessage
@@ -32,7 +33,18 @@ sealed interface LearnPage {
     /** A practice conversation (free, or the questions conversation of a lesson: [fromLesson]). */
     data class Chat(val conversationId: String, val fromLesson: String? = null) : LearnPage
     data class LessonPage(val sessionId: String) : LearnPage
+    /** "What Sakhi remembers": see, delete, or switch off her memory of the learner. */
+    data object Memory : LearnPage
 }
+
+/** The memory page. [confirmingForgetAll]: "Forget everything" was tapped once and asks to be tapped again. */
+data class MemoryUi(
+    val loading: Boolean = true,
+    val memory: LearnerMemory? = null,
+    val busy: Boolean = false,
+    val confirmingForgetAll: Boolean = false,
+    val error: String? = null,
+)
 
 /** The learning home: what to practise, the lessons, and how it's going. */
 data class HomeState(
@@ -99,6 +111,7 @@ data class LearnUi(
     val home: HomeState = HomeState(),
     val chat: ChatState = ChatState(),
     val lesson: LessonUi = LessonUi(),
+    val memory: MemoryUi = MemoryUi(),
 )
 
 /**
@@ -174,6 +187,61 @@ class LearnViewModel(
         viewModelScope.launch {
             try { api.setPreferences(LearnPreferences(correctionIntensity = intensity)); events.log("learn.intensity", mapOf("intensity" to intensity)) }
             catch (e: IOException) { _ui.update { it.copy(home = it.home.copy(profile = old, error = message(e))) } }
+        }
+    }
+
+    // ---- what Sakhi remembers -----------------------------------------------------------------------
+
+    fun openMemory() {
+        _ui.update { it.copy(page = LearnPage.Memory, memory = MemoryUi()) }
+        viewModelScope.launch {
+            try {
+                val m = api.memory()
+                events.log("learn.memory.opened")
+                _ui.update { it.copy(memory = MemoryUi(loading = false, memory = m)) }
+            } catch (e: IOException) {
+                _ui.update { it.copy(memory = it.memory.copy(loading = false, error = message(e))) }
+            }
+        }
+    }
+
+    /** Forget one thing: it goes from the list at once, and comes back if the server says no. */
+    fun forget(id: Long) {
+        val old = _ui.value.memory.memory ?: return
+        _ui.update { it.copy(memory = it.memory.copy(memory = old.copy(items = old.items.filter { m -> m.id != id }), error = null)) }
+        viewModelScope.launch {
+            try { api.forget(id); events.log("learn.memory.forget") }
+            catch (e: IOException) { _ui.update { it.copy(memory = it.memory.copy(memory = old, error = message(e))) } }
+        }
+    }
+
+    /** "Forget everything": the first tap asks for a second one. */
+    fun forgetAll() {
+        val m = _ui.value.memory
+        if (m.busy) return
+        if (!m.confirmingForgetAll) { _ui.update { it.copy(memory = it.memory.copy(confirmingForgetAll = true)) }; return }
+        _ui.update { it.copy(memory = it.memory.copy(busy = true, confirmingForgetAll = false, error = null)) }
+        viewModelScope.launch {
+            try {
+                api.forgetAll()
+                events.log("learn.memory.forget_all")
+                _ui.update { it.copy(memory = it.memory.copy(busy = false, memory = it.memory.memory?.copy(items = emptyList(), conversations = emptyList()))) }
+            } catch (e: IOException) {
+                _ui.update { it.copy(memory = it.memory.copy(busy = false, error = message(e))) }
+            }
+        }
+    }
+
+    fun cancelForgetAll() = _ui.update { it.copy(memory = it.memory.copy(confirmingForgetAll = false)) }
+
+    /** The learner's switch: off, Sakhi stops noting and using what they tell her (what's kept stays until deleted). */
+    fun setMemoryEnabled(on: Boolean) {
+        val old = _ui.value.memory.memory ?: return
+        _ui.update { it.copy(memory = it.memory.copy(memory = old.copy(enabled = on), error = null),
+            home = it.home.copy(profile = it.home.profile?.copy(memoryEnabled = on))) }
+        viewModelScope.launch {
+            try { api.setPreferences(LearnPreferences(memoryEnabled = on)); events.log("learn.memory.switch", mapOf("on" to on.toString())) }
+            catch (e: IOException) { _ui.update { it.copy(memory = it.memory.copy(memory = old, error = message(e)), home = it.home.copy(profile = it.home.profile?.copy(memoryEnabled = old.enabled))) } }
         }
     }
 

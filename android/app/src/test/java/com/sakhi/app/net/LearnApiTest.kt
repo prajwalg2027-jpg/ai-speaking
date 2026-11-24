@@ -93,4 +93,21 @@ class LearnApiTest {
         assertEquals("PATCH", patch.method)
         assertEquals("""{"correctionIntensity":"strict"}""", patch.body!!.utf8())
     }
+
+    @Test fun `what Sakhi remembers: read, forget one, forget all, switch off`() = runTest {
+        server.enqueue(MockResponse.Builder().body("""{"enabled":true,"items":[{"id":7,"kind":"event","content":"Has a job interview at TCS","dueOn":"2026-11-28","source":"conversation","createdAt":"x"}],
+            "conversations":[{"id":"c1","summary":"Talked about cricket.","topics":["cricket"],"startedAt":"x"}]}""").build())
+        val m = api.memory()
+        assertEquals(7L, m.items.single().id); assertEquals("2026-11-28", m.items.single().dueOn); assertEquals("Talked about cricket.", m.conversations.single().summary)
+        server.enqueue(MockResponse.Builder().body("""{"ok":true}""").build())
+        api.forget(7)
+        server.enqueue(MockResponse.Builder().body("""{"ok":true}""").build())
+        api.forgetAll()
+        server.enqueue(MockResponse.Builder().body("""{"ok":true}""").build())
+        api.setPreferences(LearnPreferences(memoryEnabled = false))
+        assertEquals("/api/learn/memory", server.takeRequest().url.encodedPath)
+        server.takeRequest().let { assertEquals("DELETE", it.method); assertEquals("/api/learn/memory/7", it.url.encodedPath) }
+        server.takeRequest().let { assertEquals("DELETE", it.method); assertEquals("/api/learn/memory", it.url.encodedPath) }
+        assertEquals("""{"memoryEnabled":false}""", server.takeRequest().body!!.utf8())
+    }
 }

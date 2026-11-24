@@ -183,10 +183,11 @@ The ideas and choices behind it: [Sakhi's memory of each learner: ideas](https:/
 - **The learner's control:** `GET /api/learn/memory` (items and past conversations' summaries),
   `DELETE /api/learn/memory/:id`, `DELETE /api/learn/memory` (everything, including the placement facts),
   `PATCH /preferences {memoryEnabled}`. Account deletion removes it all (on delete cascade).
-  The app screen for this ("What Sakhi remembers") is not built yet.
+  In the Android app: learning home › "What Sakhi remembers about you" (grouped notes with ✕ to delete, past
+  conversations, the switch, and "Forget everything" with a second tap to confirm).
 - **Admin:** Settings › Sakhi's memory of learners: on/off (off = practice works exactly as before), how often,
   limits, personal greeting, and how long summaries are kept (default 365 days, cleaned daily).
-- **Still to do:** the app screen and switch; a privacy policy line ("Sakhi keeps short notes about what you share
+- **Still to do:** a privacy policy line ("Sakhi keeps short notes about what you share
   to personalise practice; you can see and delete them in the app"); the placement test reading memory on a retake.
 
 ## API (`/api/learn`, phone login required)
