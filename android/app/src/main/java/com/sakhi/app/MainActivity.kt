@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.unit.dp
@@ -28,6 +29,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.net.toUri
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -97,6 +99,20 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // The launch screen (Theme.Sakhi.Starting): the orb rises into place as its glow warms up ("Sunrise", splash_icon_animated.xml).
+        // It stays only while we check who's signed in (at most 2 s), never for the animation: once the app is ready
+        // it goes, even mid-animation, with a 0.2 s fade as the orb grows a touch.
+        val splash = installSplashScreen()
+        val shownAt = SystemClock.uptimeMillis()
+        splash.setKeepOnScreenCondition { authVm.gate.value is Gate.Checking && SystemClock.uptimeMillis() - shownAt < 2_000 }
+        splash.setOnExitAnimationListener { screen ->
+            val animationsOff = Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+            if (animationsOff) screen.remove()
+            else {
+                runCatching { screen.iconView.animate().scaleX(1.06f).scaleY(1.06f).setDuration(200L).start() }
+                screen.view.animate().alpha(0f).setDuration(200L).withEndAction { screen.remove() }.start()
+            }
+        }
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         // The way in, in order: Truecaller, then Google's number picker, then typing the number (auth/SignInChain.kt).
