@@ -1,7 +1,8 @@
 // OpenAI and Gemini as optional providers (off unless switched on in the admin settings AND the provider's key is
 // set on the server). OpenAI is called through its Responses API (POST /responses: the conversation goes in
 // `input`, the JSON shape in `text.format`). Gemini is called through Google's OpenAI-compatible chat-completions
-// endpoint. Both use native structured outputs (a strict JSON schema generated from the Zod schema).
+// endpoint: Vertex AI's (the default, see below) or, with GOOGLE_GENAI_USE_VERTEXAI=false, Google AI Studio's (a key).
+// Both use native structured outputs (a strict JSON schema generated from the Zod schema).
 // Requests are stateless: the whole talk is sent each time and nothing is stored at the provider (`store: false`).
 // The talk only grows from turn to turn, so the provider reuses the repeated part (prompt caching) by itself.
 // Not exercised against the live APIs in this repository's tests (no keys): see docs/LEARNING.md.
@@ -10,8 +11,52 @@ import { z } from 'zod';
 // Base URL and key are read at call time, so tests (and a changed env) take effect without a re-import.
 const PROVIDERS = {
   openai: { label: 'OpenAI', key: 'OPENAI_API_KEY', base: 'OPENAI_BASE_URL', defaultBase: 'https://api.openai.com/v1', maxParam: 'max_completion_tokens' },
-  gemini: { label: 'Gemini', key: 'GEMINI_API_KEY', base: 'GEMINI_BASE_URL', defaultBase: 'https://generativelanguage.googleapis.com/v1beta/openai', maxParam: 'max_tokens' },
+  gemini: {
+    label: 'Gemini', maxParam: 'max_tokens',
+    /** Where to send a chat, with what sign-in, and the model's name there. */
+    async endpoint(model) {
+      if (vertexOn()) return { base: await vertexBase(), token: await vertexToken(), model: model.includes('/') ? model : `google/${model}` };
+      return { base: process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai', token: process.env.GEMINI_API_KEY, model };
+    },
+  },
 };
+
+// Gemini through Vertex AI (Google Cloud) instead of the Gemini API (Google AI Studio): the same models, billed to
+// the Google Cloud project, so Google Cloud credits (the $300 free trial) pay for them; they can't pay for AI Studio.
+// The default: off only with GOOGLE_GENAI_USE_VERTEXAI=false (the Google Gen AI SDK's own switch), which goes back to
+// the Gemini API and its key (GEMINI_API_KEY). No API key: the server signs in as its
+// Google Cloud account (on Cloud Run its service account, which needs roles/aiplatform.user; on a laptop,
+// `gcloud auth application-default login`). Set up with deploy/vertex-setup.sh. Vertex AI's OpenAI-compatible
+// endpoint takes the same request; models are named google/<model>.
+//   GOOGLE_CLOUD_PROJECT   the project (found from the sign-in if not set)
+//   GOOGLE_CLOUD_LOCATION  "global" (the default: every model, the newest first) or a region like asia-south1
+//   VERTEX_BASE_URL        the whole endpoint, instead of the two above (tests)
+export const vertexOn = () => !/^(0|false|no|off)$/i.test((process.env.GOOGLE_GENAI_USE_VERTEXAI || '').trim());
+let googleAuth = null;
+let tokenSource = null;
+/** Tests: hand out this token instead of signing in to Google Cloud (null: sign in again). */
+export const setVertexTokenSource = (fn) => { tokenSource = fn; };
+async function vertexAuth() {
+  if (!googleAuth) {
+    const { GoogleAuth } = await import('google-auth-library');
+    googleAuth = new GoogleAuth({ scopes: 'https://www.googleapis.com/auth/cloud-platform' });
+  }
+  return googleAuth;
+}
+/** A short-lived access token for the server's Google Cloud account (kept and renewed by the library). */
+export async function vertexToken() {
+  if (tokenSource) return tokenSource();
+  try { return await (await vertexAuth()).getAccessToken(); }
+  catch (e) { throw new Error(`Gemini (Vertex AI): couldn't sign in to Google Cloud (${String(e.message).slice(0, 200)}). On a laptop: gcloud auth application-default login`); }
+}
+/** Vertex AI's OpenAI-compatible endpoint for this project and location. */
+export async function vertexBase() {
+  if (process.env.VERTEX_BASE_URL) return process.env.VERTEX_BASE_URL;
+  const location = process.env.GOOGLE_CLOUD_LOCATION || 'global';
+  const project = process.env.GOOGLE_CLOUD_PROJECT || await (await vertexAuth()).getProjectId();
+  const host = location === 'global' ? 'aiplatform.googleapis.com' : `${location}-aiplatform.googleapis.com`;
+  return `https://${host}/v1/projects/${project}/locations/${location}/endpoints/openapi`;
+}
 
 // Models that refused a temperature (newer OpenAI models accept only their default): not sent to them again.
 const noTemperature = new Set();
@@ -31,16 +76,16 @@ export function geminiEffort(model, effort) {
 }
 
 async function chatCompletions(p, messages, { model, temperature, maxTokens, schema, schemaName, effort = null }) {
-  const base = process.env[p.base] || p.defaultBase;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20_000);
   try {
+    const to = await p.endpoint(model);
     for (let attempt = 0; ; attempt++) {
-      const res = await fetch(`${base}/chat/completions`, {
+      const res = await fetch(`${to.base}/chat/completions`, {
         method: 'POST', signal: ctrl.signal,
-        headers: { authorization: `Bearer ${process.env[p.key]}`, 'content-type': 'application/json' },
+        headers: { authorization: `Bearer ${to.token}`, 'content-type': 'application/json' },
         body: JSON.stringify({
-          model, messages, ...(noTemperature.has(`${p.label}/${model}`) ? {} : { temperature }), [p.maxParam]: maxTokens,
+          model: to.model, messages, ...(noTemperature.has(`${p.label}/${model}`) ? {} : { temperature }), [p.maxParam]: maxTokens,
           ...(effort && !noEffort.has(`${p.label}/${model}`) ? { reasoning_effort: effort } : {}),
           response_format: schema
             ? { type: 'json_schema', json_schema: { name: schemaName, strict: true, schema: z.toJSONSchema(schema, { target: 'draft-7' }) } }
@@ -53,7 +98,8 @@ async function chatCompletions(p, messages, { model, temperature, maxTokens, sch
         // "temperature does not support 0.6 with this model": ask again without it, and remember.
         if (res.status === 400 && /temperature/i.test(body) && !noTemperature.has(`${p.label}/${model}`)) { noTemperature.add(`${p.label}/${model}`); continue; }
         if (res.status === 400 && effort && /reasoning|thinking|effort/i.test(body) && !noEffort.has(`${p.label}/${model}`)) { noEffort.add(`${p.label}/${model}`); continue; }
-        throw new Error(`${p.label} ${res.status}: ${body.slice(0, 300)}`);
+        const hint = vertexOn() && (res.status === 401 || res.status === 403) ? ' (Vertex AI: is aiplatform.googleapis.com on, and does the server\'s account have roles/aiplatform.user? deploy/vertex-setup.sh does both)' : '';
+        throw new Error(`${p.label} ${res.status}: ${body.slice(0, 300)}${hint}`);
       }
       const j = await res.json();
       const u = j.usage || {};
@@ -151,5 +197,6 @@ async function responses(p, messages, { model, temperature, maxTokens, schema, s
 
 export const openaiConfigured = () => !!process.env.OPENAI_API_KEY;
 export const openaiChat = (messages, opts) => responses(PROVIDERS.openai, messages, opts);
-export const geminiConfigured = () => !!process.env.GEMINI_API_KEY;
+// Through Vertex AI (the default) there is no key to check: a missing sign-in or permission shows on the first call.
+export const geminiConfigured = () => vertexOn() || !!process.env.GEMINI_API_KEY;
 export const geminiChat = (messages, opts) => chatCompletions(PROVIDERS.gemini, messages, opts);

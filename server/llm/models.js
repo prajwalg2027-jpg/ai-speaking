@@ -2,6 +2,7 @@
 // with the server's key (so new models appear without a code change), kept for ten minutes. A provider without a
 // key, or whose list can't be fetched, falls back to a few known names. Any name can still be typed.
 import Anthropic from '@anthropic-ai/sdk';
+import { vertexOn, vertexToken, geminiConfigured } from './openai.js';
 
 const KNOWN = {
   sarvam: ['sarvam-105b-conversations', 'sarvam-105b'], // Sarvam has no list to ask for: these are the chat models it accepts
@@ -29,6 +30,13 @@ const FETCH = {
     return chatOnly((j.data || []).map((m) => m.id).filter((id) => /^(gpt|o\d|chatgpt)/.test(id)));
   },
   async gemini() {
+    if (vertexOn()) {
+      // Vertex AI's catalogue of Google's own models (Model Garden): publishers/google/models/<name>.
+      const location = process.env.GOOGLE_CLOUD_LOCATION || 'global';
+      const host = location === 'global' ? 'aiplatform.googleapis.com' : `${location}-aiplatform.googleapis.com`;
+      const j = await getJson(`https://${host}/v1beta1/publishers/google/models?pageSize=500`, await vertexToken());
+      return chatOnly((j.publisherModels || []).map((m) => String(m.name || '').split('/').pop().replace(/@.*$/, '')).filter((id) => /^gemini/.test(id)));
+    }
     const j = await getJson(`${process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai'}/models`, process.env.GEMINI_API_KEY);
     return chatOnly((j.data || []).map((m) => String(m.id || '').replace(/^models\//, '')).filter((id) => /^gemini/.test(id)));
   },
@@ -39,14 +47,14 @@ const FETCH = {
     return chatOnly(ids);
   },
 };
-const KEY = { openai: 'OPENAI_API_KEY', gemini: 'GEMINI_API_KEY', anthropic: 'ANTHROPIC_API_KEY' };
+const READY = { openai: () => !!process.env.OPENAI_API_KEY, gemini: geminiConfigured, anthropic: () => !!process.env.ANTHROPIC_API_KEY };
 
 /** → { sarvam: [...], anthropic: [...], openai: [...], gemini: [...] }: model names for the menus, newest first. */
 export async function listModels({ fresh = false } = {}) {
   if (!fresh && cache.value && Date.now() - cache.at < TTL_MS) return cache.value;
   const value = { ...KNOWN };
   await Promise.all(Object.keys(FETCH).map(async (p) => {
-    if (!process.env[KEY[p]]) return;
+    if (!READY[p]()) return;
     try { const ids = await FETCH[p](); if (ids.length) value[p] = ids; }
     catch (e) { console.warn(`[llm] couldn't list ${p} models (${e.message}): showing the known names`); }
   }));

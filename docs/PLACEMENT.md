@@ -282,6 +282,14 @@ Any provider whose key is on the server can be chosen.
    PROJECT=cool-arch-515210-b0 PROVIDERS=anthropic,gemini ./deploy/llm-keys-setup.sh
    ```
 
+   Gemini needs no key: by default it goes through **Vertex AI**, so Google Cloud credits (the $300 free trial)
+   pay for it. Those credits can't pay for the Gemini API (AI Studio) key; the models and names are the same.
+   `deploy/cloudrun.sh` sets it up; for a server deployed before that, run once:
+
+   ```bash
+   PROJECT=cool-arch-515210-b0 ./deploy/vertex-setup.sh
+   ```
+
 2. **Admin console › Compare models**: pick up to four models (it starts with the model in use beside OpenAI's
    `gpt-6-luna`). Each runs its own conversation, side by side, from the hello to the level and feedback; they
    all start with the same picture, line to read and first open question.
@@ -322,6 +330,17 @@ Notes on providers (`server/llm/`):
 - **Claude** uses Anthropic's official SDK. Models: `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`.
   It asks for the answer as structured output and for low effort (fast replies; `ANTHROPIC_EFFORT` changes it).
 - **Gemini** uses Google's OpenAI-compatible endpoint; **OpenAI** its own. Type the model name.
+- **Gemini through Vertex AI** (the default; `GOOGLE_GENAI_USE_VERTEXAI=false` switches it off): the same
+  request goes to Vertex AI's OpenAI-compatible endpoint
+  (`aiplatform.googleapis.com/v1/projects/<project>/locations/<location>/endpoints/openapi`), the model named
+  `google/<model>`, signed in as the server's service account (`roles/aiplatform.user`) instead of with a key.
+  Billed to the Google Cloud project, so its credits apply. `GOOGLE_CLOUD_LOCATION` is `global` unless set (the
+  newest models are there first). The model menu comes from Vertex AI's model list. The console shows
+  "Gemini (Vertex AI)" while it is on; `OFF=1 ./deploy/vertex-setup.sh` switches back to the key. Gemini shows as
+  set up even where the server can't sign in to Google Cloud (a laptop without `gcloud auth application-default
+  login`): the first call then says so. Prices are taken
+  as the same as the Gemini API's. Only the chat models move: Google Cloud TTS voices were already billed to the
+  project.
 - None of the three has been run against the real service from this repository (no keys here): the tests use
   stand-ins. Try each on the Compare models page before switching learners to it.
 - Cost shown is an estimate (Sarvam, Claude, OpenAI and Gemini prices are known to the code; others show "–").

@@ -14,7 +14,7 @@ let server, base, mock, pool;
 before(async () => {
   if (!url) return;
   mock = await startMockRest();
-  Object.assign(process.env, { SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url, DATABASE_URL: url, FIREBASE_PROJECT_ID: PROJECT, ADMIN_PHONES: '+919800009999,+919999900000', FIREBASE_WEB_API_KEY: 'web-key' });
+  Object.assign(process.env, { SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url, DATABASE_URL: url, FIREBASE_PROJECT_ID: PROJECT, ADMIN_PHONES: '+919800009999,+919999900000', FIREBASE_WEB_API_KEY: 'web-key', GOOGLE_GENAI_USE_VERTEXAI: 'false' }); // no Google Cloud sign-in (Vertex AI) in tests
   ({ pool } = await import('../server/db/pool.js'));
   await pool.query('drop schema public cascade; create schema public');
   await (await import('../server/db/migrate.js')).migrate(pool, () => {});

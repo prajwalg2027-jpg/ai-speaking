@@ -122,7 +122,7 @@ export async function handlePlacementLab(req, res, url, deps = {}) {
 
   if (m === 'GET' && p === '/api/admin/placement-lab') {
     return send(res, 200, {
-      providers: Object.fromEntries(Object.entries(providers).map(([k, v]) => [k, { configured: v.configured() }])),
+      providers: Object.fromEntries(Object.entries(providers).map(([k, v]) => [k, { configured: v.configured(), via: v.via?.() ?? null }])),
       current: settings.get('placement'), effortFor: (({ turnEffort, finalEffort }) => ({ turn: turnEffort, final: finalEffort }))(settings.get('placement')), speed: settings.get('placement').speed, suggestions: await listModels(), // every model each provider offers now
       prices: knownPrices(), // US dollars per million tokens, for the models whose price is known
       speechPrices: { sttPerHour: PRICES.sttPerHour, ttsPer10kChars: PRICES.ttsPer10kChars, asOf: PRICES.asOf, wordsASecond: WORDS_A_SECOND }, // rupees, Sarvam

@@ -8,7 +8,7 @@
 // calls have no side effects, so retrying them can't duplicate anything: saving happens later, once.
 import * as settings from '../settings.js';
 import * as sarvam from '../sarvam.js';
-import { openaiChat, openaiConfigured, geminiChat, geminiConfigured, geminiEffort } from './openai.js';
+import { openaiChat, openaiConfigured, geminiChat, geminiConfigured, geminiEffort, vertexOn } from './openai.js';
 import { anthropicChat, anthropicConfigured } from './anthropic.js';
 import { costInr } from './prices.js';
 
@@ -20,7 +20,7 @@ export const providers = {
   sarvam: { configured: () => !!process.env.SARVAM_API_KEY },
   openai: { configured: openaiConfigured },
   anthropic: { configured: anthropicConfigured },
-  gemini: { configured: geminiConfigured },
+  gemini: { configured: geminiConfigured, via: () => (vertexOn() ? 'Vertex AI' : null) }, // the billing path, for the admin console
 };
 
 function extractJson(text) {

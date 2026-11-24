@@ -28,7 +28,7 @@ before(async () => {
     res.end(`data: ${JSON.stringify({ type: 'response.completed', response: done })}\n\n`);
   });
   await new Promise((ok) => openai.listen(0, '127.0.0.1', ok));
-  Object.assign(process.env, { SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url, OPENAI_API_KEY: 'openai-test-key', OPENAI_BASE_URL: `http://127.0.0.1:${openai.address().port}` });
+  Object.assign(process.env, { SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url, OPENAI_API_KEY: 'openai-test-key', OPENAI_BASE_URL: `http://127.0.0.1:${openai.address().port}`, GOOGLE_GENAI_USE_VERTEXAI: 'false' }); // no Google Cloud sign-in (Vertex AI) in tests
   delete process.env.ANTHROPIC_API_KEY;
   settings = await import('../server/settings.js');
   ({ server } = await import('../server/index.js'));

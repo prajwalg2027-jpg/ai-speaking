@@ -120,7 +120,7 @@ export async function handleAdmin(req, res, url, deps = {}) {
     const now = settings.all();
     return send(res, 200, {
       sections: Object.fromEntries(Object.entries(settings.SECTIONS).map(([k, s]) => [k, { label: s.label, value: now[k], defaults: s.defaults, changed: JSON.stringify(now[k]) !== JSON.stringify(s.defaults) }])),
-      providers: Object.fromEntries(Object.entries(providers).map(([k, v]) => [k, { configured: v.configured() }])),
+      providers: Object.fromEntries(Object.entries(providers).map(([k, v]) => [k, { configured: v.configured(), via: v.via?.() ?? null }])),
       prices: PRICES, models: await listModels(), // for the model menus
     }), true;
   }
