@@ -1,23 +1,21 @@
 // Diagnostics (server/diag.js): a team phone sends its log, the server adds its side for requests that carry the
 // code, and the log reads back by its code alone. Against a real PostgreSQL (TEST_DATABASE_URL; skipped without it).
+import { login, signInAll, SESSION_ENV } from './phone-login.js';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync, createSign } from 'node:crypto';
 import { startMockRest } from './mock-sarvam-rest.js';
 
 const url = process.env.TEST_DATABASE_URL;
-const PROJECT = 'sakhi-test';
-const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 let server, base, mock, pool;
 
 before(async () => {
   if (!url) return;
   mock = await startMockRest();
-  Object.assign(process.env, { SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url, DATABASE_URL: url, FIREBASE_PROJECT_ID: PROJECT, ADMIN_PHONES: '+919800000077' });
+  Object.assign(process.env, { ...SESSION_ENV, SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url, DATABASE_URL: url, ADMIN_PHONES: '+919800000077' });
   ({ pool } = await import('../server/db/pool.js'));
   await pool.query('drop schema public cascade; create schema public');
   await (await import('../server/db/migrate.js')).migrate(pool, () => {});
-  (await import('../server/auth.js')).setKeyResolver(async () => ({ k1: publicKey }));
+  await signInAll();
   ({ server } = await import('../server/index.js'));
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -25,20 +23,14 @@ before(async () => {
 after(async () => { server?.close(); mock?.close(); await pool?.end(); });
 const t = (name, fn) => test(name, { skip: !url && 'set TEST_DATABASE_URL to run' }, fn);
 
-const now = Math.floor(Date.now() / 1000);
-function login(uid, phone) {
-  const enc = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
-  const head = `${enc({ alg: 'RS256', kid: 'k1' })}.${enc({ aud: PROJECT, iss: `https://securetoken.google.com/${PROJECT}`, sub: uid, iat: now, exp: now + 3600, auth_time: now, phone_number: phone, firebase: { sign_in_provider: 'phone' } })}`;
-  return { authorization: `Bearer ${head}.${createSign('RSA-SHA256').update(head).sign(privateKey).toString('base64url')}` };
-}
 const call = async (method, path, headers = {}, body) => {
   const r = await fetch(`${base}${path}`, { method, headers: { 'content-type': 'application/json', 'x-sakhi-client': 'android', ...headers }, body: body && JSON.stringify(body) });
   const text = await r.text();
   let json = null; try { json = JSON.parse(text); } catch {}
   return { status: r.status, json, text };
 };
-const team = login('fb-team', '+919800000077');
-const learner = login('fb-learner', '+919800000088');
+const team = login('+919800000077');
+const learner = login('+919800000088');
 const CODE = 'a'.repeat(32);
 const at = (ms) => new Date(Date.now() - ms).toISOString();
 
