@@ -54,6 +54,13 @@ import com.sakhi.app.ui.LoginFlow
 import com.sakhi.app.ui.ReportDialog
 import com.sakhi.app.conversation.reportableText
 import com.sakhi.app.ui.SakhiScreen
+import com.sakhi.app.ui.LearnScreen
+import com.sakhi.app.ui.LearnActions
+import com.sakhi.app.learn.LearnPage
+import com.sakhi.app.learn.LearnViewModel
+import com.sakhi.app.learn.PhoneLearnVoice
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.sakhi.app.ui.theme.SakhiTheme
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -67,6 +74,9 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
     }
     private val payVm: PaywallViewModel by viewModels {
         viewModelFactory { initializer { PaywallViewModel(container.api, container.events) } }
+    }
+    private val learnVm: LearnViewModel by viewModels {
+        viewModelFactory { initializer { LearnViewModel(container.learn, container.events, PhoneLearnVoice(application)) { payVm.open() } } }
     }
     private val authVm: AuthViewModel by viewModels {
         viewModelFactory { initializer { AuthViewModel(container.auth, container.api, container.events) } }
@@ -104,7 +114,7 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
         RazorpayCheckout.preload(this)
         // A voice conversation can't go on unseen: leaving the app ends it (and frees the microphone).
         lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onStop(owner: LifecycleOwner) { if (!isChangingConfigurations) vm.onBackgrounded() }
+            override fun onStop(owner: LifecycleOwner) { if (!isChangingConfigurations) { vm.onBackgrounded(); learnVm.stopVoice() } }
         })
         val reducedMotion = Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
         setContent {
@@ -134,6 +144,11 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                     return@SakhiTheme
                 }
                 val state by vm.state.collectAsStateWithLifecycle()
+                // The learning area (practice, lessons, progress) or the placement test.
+                var inLearn by rememberSaveable { mutableStateOf(false) }
+                val openLearn = { payVm.dismiss(); vm.onBackgrounded(); inLearn = true; learnVm.loadHome() }
+                // A subscribed learner who has a level already starts in the learning area.
+                LaunchedEffect(Unit) { if (!inLearn && learnFirst()) openLearn() }
                 var accountOpen by remember { mutableStateOf(false) }
                 var micBlocked by remember { mutableStateOf(false) }
                 var serverDialog by remember { mutableStateOf(false) }
@@ -143,7 +158,21 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                     if (granted) vm.onOrbTap()
                 }
                 val hasMic = { ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED }
-                SakhiScreen(
+                val askLearn = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) learnVm.micTap() }
+                val learn by learnVm.ui.collectAsStateWithLifecycle()
+                BackHandler(enabled = inLearn && learn.page != LearnPage.Home) { learnVm.back() }
+                if (inLearn) LearnScreen(learn, micLevel = { learnVm.micLevel.value }, LearnActions(
+                    back = { learnVm.back() }, reload = learnVm::loadHome, practise = learnVm::startPractice,
+                    openConversation = { learnVm.openConversation(it) }, openLesson = learnVm::openLesson, setIntensity = learnVm::setIntensity,
+                    send = { learnVm.send(it) }, retry = learnVm::retry,
+                    mic = { if (hasMic()) learnVm.micTap() else askLearn.launch(Manifest.permission.RECORD_AUDIO) },
+                    play = learnVm::play, answer = learnVm::answer, next = learnVm::next, askAboutLesson = learnVm::askAboutLesson,
+                    clearHeard = learnVm::clearHeard,
+                    placement = { learnVm.stopVoice(); inLearn = false },
+                    account = if (container.auth.configured) ({ payVm.loadAccount(); accountOpen = true }) else null,
+                    report = { reportText = it },
+                ))
+                else SakhiScreen(
                     state = state,
                     level = { vm.level.value },
                     reducedMotion = reducedMotion,
@@ -163,15 +192,15 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                 val paywall by payVm.state.collectAsStateWithLifecycle()
                 PaywallSheet(paywall,
                     onSubscribe = { payVm.subscribe { s -> RazorpayCheckout.open(this@MainActivity, s, BRAND_HEX) } },
-                    onRetry = payVm::open, onDismiss = payVm::dismiss)
+                    onRetry = payVm::open, onDismiss = payVm::dismiss, onStartLearning = { if (inLearn) { payVm.dismiss(); learnVm.loadHome() } else openLearn() })
                 val pay by payVm.account.collectAsStateWithLifecycle()
                 if (accountOpen) AccountDialog(
                     phone = container.auth.currentUser?.phone,
                     subscription = pay?.let { subscriptionLine(it.active, it.paidUntil, it.cancelAtEnd) },
                     onCancelSubscription = if (pay?.active == true && pay?.cancelAtEnd == false) ({ payVm.cancel() }) else null,
                     onDismiss = { accountOpen = false },
-                    onSignOut = { accountOpen = false; vm.onBackgrounded(); authVm.signOut() },
-                    onDelete = { authVm.deleteAccount().also { if (it) { accountOpen = false; vm.onBackgrounded() } } },
+                    onSignOut = { accountOpen = false; inLearn = false; learnVm.stopVoice(); vm.onBackgrounded(); authVm.signOut() },
+                    onDelete = { authVm.deleteAccount().also { if (it) { accountOpen = false; inLearn = false; learnVm.stopVoice(); vm.onBackgrounded() } } },
                     onReport = { accountOpen = false; reportText = reportableText(vm.state.value) },
                 )
                 reportText?.let { text -> ReportDialog(text, onSend = { reason -> vm.report(text, reason) }, onDismiss = { reportText = null }) }
@@ -183,6 +212,16 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
         }
     }
 }
+
+/**
+ * Open the learning area at start? Only for a learner with access (subscribed, or payments off) who has a placement
+ * level already; anyone else starts with the placement test. Any failure (offline, module off): the placement test.
+ */
+private suspend fun MainActivity.learnFirst(): Boolean = runCatching {
+    val c = (application as SakhiApplication).container
+    val pay = c.api.payStatus()
+    (!pay.required || pay.active) && c.learn.profile().placementLevel != null
+}.getOrDefault(false)
 
 private fun ComponentActivity.openPlayStore() {
     val market = Intent(Intent.ACTION_VIEW, "market://details?id=$packageName".toUri())
