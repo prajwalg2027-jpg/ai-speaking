@@ -1,6 +1,12 @@
 package com.sakhi.app.ui.theme
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -9,11 +15,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sakhi.app.R
 
@@ -56,7 +66,7 @@ object Sakhi {
 }
 
 @Composable
-fun SakhiTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+fun SakhiTheme(dark: Boolean = isSystemInDarkTheme(), wideFrame: Boolean = false, content: @Composable () -> Unit) {
     val t = if (dark) DarkTokens else LightTokens
     val scheme = if (dark) darkColorScheme(primary = t.accentDeep, onPrimary = t.ink, background = t.bg, surface = t.surface, onSurface = t.ink, onBackground = t.ink)
     else lightColorScheme(primary = t.accentDeep, onPrimary = t.onPrimary, background = t.bg, surface = t.surface, onSurface = t.ink, onBackground = t.ink)
@@ -75,7 +85,24 @@ fun SakhiTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () ->
     }
     CompositionLocalProvider(LocalSakhi provides t) {
         MaterialTheme(colorScheme = scheme, typography = type) {
-            CompositionLocalProvider(LocalContentColor provides t.ink, content = content)
+            CompositionLocalProvider(LocalContentColor provides t.ink) { if (wideFrame) WideScreenFrame(t, content) else content() }
         }
     }
 }
+
+/**
+ * Tablets, foldables and landscape: the app runs at any size and orientation (Android 16 ignores
+ * portrait locks on large screens), so the screens keep a phone-like reading width, centred on the
+ * page's own background instead of stretching across a wide window.
+ */
+@Composable
+private fun WideScreenFrame(t: SakhiColors, content: @Composable () -> Unit) {
+    Box(
+        Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(t.glow, t.bg), endY = 900f)),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Box(Modifier.fillMaxHeight().widthIn(max = MAX_CONTENT_WIDTH).fillMaxWidth()) { content() }
+    }
+}
+
+private val MAX_CONTENT_WIDTH = 640.dp

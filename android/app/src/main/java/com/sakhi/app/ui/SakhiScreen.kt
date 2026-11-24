@@ -55,6 +55,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -115,7 +117,9 @@ fun SakhiScreen(
                     Phase.IDLE -> "Start talking with Sakhi"
                 }
                 // Not clipped (animateContentSize would clip): the glow and the thinking aura spread softly past the ball.
-                val orbSize by animateDpAsState(if (state.card != null) 96.dp else 132.dp, label = "orb size")
+                // A short window (a phone on its side, a split screen) keeps room for the conversation above.
+                val short = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() } < 520.dp
+                val orbSize by animateDpAsState(when { short -> 72.dp; state.card != null -> 96.dp; else -> 132.dp }, label = "orb size")
                 Orb(
                     state.phase, level, reducedMotion,
                     Modifier.size(orbSize)
