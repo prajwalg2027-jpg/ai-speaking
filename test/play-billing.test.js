@@ -182,8 +182,11 @@ t('user choice billing: Razorpay picked on Play’s screen, each payment reporte
   const first = gp.reports[0];
   assert.equal(first.id, 'pay_m1');
   assert.equal(first.recurringTransaction.externalTransactionToken, 'ext-token-1');
-  assert.deepEqual([first.originalPreTaxAmount, first.originalTaxAmount], [{ priceMicros: '253390000', currency: 'INR' }, { priceMicros: '45610000', currency: 'INR' }], '₹299 with 18% GST in it');
+  assert.deepEqual([first.originalPreTaxAmount, first.originalTaxAmount], [{ priceMicros: '299000000', currency: 'INR' }, { priceMicros: '0', currency: 'INR' }], 'no GST (not registered)');
   assert.equal(first.userTaxAddress.regionCode, 'IN');
+  process.env.PLAY_GST_PERCENT = '18'; // once GST-registered: ₹299 with 18% GST in it
+  try { assert.deepEqual((await import('../server/play.js')).taxSplit(29900), { preTax: { priceMicros: '253390000', currency: 'INR' }, tax: { priceMicros: '45610000', currency: 'INR' } }); }
+  finally { delete process.env.PLAY_GST_PERCENT; }
   // The next month's payment, from Razorpay's webhook: reported as a renewal of the first.
   const raw = JSON.stringify({ event: 'subscription.charged', payload: { subscription: { entity: { id: sub } }, payment: { entity: { id: 'pay_m2', amount: 29900, status: 'captured' } } }, created_at: now() });
   const hook = await fetch(`${base}/api/razorpay/webhook`, { method: 'POST', headers: { 'x-razorpay-signature': createHmac('sha256', HOOK_SECRET).update(raw).digest('hex'), 'x-razorpay-event-id': 'evt_m2' }, body: raw });

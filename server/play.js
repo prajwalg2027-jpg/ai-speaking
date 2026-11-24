@@ -6,7 +6,8 @@
 //   PLAY_PACKAGE_NAME  the app on Play (in.adamspeaks.app)
 //   PLAY_PRODUCT_ID    the subscription product made in Play Console (e.g. learning_monthly)
 //   PLAY_RTDN_TOKEN    Secret Manager: the secret in the Pub/Sub push URL for Play's real-time notifications
-//   PLAY_GST_PERCENT   GST included in our prices, for the amounts reported to Google (default 18)
+//   PLAY_GST_PERCENT   GST included in our prices, for the amounts reported to Google (default 0: not GST-registered,
+//                      under the ₹20 lakh threshold; set 18 once registered)
 //   PLAY_BASE_URL, PLAY_ACCESS_TOKEN  optional, for tests (otherwise Cloud Run's own service account, which must be
 //                      invited in Play Console › Users and permissions)
 import { accessToken } from './gcp.js';
@@ -89,7 +90,7 @@ export function subscriptionState(g) {
 
 /** ₹ (GST included) → Google's Price in micros, before tax and tax. */
 export function taxSplit(amountPaise) {
-  const gst = Number(process.env.PLAY_GST_PERCENT ?? 18);
+  const gst = Number(process.env.PLAY_GST_PERCENT || 0);
   const preTax = Math.round(amountPaise / (1 + gst / 100));
   const m = (paise) => ({ priceMicros: String(paise * 10_000), currency: 'INR' });
   return { preTax: m(preTax), tax: m(amountPaise - preTax) };

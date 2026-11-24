@@ -107,8 +107,8 @@ app ("Subscribe")                       Adam server (server/payments.js, server/
   also sends Play's purchases the next time the paywall opens.
 - **Cancelling** in Account works for both (the server asks Google to stop renewing). Deleting an account cancels.
 - **Razorpay through Play's screen:** the first payment is reported with Play's token, later monthly ones point at
-  the first. Amounts are sent as ₹ before and after GST (18% by default, `PLAY_GST_PERCENT`): check this with your
-  accountant. Failed reports are tried again with the subscription's next payment or webhook.
+  the first. Amounts are sent as ₹ before tax and tax. GST is 0% by default (not GST-registered, under the ₹20 lakh
+  threshold); once registered, set `PLAY_GST_PERCENT=18` on the server (check with your accountant). Failed reports are tried again with the subscription's next payment or webhook.
 - **Test builds:** Play can't sell to the `.dev` test app (it isn't on Play), so it goes straight to Razorpay, as before.
 
 ### Setting it up
