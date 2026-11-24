@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.background
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -108,7 +109,7 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
         })
         val reducedMotion = Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
         setContent {
-            SakhiTheme {
+            SakhiTheme(wideFrame = true) {
                 val updateRequired by container.appConfig.updateRequired.collectAsStateWithLifecycle()
                 if (updateRequired) { UpdateScreen { openPlayStore() }; return@SakhiTheme }
                 val gate by authVm.gate.collectAsStateWithLifecycle()
@@ -196,7 +197,7 @@ private fun ComponentActivity.openPlayStore() {
 private fun UpdateScreen(onUpdate: () -> Unit) {
     val c = com.sakhi.app.ui.theme.Sakhi.colors
     androidx.compose.foundation.layout.Column(
-        androidx.compose.ui.Modifier.fillMaxSize().background(c.bg).padding(32.dp),
+        androidx.compose.ui.Modifier.fillMaxSize().background(c.bg).safeDrawingPadding().padding(32.dp),
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp, androidx.compose.ui.Alignment.CenterVertically),
     ) {
         Text("Please update Adam", style = androidx.compose.material3.MaterialTheme.typography.headlineLarge)
