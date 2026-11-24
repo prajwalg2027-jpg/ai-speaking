@@ -16,8 +16,9 @@ Work on the branch **`tutor-conversation`** (never push to `main`). Last updated
 
 A voice-first English **placement test** for Indian learners, as an Android app. The tutor inside is called
 **Sakhi** (female voice, Hindi-first, moves to English as the learner gains confidence); the app and brand are
-**Adam** (`adamspeaks.in`). Speech, voice and AI are all **Sarvam** (Saaras v4 realtime STT, Bulbul v4 Flash
-voice, Sarvam-105B). The server holds the Sarvam key and all conversation logic; the app only talks and listens.
+**Adam** (`adamspeaks.in`). Speech-to-text is **Sarvam** (Saaras v4 realtime). Sakhi's voice is a **Google Gemini
+voice** through Google Cloud Text-to-Speech by default, Sarvam Bulbul v4 Flash as the fallback (admin settings,
+`docs/VOICES.md`). The AI is chosen in the admin settings. The server holds the Sarvam key and all conversation logic; the app only talks and listens.
 
 ## What runs where
 

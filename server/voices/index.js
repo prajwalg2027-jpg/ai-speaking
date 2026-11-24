@@ -5,7 +5,8 @@
 //             (no key), billed to the project. Serves Gemini 3.1 Flash TTS (preview) and the 2.5 models.
 //   gemini    Google's Gemini voices through the Gemini API (Google AI Studio, an API key), Interactions API.
 //             Has the newest models (3.8 Flash and Flash-Lite TTS), which Cloud Text-to-Speech does not.
-// Each gives 24 kHz, 16-bit, mono sound, the same as the app plays. Nothing here is used by the app itself.
+// Each gives 24 kHz, 16-bit, mono sound, the same as the app plays. The app's own voice is chosen in the admin
+// console's settings (section "Sakhi's voice", server/settings.js); server/sarvam.js streams it, through speakPiece below.
 import { readFileSync } from 'node:fs';
 import { config } from '../config.js';
 import { PRICES, addVoice } from '../costs.js';
@@ -158,9 +159,10 @@ const cloud = () => (cloudClient ||= new textToSpeech.TextToSpeechClient());
  * which Google calls the prompt), then the end of the input; the sound comes back in pieces as it is made.
  * Google starts on the sound once the input has ended, so the text goes in one piece.
  */
-async function cloudPiece(text, o) {
+async function cloudPiece(text, o, onChunk) {
   const t0 = performance.now();
   const call = cloud().streamingSynthesize();
+  const timer = setTimeout(() => call.cancel?.(), o.timeoutMs || 30_000);
   call.write({ streamingConfig: {
     voice: { name: o.voice, languageCode: sarvamLanguage(text), modelName: o.model },
     streamingAudioConfig: { audioEncoding: 'PCM', sampleRateHertz: SAMPLE_RATE, ...(o.pace && o.pace !== 1 ? { speakingRate: o.pace } : {}) },
@@ -173,9 +175,11 @@ async function cloudPiece(text, o) {
       const b = r.audioContent;
       if (!b?.length) continue;
       firstByteMs ??= Math.round(performance.now() - t0);
-      parts.push(Buffer.from(b));
+      const buf = Buffer.from(b);
+      parts.push(buf); onChunk?.(buf);
     }
   } catch (e) { throw new Error(`Google Cloud: ${String(e.details || e.message || e).slice(0, 300)}`); }
+  finally { clearTimeout(timer); }
   const pcm = Buffer.concat(parts);
   if (!pcm.length) throw new Error('Google Cloud sent no sound');
   // Google does not report tokens here: about 4 characters a text token, 25 sound tokens a second.
@@ -186,10 +190,10 @@ async function cloudPiece(text, o) {
 }
 
 /** Reads Google's streamed answer (server-sent events): the sound, and what it counted. */
-async function geminiPiece(text, o) {
+async function geminiPiece(text, o, onChunk) {
   const t0 = performance.now();
   const res = await fetch(`${geminiBase()}/interactions`, {
-    method: 'POST', signal: AbortSignal.timeout(60_000),
+    method: 'POST', signal: AbortSignal.timeout(o.timeoutMs || 60_000),
     headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'content-type': 'application/json' },
     body: JSON.stringify({
       model: o.model,
@@ -207,7 +211,7 @@ async function geminiPiece(text, o) {
     let e; try { e = JSON.parse(data); } catch { return; }
     if (e.event_type === 'error' || e.error) throw new Error(`Google: ${String(e.error?.message || e.message || 'the voice failed').slice(0, 300)}`);
     const d = e.delta;
-    if (e.event_type === 'step.delta' && d?.type === 'audio' && d.data) { firstByteMs ??= Math.round(performance.now() - t0); parts.push(Buffer.from(d.data, 'base64')); }
+    if (e.event_type === 'step.delta' && d?.type === 'audio' && d.data) { firstByteMs ??= Math.round(performance.now() - t0); const buf = Buffer.from(d.data, 'base64'); parts.push(buf); onChunk?.(buf); }
     const u = e.usage || e.interaction?.usage;
     if (u) usage = u;
   };
@@ -226,6 +230,17 @@ async function geminiPiece(text, o) {
   const output = usage?.total_output_tokens ?? usage?.output_tokens ?? usage?.candidates_token_count ?? Math.round(seconds * AUDIO_TOKENS_PER_SECOND);
   const p = onDay(MODELS.gemini[o.model]?.usd || MODELS.gemini['gemini-3.8-flash-tts'].usd);
   return { pcm, firstByteMs, ms: Math.round(performance.now() - t0), tokens: { input, output, counted: !!usage }, costInr: ((input * p.input + output * p.output) / 1e6) * usdInr() };
+}
+
+/**
+ * One line in a Google Gemini voice, streamed: onChunk(Buffer) as the sound arrives. For the app's own voice
+ * (server/sarvam.js). provider: 'cloudtts' or 'gemini'. o: { model, voice, style?, pace?, lang?, timeoutMs? }
+ * → { pcm, firstByteMs, ms, tokens, costInr }
+ */
+export function speakPiece(provider, text, o, onChunk) {
+  const make = { cloudtts: cloudPiece, gemini: geminiPiece }[provider];
+  if (!make) throw new Error(`not a Google voice: ${provider}`);
+  return make(text, o, onChunk);
 }
 
 /**

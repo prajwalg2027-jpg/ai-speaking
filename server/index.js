@@ -129,7 +129,7 @@ async function handleSessionTurn(req, res) {
   accounts.afterTurn(s, { event: body.event }); // saved after the reply, so it adds no delay
 }
 
-// POST /api/tts/stream {text, lang, pace, sessionId?} → raw 16-bit PCM, mono, streamed as Bulbul generates it.
+// POST /api/tts/stream {text, lang, pace, sessionId?} → raw 16-bit PCM, mono, streamed as the voice is made (Sakhi's voice: admin settings, "voice").
 // With a sessionId, a generated line is charged to that conversation.
 async function handleTTSStream(req, res) {
   const { text, lang = 'en-IN', pace = 1, sessionId } = await json(req);
@@ -164,9 +164,10 @@ async function speakTo(res, { text, lang, pace }) {
   if (!text || text.length > 2500) return send(res, 400, { error: 'text required (max 2500 chars)' });
   const cached = sarvam.isSpeechCached(text, { lang, pace });
   let started = false;
+  const voice = sarvam.voiceInUse();
   const start = () => {
     if (started) return; started = true;
-    res.writeHead(200, { 'content-type': 'audio/pcm', 'x-sample-rate': String(sarvam.TTS_RATE), 'x-tts-cached': String(cached), 'x-tts-model': config.sarvam.ttsModel, 'x-tts-speaker': config.sarvam.ttsSpeaker, 'cache-control': 'no-store' });
+    res.writeHead(200, { 'content-type': 'audio/pcm', 'x-sample-rate': String(sarvam.TTS_RATE), 'x-tts-cached': String(cached), 'x-tts-model': voice.model, 'x-tts-speaker': voice.voice, 'x-tts-source': voice.source, 'cache-control': 'no-store' });
   };
   try {
     await sarvam.streamSpeech(text, { lang, pace }, (chunk) => { start(); res.write(chunk); });

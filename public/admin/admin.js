@@ -249,7 +249,7 @@ async function overview() {
 }
 
 // ---- Settings -------------------------------------------------------------------------------------
-const ORDER = ['placement', 'payments', 'corrections', 'llm', 'conversation', 'limits', 'features', 'scoring'];
+const ORDER = ['voice', 'placement', 'payments', 'corrections', 'llm', 'conversation', 'limits', 'features', 'scoring'];
 const JOBS = { tutor: 'Tutor replies', verify: 'Correction check (strategy B)', lessonEval: 'Lesson marking' };
 const EFFORT_OPTIONS = [['default', "The model's own default"], ['none', 'None (fastest)'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Most (slowest)']];
 const TAKES_THINKING = ['openai', 'anthropic', 'gemini']; // the providers that can be told how hard to think
@@ -269,6 +269,14 @@ const META = {
   'placement.speed': { type: 'select', label: 'OpenAI speed', help: "Fast is OpenAI's Fast mode: up to 2.5 times quicker, at about twice the price per token. Only some OpenAI models have it (gpt-6-luna does); others answer at standard speed.", options: [['fast', 'Fast (dearer)'], ['standard', 'Standard']] },
   'placement.turnEffort': { type: 'select', label: 'Thinking on each turn', help: 'How hard the model thinks before Sakhi replies. Less is faster. Used by OpenAI, Claude and Gemini models; Sarvam ignores it.', options: EFFORT_OPTIONS },
   'placement.finalEffort': { type: 'select', label: 'Thinking for the final level and feedback', help: 'If the AI ends the talk on a turn with less thinking than this, that turn is asked once more at this level.', options: EFFORT_OPTIONS },
+  'voice.source': { type: 'select', label: 'Where the voice comes from', help: 'Google Cloud is billed to the Google Cloud project (credits pay for it). The Gemini API has the newest models but needs its own key. If a Google voice fails, Sarvam says that line.', options: [
+    ['cloudtts', 'Google Gemini voice, through Google Cloud (default)'], ['gemini', 'Google Gemini voice, through the Gemini API (key)'], ['sarvam', 'Sarvam Bulbul (Roopa)']] },
+  'voice.model': { type: 'select', label: 'Voice model (Google)', help: 'Must match where the voice comes from. Prices are on the Compare voices page.', options: [
+    ['gemini-2.5-flash-tts', 'Google Cloud · Gemini 2.5 Flash TTS'], ['gemini-2.5-flash-lite-preview-tts', 'Google Cloud · Gemini 2.5 Flash-Lite TTS (preview)'], ['gemini-3.1-flash-tts-preview', 'Google Cloud or Gemini API · Gemini 3.1 Flash TTS (preview)'], ['gemini-2.5-pro-tts', 'Google Cloud · Gemini 2.5 Pro TTS'],
+    ['gemini-3.8-flash-tts', 'Gemini API · Gemini 3.8 Flash TTS'], ['gemini-3.8-flash-lite-tts', 'Gemini API · Gemini 3.8 Flash-Lite TTS'], ['gemini-2.5-flash-preview-tts', 'Gemini API · Gemini 2.5 Flash TTS (preview)'], ['gemini-2.5-pro-preview-tts', 'Gemini API · Gemini 2.5 Pro TTS (preview)']] },
+  'voice.voice': { label: 'Voice name (Google)', help: 'One of Google’s voices, e.g. Sulafat (warm), Vindemiatrix (gentle), Achernar (soft), Kore (firm), Aoede (breezy), Leda (youthful). Hear them on Compare voices.' },
+  'voice.style': { label: 'How she speaks (Google)', help: 'In plain words. Slower lines (listening passages) add “a little slower” on their own.' },
+  'voice.fallbackToSarvam': { type: 'bool', label: 'If the Google voice fails, Sarvam says the line' },
   'conversation.historyMessages': { label: 'Recent messages the tutor reads', help: 'More = better memory of the conversation, slightly slower and costlier.' },
   'limits.dailyBudgetInr': { label: 'Daily budget (₹)', help: 'When today’s AI spend reaches this, new conversations and messages pause until tomorrow.' },
   'limits.sessionsPerIpPerHour': { label: 'Placement tests per learner per hour' },
@@ -296,7 +304,7 @@ function field(path, value, providers) {
   if (path.endsWith('.provider')) {
     return html`<label class="f">Provider<select data-path="${path}" data-type="string">${Object.entries(providers).map(([p, v]) => html`<option value="${p}" ${p === value ? raw('selected') : ''} ${!v.configured && p !== value ? raw('disabled') : ''}>${p === 'sarvam' ? 'Sarvam (default)' : providerName(p, v)}${v.configured ? '' : ' (no API key on the server)'}</option>`)}</select></label>`;
   }
-  if (path.endsWith('.model')) return html`<label class="f">Model<input data-path="${path}" data-type="string" value="${value}" list="models"></label>`;
+  if (path.endsWith('.model') && m.type !== 'select') return html`<label class="f">Model<input data-path="${path}" data-type="string" value="${value}" list="models"></label>`;
   if (m.type === 'choice') return html`<div class="choices" role="radiogroup" aria-label="${label}">${m.options.map(([v, t, d]) => html`<label class="choice"><input type="radio" name="${path}" data-path="${path}" data-type="radio" value="${v}" ${v === value ? raw('checked') : ''}><div><strong>${t}</strong><span>${d}</span></div></label>`)}</div>`;
   if (m.type === 'select') return html`<label class="f">${label}<select data-path="${path}" data-type="string">${m.options.map(([v, t]) => html`<option value="${v}" ${v === value ? raw('selected') : ''}>${t}</option>`)}</select>${m.help ? html`<span class="help">${m.help}</span>` : ''}</label>`;
   if (typeof value === 'boolean') return html`<label class="check"><input type="checkbox" data-path="${path}" data-type="bool" ${value ? raw('checked') : ''}> ${label}</label>`;
@@ -335,6 +343,7 @@ async function settings() {
     return html`<form class="card section" data-key="${k}">
       <div class="section-head"><h2>${sec.label}</h2><span>${sec.changed ? html`<span class="badge on">changed from default</span>` : html`<span class="badge">default</span>`}</span></div>
       ${k === 'llm' ? html`<p class="muted small">Sarvam is the default for everything. Another provider can be chosen only when its API key is set on the server (in Secret Manager); keys never appear here.</p>` : ''}
+      ${k === 'voice' ? html`<p class="muted small">The voice of every line Sakhi says in the app. A change applies to new lines at once (already-made lines in another voice are made again the first time they're needed). Try voices first on the <a href="#voices">Compare voices</a> page.</p>` : ''}
       ${k === 'placement' ? html`<p class="muted small">New tests use the chosen kind; a test in progress keeps its kind. Try models first on the <a href="#models">Compare models</a> page.</p>` : ''}
       ${k === 'scoring' ? html`<p class="muted small">The placement test's scoring. Changes apply to tests started from now on; each test stores the cut-offs it used.</p>` : ''}
       ${fields(k, sec.value, s.providers)}

@@ -52,6 +52,28 @@ export const SECTIONS = {
       finalEffort: 'medium',
     },
   },
+  // Sakhi's voice in the app (server/sarvam.js streamSpeech). 'cloudtts': Google's Gemini voices through Google Cloud
+  // Text-to-Speech, signed in as the server's Google Cloud account and billed to the project (so Google Cloud credits
+  // pay for it, like Gemini as the AI). 'gemini': the same voices and the newest models through the Gemini API (needs
+  // GEMINI_API_KEY). 'sarvam': Bulbul (SARVAM_TTS_MODEL, SARVAM_TTS_SPEAKER). Compare them first on the admin
+  // console's Compare voices page (docs/VOICES.md). If a Google voice can't be reached, Sarvam speaks instead.
+  voice: {
+    label: "Sakhi's voice",
+    schema: z.strictObject({
+      source: z.enum(['cloudtts', 'gemini', 'sarvam']),
+      model: z.string().min(1).max(100),                 // for Google; Sarvam uses SARVAM_TTS_MODEL
+      voice: z.string().min(1).max(100),                 // for Google, e.g. Sulafat; Sarvam uses SARVAM_TTS_SPEAKER
+      style: z.string().max(300),                        // for Google: how to speak, in words
+      fallbackToSarvam: z.boolean(),                     // a Google voice that fails before any sound: Sarvam says the line
+    }),
+    defaults: {
+      source: 'cloudtts',
+      model: 'gemini-2.5-flash-tts',
+      voice: 'Sulafat',
+      style: 'Speak warmly and patiently, like a kind, friendly Indian tutor.',
+      fallbackToSarvam: true,
+    },
+  },
   corrections: {
     label: 'Corrections',
     schema: z.strictObject({

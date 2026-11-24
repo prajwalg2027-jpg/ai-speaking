@@ -3,7 +3,7 @@
 // Every Sarvam call made while handling a conversation is added to that conversation's ledger:
 //   - speech-to-text: seconds of audio the relay sends to Sarvam Realtime (including the silence it pushes
 //     when the learner taps "Done"), billed per hour of audio
-//   - voice: characters sent to Bulbul. Lines already in the server's voice cache aren't sent again, so they
+//   - voice: characters sent to Bulbul (or, with a Google Gemini voice, what Google charges for the sound). Lines already in the server's voice cache aren't sent again, so they
 //     cost nothing for this conversation
 //   - LLM: tokens from each chat call's `usage` (understand, scoring, tutor; speculative replies that are
 //     thrown away are billed too). Reasoning tokens are part of the output tokens
@@ -29,7 +29,7 @@ export const PRICES = {
 export function makeLedger() {
   return {
     sttSec: 0,
-    tts: { calls: 0, chars: 0, cachedCalls: 0, cachedChars: 0 },
+    tts: { calls: 0, chars: 0, cachedCalls: 0, cachedChars: 0, googleCalls: 0, googleChars: 0, googleInr: 0 },
     llm: {}, // purpose → { calls, input, cached, output, reasoning }
   };
 }
@@ -48,9 +48,12 @@ export function spentToday() { charge(0); return daily.inr; }
 
 export function addSpeechToText(ledger, seconds) { ledger.sttSec += seconds; charge((seconds / 3600) * PRICES.sttPerHour); }
 
-export function addVoice(chars, { cached }) {
+/** A voice line. inr: what Google charged for it (its Gemini voices are billed by seconds of sound, not characters). */
+export function addVoice(chars, { cached, inr = null }) {
   const t = current().tts;
-  if (cached) { t.cachedCalls++; t.cachedChars += chars; } else { t.calls++; t.chars += chars; charge((chars / 10_000) * PRICES.ttsPer10kChars); }
+  if (cached) { t.cachedCalls++; t.cachedChars += chars; }
+  else if (inr != null) { t.googleCalls = (t.googleCalls || 0) + 1; t.googleChars = (t.googleChars || 0) + chars; t.googleInr = (t.googleInr || 0) + inr; charge(inr); }
+  else { t.calls++; t.chars += chars; charge((chars / 10_000) * PRICES.ttsPer10kChars); }
 }
 
 export function addChat(usage, purpose = 'other') {
@@ -71,7 +74,7 @@ const llmInr = (p) => (p.input * PRICES.llmPerMillion.input + p.cached * PRICES.
 /** Rupee totals for a ledger. */
 export function summarize(ledger) {
   const stt = { seconds: +ledger.sttSec.toFixed(1), inr: (ledger.sttSec / 3600) * PRICES.sttPerHour };
-  const tts = { ...ledger.tts, inr: (ledger.tts.chars / 10_000) * PRICES.ttsPer10kChars };
+  const tts = { ...ledger.tts, inr: (ledger.tts.chars / 10_000) * PRICES.ttsPer10kChars + (ledger.tts.googleInr || 0) };
   const byPurpose = Object.fromEntries(Object.entries(ledger.llm).map(([k, p]) => [k, { ...p, inr: llmInr(p) }]));
   const llm = Object.values(byPurpose).reduce((a, p) => ({
     calls: a.calls + p.calls, input: a.input + p.input, cached: a.cached + p.cached, output: a.output + p.output,
