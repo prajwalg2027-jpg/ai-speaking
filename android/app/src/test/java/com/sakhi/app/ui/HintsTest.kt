@@ -15,7 +15,7 @@ class HintsTest {
         assertEquals(HintKey.WAIT, hintKey(live.copy(phase = Phase.LISTENING, waitNudge = true)))
     }
 
-    @Test fun `a test left midway: tap to carry on; a reply being sent again says so`() {
+    @Test fun `a test left midway says tap to carry on, and a reply being sent again says so`() {
         assertEquals(HintKey.CONTINUE, hintKey(UiState(canResume = true)))
         assertEquals(HintKey.CONTINUE, hintKey(UiState(canResume = true, notice = true)))
         assertEquals(HintKey.RECONNECTING, hintKey(UiState(session = SessionState.LIVE, phase = Phase.THINKING, reconnecting = true)))

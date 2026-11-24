@@ -61,7 +61,7 @@ class SakhiApiTest {
         assertTrue(runCatching { api.turn(TurnRequest("s", "answer", "hi")) }.exceptionOrNull() is java.io.IOException)
     }
 
-    @Test fun `carrying on a test left midway: the turn, or null when there is nothing to carry on`() = runTest {
+    @Test fun `carrying on a test left midway gives the turn, or null when there is nothing to carry on`() = runTest {
         val turn = javaClass.classLoader!!.getResource("turn_followup.json")!!.readText().trim().removeSuffix("}") + ""","resumed":true,"seq":2}"""
         server.enqueue(MockResponse.Builder().headers(headersOf("Content-Type", "application/json")).body(turn).build())
         val t = api.resumeSession("abc")
