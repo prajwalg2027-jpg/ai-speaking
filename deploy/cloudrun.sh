@@ -28,7 +28,8 @@ step() { echo; echo "› $*"; }
 
 step "Turning on the Google services Adam uses (first run only)"
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com \
-  sqladmin.googleapis.com storage.googleapis.com identitytoolkit.googleapis.com firebase.googleapis.com texttospeech.googleapis.com --quiet
+  sqladmin.googleapis.com storage.googleapis.com identitytoolkit.googleapis.com firebase.googleapis.com texttospeech.googleapis.com \
+  aiplatform.googleapis.com --quiet
 
 if ! gcloud secrets describe sarvam-api-key >/dev/null 2>&1; then
   read -rsp "› Sarvam API key (typed input is hidden): " KEY; echo
@@ -79,6 +80,8 @@ for s in sarvam-api-key adam-database-url; do
 done
 gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:${RUNTIME_SA}" --role=roles/cloudsql.client --condition=None --quiet >/dev/null
 gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:${RUNTIME_SA}" --role=roles/firebaseauth.admin --condition=None --quiet >/dev/null
+# Gemini goes through Vertex AI by default (billed to this project, so Google Cloud credits pay): no key, this role.
+gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:${RUNTIME_SA}" --role=roles/aiplatform.user --condition=None --quiet >/dev/null
 gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" --member="serviceAccount:${RUNTIME_SA}" --role=roles/storage.objectAdmin --quiet >/dev/null
 gcloud storage buckets add-iam-policy-binding "gs://${VOICE_BUCKET}" --member="serviceAccount:${RUNTIME_SA}" --role=roles/storage.objectAdmin --quiet >/dev/null
 

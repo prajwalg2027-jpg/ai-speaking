@@ -288,13 +288,13 @@ for (const j of [...Object.keys(JOBS).map((k) => `llm.${k}`), 'placement.brain',
 }
 // AI providers, in the order they're offered, with the names people know them by.
 const PROVIDERS = { sarvam: 'Sarvam', anthropic: 'Claude (Anthropic)', openai: 'OpenAI', gemini: 'Gemini' };
-const providerName = (p) => PROVIDERS[p] || p;
+const providerName = (p, v) => `${PROVIDERS[p] || p}${v?.via ? ` (${v.via})` : ''}`; // v: the server's word on it, e.g. Gemini through Vertex AI
 
 function field(path, value, providers) {
   const m = META[path] || {}, key = path.split('.').pop();
   const label = m.label || humanize(key);
   if (path.endsWith('.provider')) {
-    return html`<label class="f">Provider<select data-path="${path}" data-type="string">${Object.entries(providers).map(([p, v]) => html`<option value="${p}" ${p === value ? raw('selected') : ''} ${!v.configured && p !== value ? raw('disabled') : ''}>${p === 'sarvam' ? 'Sarvam (default)' : providerName(p)}${v.configured ? '' : ' (no API key on the server)'}</option>`)}</select></label>`;
+    return html`<label class="f">Provider<select data-path="${path}" data-type="string">${Object.entries(providers).map(([p, v]) => html`<option value="${p}" ${p === value ? raw('selected') : ''} ${!v.configured && p !== value ? raw('disabled') : ''}>${p === 'sarvam' ? 'Sarvam (default)' : providerName(p, v)}${v.configured ? '' : ' (no API key on the server)'}</option>`)}</select></label>`;
   }
   if (path.endsWith('.model')) return html`<label class="f">Model<input data-path="${path}" data-type="string" value="${value}" list="models"></label>`;
   if (m.type === 'choice') return html`<div class="choices" role="radiogroup" aria-label="${label}">${m.options.map(([v, t, d]) => html`<label class="choice"><input type="radio" name="${path}" data-path="${path}" data-type="radio" value="${v}" ${v === value ? raw('checked') : ''}><div><strong>${t}</strong><span>${d}</span></div></label>`)}</div>`;
@@ -596,7 +596,7 @@ async function models() {
   $('#logclose').addEventListener('click', () => dlg.close());
 
   const pickRow = (m, i) => html`<div class="row end pick" data-i="${i}">
-    <label class="f">Provider<select data-prov>${provs.map((p) => html`<option value="${p}" ${p === m.provider ? raw('selected') : ''}>${providerName(p)}${ok(p) ? '' : ' (no API key on the server)'}</option>`)}</select></label>
+    <label class="f">Provider<select data-prov>${provs.map((p) => html`<option value="${p}" ${p === m.provider ? raw('selected') : ''}>${providerName(p, info.providers[p])}${ok(p) ? '' : ' (no API key on the server)'}</option>`)}</select></label>
     <label class="f grow">Model<input data-model value="${m.model}" list="sugg-${m.provider}" maxlength="100" autocomplete="off" required></label>
     ${i > 0 ? html`<button type="button" class="link danger" data-remove>Remove</button>` : ''}
     <div class="lab-think" data-think ${TAKES_THINKING.includes(m.provider) ? '' : raw('hidden')}><div class="row">

@@ -8,7 +8,8 @@
 #   NEW_KEY=1 replaces keys that are already stored (otherwise they are kept).
 #
 # Before: make an API key at console.anthropic.com (Claude), platform.openai.com (OpenAI) or aistudio.google.com
-# (Gemini). Run in Cloud Shell after deploy/cloudrun.sh. Safe to run again: to add a provider or change a key.
+# (Gemini). Gemini needs no key by default: it goes through Vertex AI (deploy/vertex-setup.sh). Its key is only used
+# with GOOGLE_GENAI_USE_VERTEXAI=false, and by the Compare voices page's "Google Gemini API" voices. Run in Cloud Shell after deploy/cloudrun.sh. Safe to run again: to add a provider or change a key.
 # Having a key only makes a provider available: which model each job uses is chosen in the admin console.
 set -euo pipefail
 

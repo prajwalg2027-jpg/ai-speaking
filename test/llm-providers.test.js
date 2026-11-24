@@ -61,7 +61,8 @@ before(async () => {
     : null) || [200, { choices: [{ message: { content: JSON.stringify(ANSWER) } }], usage: { prompt_tokens: 50, completion_tokens: 10, prompt_tokens_details: { cached_tokens: 20 }, completion_tokens_details: { reasoning_tokens: 4 } } }, lastUser(b).includes('SLOW') ? 600 : 0]);
   Object.assign(process.env, {
     ANTHROPIC_API_KEY: 'claude-test-key', ANTHROPIC_BASE_URL: `http://127.0.0.1:${claudeFake.address().port}`,
-    GEMINI_API_KEY: 'gemini-test-key', GEMINI_BASE_URL: `http://127.0.0.1:${openFake.address().port}/gemini`,
+    // Gemini through the Gemini API and its key here; the Vertex AI default has a test of its own.
+    GEMINI_API_KEY: 'gemini-test-key', GEMINI_BASE_URL: `http://127.0.0.1:${openFake.address().port}/gemini`, GOOGLE_GENAI_USE_VERTEXAI: 'false',
     OPENAI_API_KEY: 'openai-test-key', OPENAI_BASE_URL: `http://127.0.0.1:${openFake.address().port}/openai`,
     USD_INR: '88',
   });
@@ -118,6 +119,37 @@ test('Claude: a refusal throws, directly and through structured()', async () => 
   await assert.rejects(anthropic.anthropicChat(refused, { model: 'claude-opus-5-5', schema: Answer }), /declined to answer \(cyber\)/);
   await assert.rejects(llm.structured({ job: 'x', config: { provider: 'anthropic', model: 'claude-opus-5-5' }, messages: refused, schema: Answer }),
     (e) => e instanceof llm.LlmError && e.kind === 'provider' && /declined/.test(e.message));
+});
+
+test('Gemini through Vertex AI (the default): its endpoint, a Google Cloud token instead of the key, google/<model>', async () => {
+  const { setVertexTokenSource } = await import('../server/llm/openai.js');
+  const port = openFake.address().port;
+  delete process.env.GOOGLE_GENAI_USE_VERTEXAI; // not set at all: Vertex AI
+  process.env.VERTEX_BASE_URL = `http://127.0.0.1:${port}/vertex`;
+  setVertexTokenSource(async () => 'vertex-test-token');
+  try {
+    assert.equal(llm.providers.gemini.via(), 'Vertex AI');
+    openCalls.length = 0;
+    const r = await llm.structured({ job: 'x', config: { provider: 'gemini', model: 'gemini-3.8-flash', temperature: 0.2 }, messages, schema: Answer, effort: 'low' });
+    assert.deepEqual(r.data, ANSWER);
+    const { path, headers, body } = openCalls[0];
+    assert.equal(path, '/vertex/chat/completions');
+    assert.equal(headers.authorization, 'Bearer vertex-test-token', 'not the Gemini API key');
+    assert.equal(body.model, 'google/gemini-3.8-flash');
+    assert.equal(body.reasoning_effort, 'low');
+    assert.equal(body.response_format.type, 'json_schema');
+    // Configured without any key: the server's Google Cloud account is the sign-in.
+    const key = process.env.GEMINI_API_KEY; delete process.env.GEMINI_API_KEY;
+    try { assert.equal(llm.providers.gemini.configured(), true); } finally { process.env.GEMINI_API_KEY = key; }
+    // A name that already says its publisher is sent as it is.
+    openCalls.length = 0;
+    await llm.structured({ job: 'x', config: { provider: 'gemini', model: 'google/gemini-2.5-flash', temperature: 0 }, messages, schema: Answer });
+    assert.equal(openCalls[0].body.model, 'google/gemini-2.5-flash');
+  } finally {
+    process.env.GOOGLE_GENAI_USE_VERTEXAI = 'false'; delete process.env.VERTEX_BASE_URL;
+    setVertexTokenSource(null);
+  }
+  assert.equal(llm.providers.gemini.via(), null, 'switched off: back to the Gemini API');
 });
 
 test('Gemini: its own base URL and key, max_tokens', async () => {
