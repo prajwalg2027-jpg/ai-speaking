@@ -144,7 +144,9 @@ test('Google Cloud Text-to-Speech: streamed, the settings first and then the tex
   try {
     const info = await get('/api/admin/voices');
     assert.equal(info.providers.cloudtts.configured, true);
-    assert.deepEqual(info.models.cloudtts.map((m) => m.id), ['gemini-2.5-flash-tts', 'gemini-2.5-flash-lite-preview-tts', 'gemini-3.1-flash-tts-preview', 'gemini-2.5-pro-tts']);
+    assert.deepEqual(info.models.cloudtts.map((m) => m.id), ['gemini-2.5-flash-tts', 'gemini-2.5-flash-lite-preview-tts', 'gemini-3.1-flash-tts-preview', 'gemini-2.5-pro-tts', 'chirp3-hd']);
+    const chirpRow = info.prices.rows.find((r) => r.model === 'chirp3-hd');
+    assert.deepEqual([chirpRow.usdPerMillionChars, +chirpRow.per1000Chars.toFixed(2)], [30, 2.64], '$30 a million characters at ₹88');
     assert.ok(info.voices.cloudtts.some((v) => v.id === 'Sulafat'));
     assert.equal(info.prices.rows.find((r) => r.provider === 'cloudtts' && r.model === 'gemini-2.5-flash-tts').usd.output, 10);
 
@@ -159,6 +161,16 @@ test('Google Cloud Text-to-Speech: streamed, the settings first and then the tex
     assert.equal(calls[1].writes[0].streamingConfig.voice.languageCode, 'hi-IN');
     assert.deepEqual([r.json.pieces[0].seconds, r.json.pieces[0].tokens], [1, { input: 9, output: 25, counted: false }], "one second of sound; Google gives no count here, so it is estimated");
     assert.ok(Math.abs(r.json.pieces[0].costInr - ((9 * 0.5 + 25 * 10) / 1e6) * 88) < 1e-12);
+    // Chirp 3 HD: the voice's full name (language and voice), no model name, no style prompt; priced per character.
+    calls.length = 0;
+    const c = await speak({ provider: 'cloudtts', model: 'chirp3-hd', voice: 'Sulafat', style: 'Say this warmly.', pace: 1.15, text: 'Nice to meet you! | आप कैसे हैं?', mode: 'app' });
+    assert.equal(c.status, 200, JSON.stringify(c.json));
+    assert.deepEqual(calls[0].writes, [
+      { streamingConfig: { voice: { name: 'en-IN-Chirp3-HD-Sulafat', languageCode: 'en-IN' }, streamingAudioConfig: { audioEncoding: 'PCM', sampleRateHertz: 24000, speakingRate: 1.15 } } },
+      { input: { text: 'Nice to meet you!' } },
+    ]);
+    assert.equal(calls[1].writes[0].streamingConfig.voice.name, 'hi-IN-Chirp3-HD-Sulafat');
+    assert.ok(Math.abs(c.json.pieces[0].costInr - (17 * 30 / 1e6) * 88) < 1e-12);
     // An error from Google is shown in its own words.
     const bad = await speak({ provider: 'cloudtts', model: 'gemini-2.5-flash-tts', voice: 'Nobody', text: 'Hello.' });
     assert.deepEqual([bad.status, bad.json.reason], [502, 'Google Cloud: Voice Nobody does not exist.']);

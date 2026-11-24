@@ -248,12 +248,13 @@ const META = {
   'placement.turnEffort': { type: 'select', label: 'Thinking on each turn', help: 'How hard the model thinks before Sakhi replies. Less is faster. Used by OpenAI, Claude and Gemini models; Sarvam ignores it.', options: EFFORT_OPTIONS },
   'placement.finalEffort': { type: 'select', label: 'Thinking for the final level and feedback', help: 'If the AI ends the talk on a turn with less thinking than this, that turn is asked once more at this level.', options: EFFORT_OPTIONS },
   'voice.source': { type: 'select', label: 'Where the voice comes from', help: 'Both Google routes are billed to the Google Cloud project (credits pay for them). If a Google voice fails, Sarvam says that line.', options: [
-    ['gemini', 'Google Gemini voice, through Vertex AI (default)'], ['cloudtts', 'Google Gemini voice, through Cloud Text-to-Speech (older models)'], ['sarvam', 'Sarvam Bulbul (Roopa)']] },
+    ['gemini', 'Google Gemini voice, through Vertex AI (default)'], ['cloudtts', 'Google voice, through Cloud Text-to-Speech (Gemini 2.5 models, or Chirp 3 HD)'], ['sarvam', 'Sarvam Bulbul (Roopa)']] },
   'voice.model': { type: 'select', label: 'Voice model (Google)', help: 'Must match where the voice comes from. Prices are on the Compare voices page.', options: [
     ['gemini-3.8-flash-lite-tts', 'Vertex AI · Gemini 3.8 Flash-Lite TTS (fast, cheapest)'], ['gemini-3.8-flash-tts', 'Vertex AI · Gemini 3.8 Flash TTS (best quality)'], ['gemini-3.1-flash-tts-preview', 'Either · Gemini 3.1 Flash TTS (preview)'],
-    ['gemini-2.5-flash-tts', 'Cloud Text-to-Speech · Gemini 2.5 Flash TTS'], ['gemini-2.5-flash-lite-preview-tts', 'Cloud Text-to-Speech · Gemini 2.5 Flash-Lite TTS (preview)'], ['gemini-2.5-pro-tts', 'Cloud Text-to-Speech · Gemini 2.5 Pro TTS']] },
+    ['gemini-2.5-flash-tts', 'Cloud Text-to-Speech · Gemini 2.5 Flash TTS'], ['gemini-2.5-flash-lite-preview-tts', 'Cloud Text-to-Speech · Gemini 2.5 Flash-Lite TTS (preview)'], ['gemini-2.5-pro-tts', 'Cloud Text-to-Speech · Gemini 2.5 Pro TTS'],
+    ['chirp3-hd', 'Cloud Text-to-Speech · Chirp 3 HD (not Gemini: same voice names, no style, about ₹2 a minute, 1 million characters free a month, higher rate limit)']] },
   'voice.voice': { label: 'Voice name (Google)', help: 'One of Google’s voices, e.g. Sulafat (warm), Vindemiatrix (gentle), Achernar (soft), Kore (firm), Aoede (breezy), Leda (youthful). Hear them on Compare voices.' },
-  'voice.style': { label: 'How she speaks (Google)', help: 'In plain words. Avoid “patiently” or “slowly”: Gemini voices hear them as “speak slowly”.' },
+  'voice.style': { label: 'How she speaks (Google)', help: 'In plain words. Avoid “patiently” or “slowly”: Gemini voices hear them as “speak slowly”. Chirp 3 HD ignores this.' },
   'voice.speed': { label: 'Speed (Google)', help: '1 is Google’s own speed; 1.15 is a little quicker, 1.3 quick. Cloud Text-to-Speech takes the number; Vertex AI is told “brisk” above 1.1. Questions said again are 10% slower. A change makes her fixed lines again (Compare voices has the same Pace box to try it first).' },
   'voice.fallbackToSarvam': { type: 'bool', label: 'If the Google voice fails, Sarvam says the line' },
   'voice.oneRequestPerTurn': { type: 'bool', label: 'One voice request per turn: join each turn’s lines (Google voices). Fewer requests a minute (the free trial allows 10); she starts speaking a little later' },
@@ -875,6 +876,8 @@ async function voicesPage() {
       <button type="button" class="link danger" data-remove>Remove</button></div>
     ${v.provider === 'gemini'
       ? html`<label class="f">How to say it (style, optional)<input data-k="style" value="${v.style || ''}" maxlength="400" placeholder="warm, friendly and patient"></label>`
+      : v.provider === 'cloudtts' && v.model === 'chirp3-hd'
+      ? html`<div class="row"><label class="f">Pace<input type="number" data-k="pace" min="0.5" max="2" step="0.05" value="${v.pace ?? 1}"></label><p class="small muted grow">Chirp 3 HD takes no style; the same voice names as Gemini.</p></div>`
       : v.provider === 'cloudtts'
       ? html`<div class="row"><label class="f grow">How to say it (Google's prompt, optional)<input data-k="style" value="${v.style || ''}" maxlength="400" placeholder="Say this warmly and patiently."></label>
           <label class="f">Pace<input type="number" data-k="pace" min="0.5" max="2" step="0.05" value="${v.pace ?? 1}"></label></div>`
