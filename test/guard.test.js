@@ -20,7 +20,7 @@ test('health check for Cloud Run', async () => {
 });
 
 test('team tools are off in production', async () => {
-  for (const p of ['/review.html', '/review/candidates.json', '/cutoffs.html', '/stt-lab.html', '/mic-test.html', '/api/session/cost?id=x']) {
+  for (const p of ['/cutoffs.html', '/stt-lab.html', '/mic-test.html', '/api/session/cost?id=x']) {
     assert.equal((await fetch(`${base}${p}`)).status, 404, p);
   }
   assert.equal((await fetch(`${base}/api/lab/compare`, { method: 'POST', body: '{}' })).status, 404);

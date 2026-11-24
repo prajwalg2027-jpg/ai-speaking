@@ -1,15 +1,15 @@
 // Paid access through Razorpay, against a real PostgreSQL (TEST_DATABASE_URL; skipped without it) and a fake
 // Razorpay: the paywall on the learning module, plans per price, subscribing, the payment signature, webhooks
 // (signed, once each, state from Razorpay), renewals failing, cancelling, erasure, the admin numbers.
+import { login, signInAll, SESSION_ENV } from './phone-login.js';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { createHmac, generateKeyPairSync, createSign } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import { startMockRest } from './mock-sarvam-rest.js';
 
 const url = process.env.TEST_DATABASE_URL;
-const PROJECT = 'sakhi-test', KEY_SECRET = 'rzp-test-secret', HOOK_SECRET = 'hook-secret';
-const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const KEY_SECRET = 'rzp-test-secret', HOOK_SECRET = 'hook-secret';
 let server, base, pool, fake, mock, settings;
 
 /** A fake Razorpay: plans, subscriptions (state set by the tests), cancellation. */
@@ -42,28 +42,22 @@ const paidMonth = (id) => Object.assign(rz.subs.get(id), { status: 'active', cur
 before(async () => {
   if (!url) return;
   fake = await startFake(); mock = await startMockRest();
-  Object.assign(process.env, {
-    SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url, DATABASE_URL: url, FIREBASE_PROJECT_ID: PROJECT, ADMIN_PHONES: '+919800009999',
+  Object.assign(process.env, { ...SESSION_ENV,
+    SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url, DATABASE_URL: url, ADMIN_PHONES: '+919800009999',
     RAZORPAY_KEY_ID: 'rzp_test_key', RAZORPAY_KEY_SECRET: KEY_SECRET, RAZORPAY_WEBHOOK_SECRET: HOOK_SECRET, RAZORPAY_BASE_URL: `http://127.0.0.1:${fake.address().port}`,
   });
   ({ pool } = await import('../server/db/pool.js'));
   await pool.query('drop schema public cascade; create schema public');
   await (await import('../server/db/migrate.js')).migrate(pool, () => {});
-  (await import('../server/auth.js')).setKeyResolver(async () => ({ k1: publicKey }));
   settings = await import('../server/settings.js');
   ({ server } = await import('../server/index.js'));
+  await signInAll();
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${server.address().port}`;
 });
 after(async () => { server?.close(); fake?.close(); mock?.close(); await pool?.end(); });
 const t = (name, fn) => test(name, { skip: !url && 'set TEST_DATABASE_URL to run' }, fn);
 
-const iat = now();
-function login(uid, phone) {
-  const enc = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
-  const head = `${enc({ alg: 'RS256', kid: 'k1' })}.${enc({ aud: PROJECT, iss: `https://securetoken.google.com/${PROJECT}`, sub: uid, iat, exp: iat + 3600, auth_time: iat, phone_number: phone, firebase: { sign_in_provider: 'phone' } })}`;
-  return { authorization: `Bearer ${head}.${createSign('RSA-SHA256').update(head).sign(privateKey).toString('base64url')}` };
-}
 const call = async (method, path, headers = {}, body, raw) => {
   const r = await fetch(`${base}${path}`, { method, headers: { 'content-type': 'application/json', ...headers }, body: raw ?? (body && JSON.stringify(body)) });
   return { status: r.status, json: await r.json().catch(() => null) };
@@ -74,7 +68,7 @@ const hook = (event, subId, payment) => {
   const raw = JSON.stringify({ entity: 'event', event, contains: ['subscription'], payload: { subscription: { entity: { id: subId, status: 'whatever' } }, ...(payment ? { payment: { entity: payment } } : {}) }, created_at: now() });
   return { raw, headers: { 'x-razorpay-signature': createHmac('sha256', HOOK_SECRET).update(raw).digest('hex'), 'x-razorpay-event-id': `evt_${++eventN}` } };
 };
-const asha = login('u-asha', '+919800000011'), ravi = login('u-ravi', '+919800000012'), admin = login('u-admin', '+919800009999');
+const asha = login('+919800000011'), ravi = login('+919800000012'), admin = login('+919800009999');
 
 t('payments off (the default): the learning module is open', async () => {
   assert.equal((await call('GET', '/api/pay/status', asha)).json.required, false);

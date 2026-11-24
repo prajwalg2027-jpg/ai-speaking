@@ -1,5 +1,5 @@
 // Google Cloud calls made with the server's own service account (Cloud Run's metadata server gives the
-// token; nothing is stored). Used for voice recordings in Cloud Storage, deleting a Firebase login, and Google Play.
+// token; nothing is stored). Used for voice recordings in Cloud Storage and Google Play.
 const META = 'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token';
 const tokens = new Map(); // scopes ('' = the default) → { value, until }
 
@@ -48,12 +48,4 @@ export async function gcsDelete(bucket, path) {
     method: 'DELETE', headers: { authorization: `Bearer ${await accessToken()}` },
   });
   if (!res.ok && res.status !== 404) throw new Error(`Cloud Storage delete ${res.status}`);
-}
-
-/** Delete a Firebase login (needs the Firebase Authentication Admin role on the service account). */
-export async function deleteFirebaseUser(project, uid) {
-  const res = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${enc(project)}/accounts:delete`, {
-    method: 'POST', headers: { authorization: `Bearer ${await accessToken()}`, 'content-type': 'application/json' }, body: JSON.stringify({ localId: uid }),
-  });
-  if (!res.ok) throw new Error(`Firebase account delete ${res.status}: ${(await res.text()).slice(0, 200)}`);
 }

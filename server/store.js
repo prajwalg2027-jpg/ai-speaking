@@ -17,7 +17,7 @@ async function tx(fn) {
 
 /**
  * The customer for a login (created on first sign-in): found by login id, or else by phone number, so a person
- * who signed in with Firebase and later with an OTP (or the other way round) stays one customer.
+ * who signed in with Firebase (before Nov 2026) and later with an OTP (or the other way round) stays one customer.
  */
 export async function upsertUser({ firebaseUid, phone }) {
   if (!pool) return null;

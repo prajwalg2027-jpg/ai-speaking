@@ -72,7 +72,7 @@ VARS="^;^MSG91_WIDGET_ID=${WIDGET};OTP_LENGTH=${OTP_LENGTH}"
 [[ -n "$ADMIN_PHONES" ]] && VARS="${VARS};ADMIN_PHONES=${ADMIN_PHONES}"
 [[ -n "$DEMO_PHONES" ]] && VARS="${VARS};DEMO_PHONES=${DEMO_PHONES}"
 [[ -n "$TRUECALLER_CLIENT_IDS" ]] && VARS="${VARS};TRUECALLER_CLIENT_IDS=${TRUECALLER_CLIENT_IDS}"
-[[ -n "${TEST_PHONE:-}" ]] && VARS="${VARS};MSG91_TEST_PHONE=${TEST_PHONE};MSG91_TEST_CODE=${TEST_CODE};FIREBASE_TEST_PHONE=${TEST_PHONE}"
+[[ -n "${TEST_PHONE:-}" ]] && VARS="${VARS};MSG91_TEST_PHONE=${TEST_PHONE};MSG91_TEST_CODE=${TEST_CODE}"
 gcloud run services update "$SERVICE" --region "$REGION" --quiet \
   --update-secrets "MSG91_AUTHKEY=msg91-authkey:latest,SESSION_SECRET=adam-session-secret:latest" \
   --update-env-vars "$VARS" >/dev/null

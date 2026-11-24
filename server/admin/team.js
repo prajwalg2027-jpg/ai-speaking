@@ -37,7 +37,7 @@ const ALL = Object.keys(PERMISSIONS);
 
 const list = (v) => String(v || '').split(',').map((s) => s.trim()).filter(Boolean);
 /** Numbers that sign in with a fixed, shared code. */
-export const neverAdmin = () => new Set([process.env.FIREBASE_TEST_PHONE || '+919999900000', process.env.MSG91_TEST_PHONE, ...list(process.env.DEMO_PHONES)].filter(Boolean));
+export const neverAdmin = () => new Set(['+919999900000', process.env.MSG91_TEST_PHONE, ...list(process.env.DEMO_PHONES)].filter(Boolean));
 /** The owners from server settings. */
 export const serverOwners = () => { const no = neverAdmin(); return new Set(list(process.env.ADMIN_PHONES).filter((p) => !no.has(p))); };
 

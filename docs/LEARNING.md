@@ -229,8 +229,6 @@ every 30 s on each server; changes from the console apply at once on the server 
 | `OPENAI_API_KEY` | Optional. Lets the console choose OpenAI for an AI job. Put it in Secret Manager, never in a file |
 | `OPENAI_BASE_URL` | Optional. Another OpenAI-compatible endpoint |
 | `ADMIN_PHONES` | Comma-separated phone numbers that are always owners of the admin console (`+91…`); add others on the Team page |
-| `FIREBASE_WEB_API_KEY` | Firebase web app key for the console's sign-in (public by design) |
-| `FIREBASE_TEST_PHONE` | The team test number never allowed as admin (default `+919999900000`) |
 | `SAKHI_LEARN_MESSAGES_PER_DAY` | Default for the per-learner daily limit (admin setting wins) |
 | `SAKHI_SKIP_WARMUP=1` | Local development: don't pre-generate the placement test's voice lines at start |
 

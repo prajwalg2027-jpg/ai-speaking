@@ -22,7 +22,7 @@
 import { pool } from '../db/pool.js';
 import * as settings from '../settings.js';
 import { configured as voiceConfigured, MODELS as VOICE_MODELS } from '../voices/index.js';
-import { loginEnabled, firebaseEnabled, otpEnabled, projectId } from '../auth.js';
+import { loginEnabled, otpEnabled } from '../auth.js';
 import { LIMITS } from '../guard.js';
 import { whoIs, need, handleTeam, PERMISSIONS } from './team.js';
 import { handlePlacementLab } from './placementLab.js';
@@ -100,12 +100,8 @@ export async function handleAdmin(req, res, url, deps = {}) {
   if (!url.pathname.startsWith('/api/admin/')) return false;
   const p = url.pathname, m = req.method;
   if (m === 'GET' && p === '/api/admin/config') {
-    // Sign-in by OTP (MSG91) when it's set up; otherwise Firebase's phone sign-in in the browser.
-    const key = process.env.FIREBASE_WEB_API_KEY, otp = otpEnabled();
-    return send(res, 200, {
-      loginRequired: loginEnabled(), login: otp ? 'otp' : firebaseEnabled() ? 'firebase' : null,
-      firebase: !otp && firebaseEnabled() && key ? { apiKey: key, authDomain: `${projectId()}.firebaseapp.com`, projectId: projectId() } : null,
-    }), true;
+    // Sign-in by an SMS code (MSG91) when it's set up.
+    return send(res, 200, { loginRequired: loginEnabled(), login: otpEnabled() ? 'otp' : null }), true;
   }
   const who = await whoIs(req);
   res.locals = { user: `admin:${maskPhone(who.phone) || who.phone}` };

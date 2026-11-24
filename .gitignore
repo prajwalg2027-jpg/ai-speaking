@@ -10,3 +10,9 @@ node_modules/
 website/dist/
 .firebase/
 website/.firebase/
+
+# App builds (Play bundles and APKs) are made by CI or android/release.sh, never saved here.
+*.aab
+*.apk
+android/app/build/
+android/.gradle/
