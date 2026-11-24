@@ -348,7 +348,11 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (!ready() || process.env.SAKHI_SKIP_WARMUP === '1') return; // skipping is for local development
     // Generate every scripted line now, so they play instantly later.
     const lines = scriptedLines(), t0 = Date.now();
-    sarvam.pregenerate(lines).then(({ done, failed, stored }) => console.log(`Pre-generated ${done} scripted voice lines in ${((Date.now() - t0) / 1000).toFixed(1)} s (${stored} from the voice store, ${done - stored} new)${failed ? ` (${failed} failed)` : ''}; voice cache cost ₹${summarize(shared).tts.inr.toFixed(2)} (shared by all conversations)`));
+    // A Google voice on the free trial allows ~10 requests a minute for the whole project: making all the fixed
+    // lines in a burst left nothing for learners, and their lines stalled. Paced to 4 a minute, the rest is theirs.
+    // (Each clip is made once: the voice store keeps it for every later start.)
+    const google = sarvam.voiceInUse().source !== 'sarvam';
+    sarvam.pregenerate(lines, google ? { gapMs: 15_000, busyWaitMs: 60_000 } : {}).then(({ done, failed, stored }) => console.log(`Pre-generated ${done} scripted voice lines in ${((Date.now() - t0) / 1000).toFixed(1)} s (${stored} from the voice store, ${done - stored} new)${failed ? ` (${failed} failed)` : ''}; voice cache cost ₹${summarize(shared).tts.inr.toFixed(2)} (shared by all conversations)`));
   });
 }
 
