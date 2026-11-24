@@ -145,12 +145,56 @@ export async function saveAnswer(sessionId, a) {
   return rows[0]?.id || null;
 }
 
+// ---- tests left midway (server/placement/resume.js) ---------------------------------------
+
+/** The running test as the server holds it, saved after every turn so it can be carried on after a break. */
+export async function saveTestState(sessionId, state) {
+  if (!pool) return;
+  await q(`update assessments set state = $2, state_saved_at = now() where session_id = $1 and status = 'in_progress'`, [sessionId, JSON.stringify(state)]);
+}
+
+/** One test's saved state. → { userId, status, state, savedAt } or null */
+export async function testState(sessionId) {
+  if (!pool || !sessionId) return null;
+  const { rows: [r] } = await q(`select user_id, status, state, state_saved_at from assessments where session_id = $1`, [sessionId]);
+  return r ? { userId: r.user_id, status: r.status, state: r.state, savedAt: r.state_saved_at } : null;
+}
+
+/** The customer's latest test still running and saved within the last `hours`. → { sessionId, state, savedAt } or null */
+export async function openTest(userId, hours) {
+  if (!pool || !userId || !(hours > 0)) return null;
+  const { rows: [r] } = await q(`select session_id, state, state_saved_at from assessments where user_id = $1 and status = 'in_progress'
+      and state is not null and state_saved_at > now() - make_interval(hours => $2) order by state_saved_at desc limit 1`, [userId, hours]);
+  return r ? { sessionId: r.session_id, state: r.state, savedAt: r.state_saved_at } : null;
+}
+
+export async function testResumed(sessionId) {
+  if (!pool) return;
+  await q('update assessments set resumes = resumes + 1 where session_id = $1', [sessionId]);
+}
+
+/** Tests the learner won't carry on: a test they chose to start over (or every running test of theirs but `keep`). */
+export async function abandonTests({ sessionId = null, userId = null, keep = null }) {
+  if (!pool || (!sessionId && !userId)) return 0;
+  const { rowCount } = await q(`update assessments set status = 'abandoned', state = null where status = 'in_progress'
+      and (session_id = $1 or ($2::uuid is not null and user_id = $2 and session_id is distinct from $3))`, [sessionId, userId, keep]);
+  return rowCount;
+}
+
+/** Tests not carried on within the window are abandoned (and their saved state dropped). */
+export async function expireTests(hours) {
+  if (!pool) return 0;
+  const { rowCount } = await q(`update assessments set status = 'abandoned', state = null where status = 'in_progress'
+      and coalesce(state_saved_at, started_at) < now() - make_interval(hours => $1)`, [Math.max(hours, 2)]);
+  return rowCount;
+}
+
 /** The result: the test, the level history, the current_level property, and an event. */
 export async function finishAssessment(sessionId, result, costInr) {
   if (!pool) return;
   await tx(async (c) => {
     const { rows: [a] } = await c.query(
-      `update assessments set status = 'finished', finished_at = now(), level = $2, level_name = $3, overall = $4, dims = $5, reasons = $6, cost_inr = $7
+      `update assessments set status = 'finished', finished_at = now(), state = null, level = $2, level_name = $3, overall = $4, dims = $5, reasons = $6, cost_inr = $7
        where session_id = $1 returning id, user_id`,
       [sessionId, result.level, result.name, result.overall ?? null, JSON.stringify(result.dims || {}), JSON.stringify(result.reasons || []), costInr ?? null]);
     if (!a?.user_id) return;
@@ -196,6 +240,7 @@ export async function eraseUser(userId, deleteFile) {
   for (const f of files) await deleteFile(f);
   await tx(async (c) => {
     await c.query(`update assessment_answers set transcript = null where assessment_id in (select id from assessments where user_id = $1)`, [userId]);
+    await c.query(`update assessments set state = null where user_id = $1`, [userId]); // a running test holds their words too
     await c.query(`update events set properties = properties - 'phone' - 'name' where user_id = $1`, [userId]);
     await c.query('delete from otp_requests where phone = (select phone from users where id = $1)', [userId]);
     await c.query('delete from users where id = $1', [userId]);

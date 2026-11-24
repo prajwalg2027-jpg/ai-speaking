@@ -66,6 +66,14 @@ async function overview() {
   const days = Array.from({ length: 14 }, (_, i) => new Date(Date.now() + 5.5 * 3600_000 - (13 - i) * 86400_000).toISOString().slice(0, 10));
   const levels = await q(`select level, count(*)::int as n from (select distinct on (user_id) level from assessments
       where status = 'finished' and level is not null and user_id is not null order by user_id, finished_at desc) x group by level order by level`);
+  // Placement tests left midway (30 days): how many answers they gave before leaving, and how many came back.
+  const dropOff = await q(`select (select count(*) from assessment_answers x where x.assessment_id = a.id)::int as answers, count(*)::int as n
+      from assessments a where a.started_at > now() - interval '30 days'
+        and (a.status = 'abandoned' or (a.status = 'in_progress' and coalesce(a.state_saved_at, a.started_at) < now() - interval '1 hour'))
+      group by 1 order by 1`);
+  const tests30d = await one(`select count(*)::int as started, count(*) filter (where status = 'finished')::int as finished,
+      count(*) filter (where resumes > 0)::int as resumed, count(*) filter (where resumes > 0 and status = 'finished')::int as "finishedAfterBreak"
+    from assessments where started_at > now() - interval '30 days'`);
   const mistakes = await q(`select concept_key as concept, count(*)::int as n from learning_events where kind = 'mistake' and occurred_at > now() - interval '7 days' and concept_key is not null group by 1 order by 2 desc limit 8`);
   const latency = await one(`select count(*)::int as n,
       percentile_cont(0.5) within group (order by (metadata->>'replyMs')::int) as "replyP50",
@@ -80,7 +88,7 @@ async function overview() {
       count(*) filter (where metadata->>'checkError' is not null)::int as "checkErrors"
     from messages where role = 'tutor' and reply_to is not null and created_at > now() - interval '7 days'`);
   return {
-    totals, levels, mistakes, latency, quality, payments: { ...(await payments.summary()), required: payments.required(), priceInr: settings.get('payments').priceInr },
+    totals, levels, mistakes, latency, quality, dropOff, tests30d, payments: { ...(await payments.summary()), required: payments.required(), priceInr: settings.get('payments').priceInr },
     series: { days, messages: days.map((d) => messages[d] || 0), activeLearners: days.map((d) => learnersActive[d] || 0), tests: days.map((d) => tests[d] || 0), signups: days.map((d) => signups[d] || 0) },
     spend: { todayInr: +spentToday().toFixed(2), budgetInr: LIMITS.dailyBudgetInr, note: 'this server instance since it started today' },
     llm: settings.get('llm'), strategy: settings.get('corrections').strategy,

@@ -11,6 +11,8 @@ import { readAccuracy } from './scoring.js';
 import { normalizeForCompare } from './normalize.js';
 import { makeTrace } from './trace.js';
 import { startSession, getSession, handleTurn, scriptedLines } from './placement/index.js'; // classic or conversation (Settings)
+import * as resume from './placement/resume.js';
+import * as store from './store.js';
 import { withLedger, summarize, shared, addSpeechToText, spentToday } from './costs.js';
 import { production, teamTools, LIMITS, isTeamPath, clientIp, sessionStarts, maySpeak } from './guard.js';
 import * as accounts from './accounts.js';
@@ -49,6 +51,13 @@ const send = (res, status, data) => { res.writeHead(status, { 'content-type': 'a
 //     {"part":"turn", ...the turn}     the whole turn, as without streaming; its say begins with those lines
 //     {"part":"error","error","status"} instead of the turn, if it failed after the reaction had been sent
 // Each turn: { say: [{text, lang, pace}], card, listen: {silenceMs, language} | null, done?, heard?, trace, serverMs, cost }
+//   seq: the turn's number in the test (1, 2, …). A turn sent again with the same seq (the app lost the answer
+//   on a weak connection) gets the same answer again; it is not taken as a new turn.
+// POST /api/session/resume     → body {sessionId?} → a test the learner left midway, carried on: Sakhi welcomes
+//   them back and asks the question they were on again ({ ...turn, resumed: true, seq: the last turn's seq }), or
+//   404 { error: 'nothing_to_resume' }. Their latest test within Settings › Limits › resumeHours (24 h) when the
+//   one named is gone. Starting a new test (POST /api/session) is "start over": the test left midway is abandoned.
+// GET  /api/session/resume     → { open: true, sessionId } when there is a test to carry on (nothing is said), else { open: false }
 // GET  /api/session/cost?id=…  → what the conversation has cost so far in Sarvam charges (server/costs.js)
 // Sarvam calls made while handling a conversation are charged to its ledger.
 const json = async (req, limit = 64 * 1024) => JSON.parse((await readBody(req, limit)).toString() || '{}');
@@ -71,15 +80,18 @@ async function handleSessionStart(req, res) {
   const turn = startSession();
   const s = getSession(turn.sessionId);
   await accounts.testStarted(s, { user, client: req.headers['x-sakhi-client'] || 'web', appVersion: req.headers['x-sakhi-version'] || null });
+  if (user?.id) await store.abandonTests({ userId: user.id, keep: s.id }); // a new test: the one left midway won't be carried on
   send(res, 200, withTeamData(turn, trace, s));
   diag.record(req, [{ name: 'session.started', sid: turn.sessionId, data: { mode: s.mode, say: (turn.say || []).map((l) => l.text) } }]);
 }
 
 /** The conversation, if it belongs to the caller (any caller when login is off). */
 async function ownSession(req, sessionId) {
-  const s = getSession(sessionId);
-  if (!s) return { s: null };
+  let s = getSession(sessionId);
   const { user } = await accounts.identify(req);
+  // Not held any more (a server release, or two hours away): the saved test, within the resume window.
+  if (!s && sessionId) s = await resume.loadTest(String(sessionId), user?.id || null);
+  if (!s) return { s: null };
   if (loginEnabled() && s.userId !== user?.id) throw Object.assign(new Error('not your conversation'), { status: 403 });
   return { s, user };
 }
@@ -89,7 +101,34 @@ async function handleSessionTurn(req, res) {
   const body = await json(req);
   const { s } = await ownSession(req, body.sessionId);
   if (!s) return send(res, 404, { error: 'session not found (it may have expired); start again' });
+  const seq = Number.isInteger(body.seq) && body.seq > 0 ? body.seq : null;
+  if (seq != null && seq <= (s.seq || 0)) {
+    // Sent again: the app didn't get the answer (a weak connection). The same answer, once it is written.
+    if (s.inFlight?.seq === seq) await s.inFlight.done;
+    if (s.lastTurn?.seq === seq) {
+      const again = withTeamData({ ...s.lastTurn.turn, again: true }, makeTrace(), s);
+      if (!/application\/x-ndjson/.test(String(req.headers.accept || ''))) return send(res, 200, again);
+      res.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' });
+      return res.end(`${JSON.stringify({ part: 'turn', ...again })}\n`);
+    }
+    return send(res, 409, { error: 'an earlier turn', seq: s.seq || 0 });
+  }
   if (production && (s.turnCount = (s.turnCount || 0) + 1) > LIMITS.turnsPerSession) return send(res, 429, { error: 'conversation too long' });
+  const before = s.seq || 0;
+  let finished;
+  if (seq != null) { s.seq = seq; s.inFlight = { seq, done: new Promise((ok) => { finished = ok; }) }; }
+  let turn = null;
+  try { turn = await runTurn(req, res, body, s); }
+  finally {
+    if (seq != null) {
+      if (turn) s.lastTurn = { seq, turn }; else s.seq = before; // failed: the same seq may be sent again
+      s.inFlight = null; finished();
+    }
+  }
+}
+
+/** One turn of the test (handleSessionTurn). → the turn sent, or null if it failed after her reaction was sent. */
+async function runTurn(req, res, body, s) {
   const trace = makeTrace();
   trace.add('input', { event: body.event, via: 'transcript from Realtime STT', languageCode: body.languageCode ?? null });
   // An app that asks for the turn in parts gets her reaction as soon as it is known (see the route's note above).
@@ -125,7 +164,8 @@ async function handleSessionTurn(req, res) {
   } catch (e) {
     if (!res.headersSent) throw e; // nothing sent yet: the usual error answer
     console.error(`[turn] failed after her reaction was sent: ${e.message}`);
-    return res.end(`${JSON.stringify({ part: 'error', error: e.message || 'the turn failed', status: e.status || 500 })}\n`);
+    res.end(`${JSON.stringify({ part: 'error', error: e.message || 'the turn failed', status: e.status || 500 })}\n`);
+    return null;
   }
   // The conversation: the voice for every line of her turn is started now, not when the app comes to each line.
   // The app asks for one line at a time, as it reaches it; without this her question would only start being
@@ -145,6 +185,31 @@ async function handleSessionTurn(req, res) {
   diag.record(req, [{ name: 'turn', sid: s.id, data: { event: body.event, serverMs: trace.total(), say: (turn.say || []).map((l) => l.text),
     listen: turn.listen || null, done: turn.done ? { level: turn.done.level } : null, steps: trace.list } }]);
   accounts.afterTurn(s, { event: body.event }); // saved after the reply, so it adds no delay
+  return turn;
+}
+
+/** GET /api/session/resume → { open, sessionId? }: is there a test left midway (for the app's start screen; nothing is said). */
+async function handleOpenTest(req, res) {
+  const { user } = await accounts.identify(req);
+  if (!user?.id) return send(res, 200, { open: false });
+  const s = await resume.findTest({ userId: user.id, sessionId: null, inMemory: getSession });
+  send(res, 200, s && !s.done ? { open: true, sessionId: s.id } : { open: false });
+}
+
+async function handleSessionResume(req, res) {
+  if (!ready()) return send(res, 503, { error: 'Server has no SARVAM_API_KEY' });
+  if (production && spentToday() >= LIMITS.dailyBudgetInr) return send(res, 503, { error: 'busy', reason: 'Sakhi is very busy today. Please try again tomorrow.' });
+  const body = await json(req);
+  const { user } = await accounts.identify(req);
+  if (loginEnabled() && !user?.id) return send(res, 404, { error: 'nothing_to_resume' });
+  const s = await resume.findTest({ userId: user?.id || null, sessionId: body.sessionId ? String(body.sessionId) : null, inMemory: getSession });
+  if (!s) return send(res, 404, { error: 'nothing_to_resume' });
+  const away = Date.now() - (s.at || 0);
+  s.lastTurn = null; // a turn sent again from before the break gets 409: the app goes on from this turn
+  const turn = await resume.resumeTurn(s, away);
+  send(res, 200, withTeamData(turn, makeTrace(), s));
+  diag.record(req, [{ name: 'session.resumed', sid: s.id, data: { awaySec: Math.round(away / 1000), say: turn.say.map((l) => l.text) } }]);
+  accounts.afterTurn(s, { event: 'resume' });
 }
 
 // POST /api/tts/stream {text, lang, pace, sessionId?} → raw 16-bit PCM, mono, streamed as the voice is made (Sakhi's voice: admin settings, "voice").
@@ -296,6 +361,8 @@ export const server = createServer(async (req, res) => {
     if (url.pathname.startsWith('/api/me') || url.pathname === '/api/events') return await handleAccount(req, res, url);
     if (req.method === 'POST' && url.pathname === '/api/session') return await handleSessionStart(req, res);
     if (req.method === 'POST' && url.pathname === '/api/session/turn') return await handleSessionTurn(req, res);
+    if (req.method === 'POST' && url.pathname === '/api/session/resume') return await handleSessionResume(req, res);
+    if (req.method === 'GET' && url.pathname === '/api/session/resume') return await handleOpenTest(req, res);
     if (req.method === 'GET' && url.pathname === '/api/session/cost') {
       const s = getSession(url.searchParams.get('id'));
       return s ? send(res, 200, summarize(s.ledger)) : send(res, 404, { error: 'session not found' });
@@ -347,6 +414,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const expire = () => expireSummaries().then((n) => n && console.log(`[memory] removed ${n} old conversation summaries`)).catch((e) => console.warn('[memory] retention failed:', e.message));
     expire();
     setInterval(expire, 24 * 60 * 60 * 1000).unref();
+    // Tests left midway and not carried on within the window are marked abandoned (for the drop-off numbers).
+    const expireTests = () => store.expireTests(resume.resumeHours()).catch((e) => console.error('[resume] expiring tests failed:', e.message));
+    expireTests(); setInterval(expireTests, 60 * 60 * 1000).unref();
   }
   server.listen(config.port, () => {
     console.log(`AI English Coach on http://localhost:${config.port}${production ? ' (production)' : ''}${ready() ? '' : '  (not ready: SARVAM_API_KEY is not set)'}`);

@@ -80,6 +80,27 @@ level 4."), and says who decided it.
   are a new turn, and the AI is told to judge the parts together as one answer to the earlier question.
 - **"Repeat"** (a button in the team view) says her last question again more slowly, without the AI.
 
+## When the learner leaves midway
+
+Both tests (classic and conversation) can be carried on after a break: the app closed or killed, a phone call, the
+phone locked, a lost connection, or a server release. Code: `server/placement/resume.js`.
+
+- **Saved after every turn.** The test as the server holds it goes to `assessments.state` (migration 011), so it
+  survives the app closing and server releases. It is cleared when the test ends, is abandoned, or the learner's
+  data is erased.
+- **Carrying on.** The app pauses the test when it leaves the screen (it can't listen unseen). On the next tap, it
+  asks `POST /api/session/resume`; Sakhi says "Sorry, we got cut off. Let me ask again." (away under 3 minutes) or
+  "Welcome back, Ravi! Let's carry on from where we stopped." and asks the question they were on again. Half an
+  answer from before the break is not kept. In the conversation test, a line in the talk tells the AI about the break.
+- **The window.** Settings › Limits › "Hours a learner can carry on a test" (`resumeHours`, 24; 0 turns it off).
+  Only a test with at least one answer is carried on. After the window, or when the learner taps **Start over**
+  (a new `POST /api/session`), the old test is marked `abandoned`.
+- **Weak connections.** Each turn carries its number (`seq`). The app sends a turn again after 1, 2 and 4 seconds
+  ("Reconnecting…"); the server answers a turn it has already handled with the same reply, so an answer is never
+  counted twice.
+- **Numbers.** Admin › Overview shows where placement tests are left (after how many answers) and how many were
+  carried on after a break.
+
 ## When the learner talks over Sakhi
 
 The app tells the server how far into her turn she was when they started talking. The talk is never rewritten:

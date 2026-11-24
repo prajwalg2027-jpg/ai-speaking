@@ -121,6 +121,8 @@ export const SECTIONS = {
       turnsPerSession: z.number().int().min(5).max(1000),
       listenSecPerSession: z.number().int().min(60).max(36_000),
       learnMessagesPerDay: z.number().int().min(10).max(100_000),
+      // A placement test left midway (app closed, connection lost) can be carried on for this many hours; 0 = always start again.
+      resumeHours: z.number().int().min(0).max(168).default(24),
     }),
     defaults: {
       dailyBudgetInr: num('SAKHI_DAILY_BUDGET_INR', 3000),
@@ -128,6 +130,7 @@ export const SECTIONS = {
       turnsPerSession: num('SAKHI_TURNS_PER_SESSION', 80),
       listenSecPerSession: num('SAKHI_LISTEN_SEC_PER_SESSION', 20 * 60),
       learnMessagesPerDay: num('SAKHI_LEARN_MESSAGES_PER_DAY', 400),
+      resumeHours: 24,
     },
   },
   payments: {

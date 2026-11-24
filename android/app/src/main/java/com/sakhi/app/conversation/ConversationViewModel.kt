@@ -69,6 +69,10 @@ data class UiState(
     val waitNudge: Boolean = false,
     val notice: Boolean = false,
     val result: Result? = null,
+    /** A test left midway can be carried on: the orb continues it, and "Start over" begins a new one. */
+    val canResume: Boolean = false,
+    /** Sakhi's reply didn't arrive: the turn is being sent again. */
+    val reconnecting: Boolean = false,
 )
 
 /**
@@ -94,6 +98,10 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
 
     private var job: Job? = null
     private var sessionId: String? = null
+    /** The number of the last turn sent in this test (the server answers a turn sent twice only once). */
+    private var seq = 0
+    /** The learner chose "Start over": the next start is a new test, not the one left midway. */
+    private var fresh = false
     private var collector: AnswerCollector? = null
     @Volatile private var bargeInAt: Long? = null
     private var tapInterrupt = false
@@ -125,7 +133,22 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
         }
     }
 
-    fun restart() { stop(); _state.value = UiState(); start() }
+    fun restart() { stop(); fresh = true; _state.value = UiState(); start() }
+
+    /** "Start over": leave the test they were in (the server abandons it when the new one starts). */
+    fun startOver() {
+        Diag.log("conv", "start_over")
+        restart()
+    }
+
+    /** On the start screen: is there a test left midway (closed app, lost connection) to carry on? */
+    fun checkResume() {
+        if (_state.value.session != SessionState.IDLE || job?.isActive == true) return
+        viewModelScope.launch {
+            val open = runCatching { c.api.openTest().open }.getOrDefault(false)
+            if (_state.value.session == SessionState.IDLE && job?.isActive != true) _state.update { it.copy(canResume = open || it.canResume) }
+        }
+    }
 
     /** Report what Sakhi said ([AiReport.kt]). Sent at once, not best effort: the person is told if it didn't arrive. */
     suspend fun report(text: String, reason: ReportReason): Boolean = try {
@@ -138,19 +161,22 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
         false
     }
 
-    /** The app went to the background: a voice conversation can't continue unseen, so it stops. */
+    /**
+     * The app went to the background (or a call took the sound): a voice conversation can't continue unseen, so it
+     * pauses. The server keeps the test; a tap on the orb carries it on, and Sakhi asks her question again.
+     */
     fun onBackgrounded() {
         if (_state.value.session != SessionState.LIVE) return
-        Diag.log("conv", "stopped", "why" to "app in background")
+        Diag.log("conv", "paused", "why" to "app in background", "seq" to seq)
         stop()
-        _state.update { it.copy(session = SessionState.IDLE, phase = Phase.IDLE, notice = false) }
+        _state.update { it.copy(session = SessionState.IDLE, phase = Phase.IDLE, notice = false, reconnecting = false, canResume = sessionId != null && seq > 0) }
     }
 
     // ---------- the conversation ----------
 
     private fun start() {
         if (job?.isActive == true) return
-        _state.update { it.copy(notice = false, session = SessionState.LIVE, phase = Phase.THINKING) }
+        _state.update { it.copy(notice = false, session = SessionState.LIVE, phase = Phase.THINKING, canResume = false, reconnecting = false) }
         job = viewModelScope.launch {
             try {
                 Diag.log("conv", "start")
@@ -168,20 +194,28 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
                 stop()
                 val refused = e as? ServerException
                 if (refused != null && (refused.status == 401 || refused.error == "consent_required")) c.refusals.tryEmit(refused)
-                _state.update { it.copy(session = SessionState.IDLE, phase = Phase.IDLE, notice = refused == null || refused.status >= 500) }
+                // The test is gone on the server (404: too long ago, or started over): the next tap starts a new one.
+                if (refused?.status == 404) { sessionId = null; seq = 0 }
+                _state.update { it.copy(session = SessionState.IDLE, phase = Phase.IDLE, notice = refused == null || refused.status >= 500, reconnecting = false,
+                    canResume = sessionId != null && seq > 0) }
             }
         }
     }
 
     private suspend fun run() {
-        var turn = c.api.startSession()
+        // Carry on the test left midway (the server knows the learner's latest), unless they chose to start over.
+        val resumed = if (fresh) null else c.api.resumeSession(sessionId)
+        fresh = false
+        var turn = resumed ?: c.api.startSession()
+        seq = if (resumed != null) resumed.seq ?: seq else 0
+        if (resumed != null) Diag.log("conv", "resumed", "seq" to seq, "lines" to resumed.say.map { it.text })
         sessionId = turn.sessionId
         Diag.session = turn.sessionId
         Diag.log("conv", "session", "lines" to turn.say.size)
-        c.events.log("assessment.opened", sessionId = turn.sessionId)
+        c.events.log(if (resumed != null) "assessment.resumed" else "assessment.opened", sessionId = turn.sessionId)
         live.bind(turn.sessionId)
         thinking()
-        delay(500)
+        if (resumed == null) delay(500)
         // Lines of this turn that were said before the whole turn arrived (Sakhi's reaction, sent ahead by the
         // server), and where the learner talked over one of them.
         var said = 0
@@ -214,11 +248,12 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
             val (ans, timing) = listen(turn.listen ?: ListenSpec())
             Diag.log("conv", "answer", "end" to ans.end, "transcript" to ans.transcript, "language" to ans.language, "speechSec" to ans.speechSec,
                 "spoke" to ans.spoke, "spanSec" to timing?.spanSec, "voicedSec" to timing?.voicedSec, "pauses" to timing?.pauses?.size, "interrupted" to interrupted?.index)
+            val n = ++seq
             val req = when (ans.end) {
-                AnswerEnd.NO_SPEECH -> TurnRequest(turn.sessionId, "no_speech")
-                AnswerEnd.LIVE_FAILED -> TurnRequest(turn.sessionId, "live_failed")
+                AnswerEnd.NO_SPEECH -> TurnRequest(turn.sessionId, "no_speech", seq = n)
+                AnswerEnd.LIVE_FAILED -> TurnRequest(turn.sessionId, "live_failed", seq = n)
                 else -> TurnRequest(turn.sessionId, "answer", ans.transcript, ans.language, ans.speechSec,
-                    timing?.let { Timing(it.spanSec, it.voicedSec, it.pauses) }, interrupted)
+                    timing?.let { Timing(it.spanSec, it.voicedSec, it.pauses) }, interrupted, seq = n)
             }
             if (req.event == "answer" && !req.transcript.isNullOrBlank()) _state.update { s -> s.copy(card = s.card?.copy(answered = true)) }
             val words = req.transcript?.trim()?.split(Regex("\\s+"))?.count { it.isNotEmpty() } ?: 0
@@ -231,8 +266,9 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
             val ahead = CompletableDeferred<List<Line>>()
             val sentAt = now()
             val whole = viewModelScope.async {
-                try { c.api.turn(req) { Diag.log("conv", "turn.reply", "ms" to now() - sentAt, "lines" to it.map { l -> l.text }); ahead.complete(it) } }
-                finally { ahead.complete(emptyList()) }
+                try {
+                    withRetries { c.api.turn(req) { Diag.log("conv", "turn.reply", "ms" to now() - sentAt, "lines" to it.map { l -> l.text }); ahead.complete(it) } }
+                } finally { ahead.complete(emptyList()) }
             }
             var head = ahead.await() // her reaction, or nothing: then the whole turn has arrived (or failed)
             replied = true
@@ -255,11 +291,34 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
         }
     }
 
+    /**
+     * A turn sent again when the connection fails (the same seq, so the server counts it once): after 1, 2 and 4
+     * seconds, with "Reconnecting…" on the screen. A refusal (4xx) is not retried.
+     */
+    private suspend fun <T> withRetries(block: suspend () -> T): T {
+        var wait = 1000L
+        repeat(RETRIES) { attempt ->
+            try {
+                return block().also { _state.update { s -> s.copy(reconnecting = false) } }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                val status = (e as? ServerException)?.status ?: 0
+                if (status in 400..499) throw e
+                Diag.log("conv", "turn.retry", "attempt" to attempt + 1, "why" to e.message)
+                _state.update { it.copy(reconnecting = true) }
+                delay(wait); wait *= 2
+            }
+        }
+        return block().also { _state.update { s -> s.copy(reconnecting = false) } }
+    }
+
     private fun showResult(r: Result) {
         Diag.log("conv", "result", "level" to r.level)
         c.events.log("result.viewed", mapOf("level" to r.level.toString()), sessionId)
         exitCard()
-        _state.update { it.copy(session = SessionState.RESULT, phase = Phase.IDLE, result = r) }
+        sessionId = null; seq = 0 // finished: nothing to carry on
+        _state.update { it.copy(session = SessionState.RESULT, phase = Phase.IDLE, result = r, canResume = false, reconnecting = false) }
         stopAudio()
     }
 
@@ -455,5 +514,6 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
     private companion object {
         const val TAG = "Sakhi"
         const val MAX_MESSAGES = 9
+        const val RETRIES = 3
     }
 }

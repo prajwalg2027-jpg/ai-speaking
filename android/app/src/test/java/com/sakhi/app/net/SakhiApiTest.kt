@@ -61,6 +61,23 @@ class SakhiApiTest {
         assertTrue(runCatching { api.turn(TurnRequest("s", "answer", "hi")) }.exceptionOrNull() is java.io.IOException)
     }
 
+    @Test fun `carrying on a test left midway: the turn, or null when there is nothing to carry on`() = runTest {
+        val turn = javaClass.classLoader!!.getResource("turn_followup.json")!!.readText().trim().removeSuffix("}") + ""","resumed":true,"seq":2}"""
+        server.enqueue(MockResponse.Builder().headers(headersOf("Content-Type", "application/json")).body(turn).build())
+        val t = api.resumeSession("abc")
+        val req = server.takeRequest()
+        assertEquals("/api/session/resume", req.url.encodedPath)
+        assertEquals("""{"sessionId":"abc"}""", req.body!!.utf8())
+        assertTrue(t != null && t.resumed && t.seq == 2)
+        server.enqueue(MockResponse.Builder().code(404).body("""{"error":"nothing_to_resume"}""").build())
+        assertEquals(null, api.resumeSession(null))
+        assertEquals("{}", server.takeRequest().body!!.utf8())
+        // A turn carries its number, so one sent twice is answered once.
+        server.enqueue(MockResponse.Builder().body(javaClass.classLoader!!.getResource("turn_followup.json")!!.readText()).build())
+        api.turn(TurnRequest("s", "skip", seq = 3))
+        assertTrue(server.takeRequest().body!!.utf8().contains("\"seq\":3"))
+    }
+
     @Test fun `Sakhi's voice streams as raw PCM with its sample rate`() = runTest {
         val pcm = ByteArray(960) { it.toByte() }
         server.enqueue(MockResponse.Builder().headers(headersOf("x-sample-rate", "22050", "x-tts-cached", "true")).body(Buffer().write(pcm)).build())

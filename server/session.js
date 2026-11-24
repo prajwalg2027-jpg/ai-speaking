@@ -117,6 +117,28 @@ export function scriptedLines() {
 
 // ---- session lifecycle ------------------------------------------------------------
 export const getSession = (id) => sessions.get(id);
+/** A test brought back from the database (server/placement/resume.js). */
+export const adopt = (s) => { sessions.set(s.id, s); return s; };
+/** The server lets go of a test (as a release does); tests. */
+export const forget = (id) => sessions.delete(id);
+
+/**
+ * The learner is back after a break (the app was closed, the connection lost): `welcome` (Sakhi's lines), then
+ * the question they were on, asked again: her last lines from where the question starts.
+ */
+export function resumeTurn(s, welcome) {
+  s.at = Date.now(); s.prev = null;
+  if (s.done) return respond(s, [], { done: s.result });
+  const ask = current(s).ask, last = s.lastSay?.lines || [];
+  let again = null;
+  if (ask) {
+    const head = ask.slice(0, 24);
+    const i = last.findIndex((l) => l.text.includes(head));
+    if (i >= 0) again = [{ ...last[i], text: last[i].text.slice(last[i].text.indexOf(head)) }, ...last.slice(i + 1)];
+  }
+  if (!again) again = [line(ask || current(s).scripted)];
+  return respond(s, [...welcome, ...again]);
+}
 
 export function startSession() {
   const s = {

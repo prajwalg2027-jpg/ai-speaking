@@ -3,6 +3,7 @@
 import * as settings from '../settings.js';
 import * as classic from '../session.js';
 import * as conversation from './conversation.js';
+import { fixedWelcomeLines } from './resume.js';
 
 export const getSession = (id) => classic.getSession(id) || conversation.getSession(id);
 export const startSession = () => (settings.get('placement').mode === 'conversation' ? conversation.startSession() : classic.startSession());
@@ -10,6 +11,6 @@ export const startSession = () => (settings.get('placement').mode === 'conversat
 export const handleTurn = (s, input, trace, opts = {}) => (s.mode === 'conversation' ? conversation.handleTurn(s, input, trace, opts) : classic.handleTurn(s, input, trace));
 /** The fixed lines of both tests (generated ahead; always allowed to be spoken). */
 export function scriptedLines() {
-  const all = [...conversation.scriptedLines(), ...classic.scriptedLines()]; // the conversation (the default) first: its lines are made first
+  const all = [...conversation.scriptedLines(), ...classic.scriptedLines(), ...fixedWelcomeLines()]; // the conversation (the default) first: its lines are made first
   return [...new Map(all.map((l) => [`${l.text}|${l.pace}`, l])).values()];
 }

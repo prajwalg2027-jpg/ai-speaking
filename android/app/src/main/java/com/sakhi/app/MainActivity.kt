@@ -149,6 +149,8 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                     return@SakhiTheme
                 }
                 val state by vm.state.collectAsStateWithLifecycle()
+                // A test left midway (the app was closed, the connection lost): the orb carries it on.
+                LaunchedEffect(Unit) { vm.checkResume() }
                 // The learning area (practice, lessons, progress) or the placement test.
                 var inLearn by rememberSaveable { mutableStateOf(false) }
                 val openLearn = { payVm.dismiss(); vm.onBackgrounded(); inLearn = true; learnVm.loadHome() }
@@ -188,6 +190,7 @@ class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
                     onAccount = if (container.auth.configured) ({ payVm.loadAccount(); accountOpen = true }) else null,
                     onStartLearning = payVm::open,
                     onReport = { reportText = it },
+                    onStartOver = { if (hasMic()) vm.startOver() else ask.launch(Manifest.permission.RECORD_AUDIO) },
                     onAllowMic = {
                         if (hasMic()) { micBlocked = false; vm.onOrbTap() }
                         else if (shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)) ask.launch(Manifest.permission.RECORD_AUDIO)

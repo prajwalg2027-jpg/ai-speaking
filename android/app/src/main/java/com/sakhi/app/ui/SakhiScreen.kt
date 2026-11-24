@@ -94,6 +94,7 @@ fun SakhiScreen(
     onAccount: (() -> Unit)? = null,
     onStartLearning: () -> Unit = {},
     onReport: (String) -> Unit = {},
+    onStartOver: () -> Unit = {},
 ) {
     val c = Sakhi.colors
     Box(
@@ -128,6 +129,10 @@ fun SakhiScreen(
                 )
             }
             Hint(state)
+            // A test left midway: the orb carries it on; this begins a new one.
+            AnimatedVisibility(state.session == SessionState.IDLE && state.canResume) {
+                TextButton(onStartOver, Modifier.fillMaxWidth()) { Text("Start over · फिर से शुरू करें", color = c.ink2) }
+            }
             Spacer(Modifier.height(12.dp))
         }
     }

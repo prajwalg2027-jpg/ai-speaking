@@ -1,6 +1,7 @@
 // The customer side of the server: who is calling (phone login), their profile and consents, the app's
 // event log, erasure, and saving each placement test as it happens (server/store.js).
 import * as store from './store.js';
+import { freeze } from './placement/resume.js';
 import * as recordings from './recordings.js';
 import { caller, loginEnabled } from './auth.js';
 import { summarize } from './costs.js';
@@ -80,6 +81,7 @@ export async function testStarted(s, { user, client, appVersion }) {
   s.saved = new WeakSet(); s.factsSaved = '[]'; s.nameSaved = null;
   if (s.userId) s.recordConsent = (await store.currentConsents(s.userId)).recordings === true;
   await store.startAssessment({ userId: s.userId, sessionId: s.id, client, appVersion, scoringConfig: SCORING });
+  await store.saveTestState(s.id, freeze(s)); // from the first turn, so a test cut short can be carried on
   await store.addEvent({ userId: s.userId, name: 'assessment.started', sessionId: s.id, properties: { client } });
 }
 
@@ -115,4 +117,6 @@ async function saveTurn(s, input) {
     s.resultSaved = true;
     await store.finishAssessment(s.id, s.result, summarize(s.ledger).totalInr);
   }
+  // The test so far, so the learner can carry it on after a break (server/placement/resume.js).
+  else if (!s.done) await store.saveTestState(s.id, freeze(s));
 }

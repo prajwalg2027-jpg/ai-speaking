@@ -47,7 +47,16 @@ data class Turn(
     val listen: ListenSpec? = null,
     val task: TaskInfo? = null,
     val done: Result? = null,
+    /** A test carried on after a break (POST /api/session/resume): [seq] is the last turn the server has. */
+    val resumed: Boolean = false,
+    val seq: Int? = null,
 )
+
+/** A test left midway, to carry on (POST /api/session/resume); without [sessionId], the learner's latest one. */
+@Serializable data class ResumeRequest(val sessionId: String? = null)
+
+/** GET /api/session/resume: is there a test left midway that can be carried on? */
+@Serializable data class OpenTest(val open: Boolean = false, val sessionId: String? = null)
 
 /** Sakhi's reaction, sent ahead of the rest of her turn (see [SakhiApi.turn]). */
 @Serializable data class TurnReply(val say: List<Line> = emptyList())
@@ -65,6 +74,8 @@ data class TurnRequest(
     val speechSec: Double? = null,
     val timing: Timing? = null,
     val interrupted: Interrupted? = null,
+    /** The turn's number in the test: a turn sent again (a weak connection) with the same number is answered once. */
+    val seq: Int? = null,
 )
 
 @Serializable data class ServerStatus(val ready: Boolean = false, val reason: String? = null)
