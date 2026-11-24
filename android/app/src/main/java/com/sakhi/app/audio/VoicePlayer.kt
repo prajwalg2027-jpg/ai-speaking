@@ -20,7 +20,8 @@ import kotlin.math.sqrt
  */
 class VoicePlayer {
     enum class Stop { BARGE_IN, APP }
-    data class Outcome(val stoppedBy: Stop?, val heardSec: Double, val totalSec: Double)
+    /** [stalled]: the voice stopped arriving mid-line (the voice service throttled or hung), so the line was cut short. */
+    data class Outcome(val stoppedBy: Stop?, val heardSec: Double, val totalSec: Double, val stalled: Boolean = false)
     data class Progress(val playedSec: Double, val receivedSec: Double, val complete: Boolean, val level: Float)
 
     /** The learner talked over Sakhi; called on the mic thread with when their speech began. */
@@ -77,10 +78,19 @@ class VoicePlayer {
         var complete = false
         var started = false
         var heardFrames = 0L
+        @Volatile var lastBytesAt = SystemClock.elapsedRealtime()
+        @Volatile var stalled = false
         try {
             coroutineScope {
                 val ticker = launch {
                     while (isActive) {
+                        // No audio for a while and nothing left to play: the voice service has stalled. Give up on
+                        // the line (closing the stream ends the read) rather than sit silent until the server times out.
+                        if (!complete && !stalled && SystemClock.elapsedRealtime() - lastBytesAt > STALL_MS &&
+                            (!started || (track.playbackHeadPosition.toLong() and 0xFFFFFFFFL) >= framesWritten)) {
+                            stalled = true
+                            runCatching { stream.close() }
+                        }
                         if (started) {
                             val head = track.playbackHeadPosition.toLong() and 0xFFFFFFFFL
                             val idx = (head / levelStep).toInt()
@@ -96,6 +106,7 @@ class VoicePlayer {
                 read@ while (a.stoppedBy == null) {
                     val n = runCatching { stream.read(buf) }.getOrElse { -1 }
                     if (n < 0) break
+                    lastBytesAt = SystemClock.elapsedRealtime()
                     var bytes = buf.copyOf(n)
                     if (carry >= 0) { bytes = byteArrayOf(carry.toByte()) + bytes; carry = -1 }
                     if (bytes.size % 2 == 1) { carry = bytes.last().toInt() and 0xFF; bytes = bytes.copyOf(bytes.size - 1) }
@@ -130,6 +141,11 @@ class VoicePlayer {
             runCatching { stream.close() }
         }
         val total = framesWritten.toDouble() / sampleRate
-        Outcome(a.stoppedBy, minOf(total, heardFrames.toDouble() / sampleRate), total)
+        Outcome(a.stoppedBy, minOf(total, heardFrames.toDouble() / sampleRate), total, stalled && a.stoppedBy == null)
+    }
+
+    companion object {
+        /** How long a line may go without new audio, once what arrived has played, before it is given up. */
+        const val STALL_MS = 3_000L
     }
 }

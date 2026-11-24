@@ -174,7 +174,6 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
     }
 
     private suspend fun run() {
-        backchannels = viewModelScope.async { loadBackchannels() }
         var turn = c.api.startSession()
         sessionId = turn.sessionId
         Diag.session = turn.sessionId
@@ -282,7 +281,7 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
                 }
             }
             _level.value = 0f
-            Diag.log("voice", "done", "ms" to now() - asked, "stoppedBy" to out.stoppedBy, "tap" to tapInterrupt, "heardSec" to out.heardSec, "totalSec" to out.totalSec, "wordsShown" to shown, "words" to reveal.words.size)
+            Diag.log("voice", "done", "ms" to now() - asked, "stoppedBy" to out.stoppedBy, "tap" to tapInterrupt, "heardSec" to out.heardSec, "totalSec" to out.totalSec, "stalled" to out.stalled, "wordsShown" to shown, "words" to reveal.words.size)
             val cut = out.stoppedBy == VoicePlayer.Stop.BARGE_IN || (out.stoppedBy != null && tapInterrupt)
             if (cut) {
                 updateMessage(id) { it.copy(shown = maxOf(1, shown), words = it.words.take(maxOf(1, shown)), cut = true) }
@@ -303,6 +302,9 @@ class ConversationViewModel(app: Application, private val c: AppContainer) : And
     // ---------- listening ----------
 
     private suspend fun listen(spec: ListenSpec): Pair<CollectedAnswer, com.sakhi.app.audio.SpeechTiming?> {
+        // The quick "Mm-hmm"s are fetched once Sakhi's greeting is over, not with it: the Google voice allows only a
+        // few requests a minute, and the greeting's own lines must come first.
+        if (backchannels == null) backchannels = viewModelScope.async { loadBackchannels() }
         if (bargeInAt == null) haptics.yourTurn() // after an interruption they're already talking
         setPhase(Phase.LISTENING)
         val bubbleId = youLive()
