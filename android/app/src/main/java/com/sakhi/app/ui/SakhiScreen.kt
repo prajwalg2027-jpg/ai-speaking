@@ -160,7 +160,7 @@ private fun Header(onLongPress: (() -> Unit)?, onAccount: (() -> Unit)?) {
 @Composable
 private fun Conversation(messages: List<Message>, onReport: (String) -> Unit, modifier: Modifier) {
     val list = rememberLazyListState()
-    LaunchedEffect(messages.size, messages.lastOrNull()?.text) { if (messages.isNotEmpty()) list.animateScrollToItem(messages.size - 1) }
+    FollowNewest(list, messages.lastOrNull()?.id)
     val lastSakhi = messages.lastOrNull { it.fromSakhi }?.id
     val lastYou = messages.lastOrNull { !it.fromSakhi }?.id
     LazyColumn(modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }, state = list, verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom)) {

@@ -221,8 +221,7 @@ private fun ChatView(s: ChatState, micLevel: () -> Float, a: LearnActions, modif
     val c = Sakhi.colors
     Column(modifier.fillMaxWidth().imePadding()) {
         val list = rememberLazyListState()
-        val count = s.items.size + (if (s.thinking) 1 else 0)
-        LaunchedEffect(count, s.items.lastOrNull()?.corrections?.size) { if (count > 0) list.animateScrollToItem(count - 1) }
+        FollowNewest(list, if (s.thinking) "thinking" else s.items.lastOrNull()?.key)
         if (s.loading) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = c.accent) }
         else LazyColumn(Modifier.weight(1f).fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }, state = list,
             verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom)) {
