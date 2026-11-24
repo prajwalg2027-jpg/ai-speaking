@@ -46,7 +46,8 @@ import kotlin.random.Random
  * in public/styles.css (the look). An ember glass ball (swirling silk, folds, sheen, highlight) with a teal tint
  * cloud that clings to the glass wall and drifts with Sakhi's voice. On the learner's turn the cloud slides down
  * and pours into teal liquid that rises with their voice (the hand-off); when Sakhi takes the turn back, the
- * cloud reappears at a fresh spot on the wall. Thinking spins the ball inside a turning teal aura.
+ * cloud reappears at a fresh spot on the wall. While she thinks, the glass stays still: the molten colours and the
+ * cloud swirl faster inside it, and the ball breathes slowly with its glow (the shine never turns).
  *
  * Sizes are the design's pixels on its 200 px orb, scaled to this one. CSS blurs are drawn as soft gradients
  * (they work on every Android version), and the soft-light/overlay blends as plain see-through white.
@@ -129,24 +130,19 @@ private fun DrawScope.drawOrb(o: OrbSim, p: OrbPaint, animated: Boolean, breathi
     val breathe = if (breathing) 1f + 0.02f * (1 - cos(t / 4.2f * 2 * PI.toFloat())) else 1f
 
     scale(breathe, breathe, center) {
-        // Behind the glass: the ember glow (grows with the voice), and the teal aura that turns while she thinks.
-        val gA = 76f * u * (0.95f + o.lvl * 0.35f)
+        // Behind the glass: the ember glow. It grows with the voice, and brightens with each breath while she thinks.
+        val breath = if (animated) o.breath else 0.5f
+        val gA = 76f * u * (0.95f + o.lvl * 0.35f + o.think * breath * 0.1f)
         softConic(
             center + Offset(0f, 12f * u), gA, 32f * u, -90f,
             listOf(0f to p.accent, 0.33f to p.accentDeep, 0.66f to Amber, 1f to p.accent),
-            (0.35f + o.lvl * 0.55f) * (1 - o.think),
-        )
-        val gT = 88f * u * (1 + o.think * 0.12f)
-        softConic(
-            center, gT, 32f * u, o.aura - 90f,
-            listOf(0f to p.accent, 0.3f to p.accent.copy(alpha = 0f), 0.3f to p.accent2.copy(alpha = 0f), 0.5f to p.accent2,
-                0.8f to p.accent2.copy(alpha = 0f), 0.8f to p.accent.copy(alpha = 0f), 1f to p.accent),
-            o.think * 0.7f,
+            (0.35f + o.lvl * 0.55f) * (1 - o.think * 0.45f) + o.think * breath * 0.25f,
         )
 
-        // The glass ball: pulses with the level and the hand-off, spins while thinking, and its outline morphs.
-        val sc = 0.94f + o.lvl * 0.3f + o.hpulse * 0.05f
-        withTransform({ scale(sc, sc, center); rotate(o.bspin, center) }) {
+        // The glass ball: pulses with the level and the hand-off, breathes while thinking, and its outline morphs.
+        // It never turns, so its shine stays where the light is.
+        val sc = 0.94f + o.lvl * 0.3f + o.hpulse * 0.05f + o.think * (breath * 0.08f - 0.02f)
+        scale(sc, sc, center) {
             val b = 164f * u // the ball's box (inset 9%)
             val tl = center - Offset(b / 2, b / 2)
             val ball = blobPath(center, b / 2, if (animated) t else null)
@@ -186,7 +182,7 @@ private fun DrawScope.silk(o: OrbSim, p: OrbPaint, tl: Offset, b: Float, center:
             val d = pool.s / 100 * w
             val k = if (animated) keyframe(pool.flow, t + pool.delay, pool.period) else Key(0f, 0f, 0f, 1f)
             val pc = stl + Offset((pool.l + pool.s / 2) / 100 * w + k.x / 100 * d, (pool.t + pool.s / 2) / 100 * w + k.y / 100 * d)
-            softDisk(pc, d / 2 * k.s * (1 - o.think * 0.3f), 16f * u, pool.color(p))
+            softDisk(pc, d / 2 * k.s, 16f * u, pool.color(p))
         }
     }
 }
@@ -366,8 +362,8 @@ internal class OrbSim(private val rnd: Random = Random.Default) {
     var hpulse = 0f; private set
     var turn = 0f; private set
     var think = 0f; private set
-    var aura = 0f; private set
-    var bspin = 0f; private set
+    /** 0..1, one slow breath every 1.8 s; the ball uses it while thinking. */
+    var breath = 0f; private set
     var rx2 = 1f; private set
     var ry2 = 1f; private set
     val cx = FloatArray(14); val cy = FloatArray(14)
@@ -388,12 +384,11 @@ internal class OrbSim(private val rnd: Random = Random.Default) {
         time += dt
         val tgt = when (phase) { Phase.THINKING -> 0.12f; Phase.IDLE -> 0f; else -> target.coerceIn(0f, 1f) }
         lvl += (tgt - lvl) * (if (tgt > lvl) 0.38f else 0.14f)
-        val speed = when (phase) { Phase.IDLE -> 16f; Phase.SPEAKING -> 51f; Phase.LISTENING -> 22f; Phase.THINKING -> 60f }
+        val speed = when (phase) { Phase.IDLE -> 16f; Phase.SPEAKING -> 51f; Phase.LISTENING -> 22f; Phase.THINKING -> 170f }
         tsp += (speed - tsp) * min(1f, dt * 2.5f)
         turn = (turn + tsp * dt) % 360f
         think += ((if (phase == Phase.THINKING) 1f else 0f) - think) * min(1f, dt * 5f)
-        aura = (aura + (30f + think * 120f) * dt) % 360f
-        bspin = (bspin + think * 140f * dt) % 360f
+        breath = 0.5f - 0.5f * cos(time / 1.8f * 2 * PI.toFloat())
         fluid(dt, phase)
     }
 
@@ -427,7 +422,7 @@ internal class OrbSim(private val rnd: Random = Random.Default) {
         val h = handRaw.coerceIn(0f, 1.08f)
         if (h < 0.5f) {
             angV += (g() * 46 * energy - 0.7f * angV + (if (kick != 0f) g() * kick * 0.6f else 0f)) * dt
-            angV = cl(angV, 70f); angA = (angA + angV * dt) % 360f
+            angV = cl(angV, 70f); angA = (angA + (angV + think * 150f) * dt) % 360f // the cloud swirls round while she thinks
         }
         val d = ((180f - angA) % 360f + 540f) % 360f - 180f
         val e = min(1f, h)
@@ -447,7 +442,7 @@ internal class OrbSim(private val rnd: Random = Random.Default) {
         cang = if (phase == Phase.LISTENING) 180f else 0f
         spk = if (phase == Phase.SPEAKING) 0.3f else 0f
         think = if (phase == Phase.THINKING) 1f else 0f
-        hpulse = 0f; turn = 0f; aura = 0f; bspin = 0f; rx2 = 1f; ry2 = 1f
+        hpulse = 0f; turn = 0f; breath = 0.5f; rx2 = 1f; ry2 = 1f
         cx.fill(0f); cy.fill(0f); cs.fill(1f); ct.fill(1f)
     }
 }
