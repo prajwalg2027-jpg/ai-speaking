@@ -1,0 +1,398 @@
+{
+ "status": "ready",
+ "level": 3,
+ "counts": {
+  "answers": 3,
+  "englishWords": 51,
+  "longestAnswer": 19,
+  "joiningWords": [
+   "and",
+   "because",
+   "then"
+  ],
+  "hindiWords": 0
+ },
+ "answers": [
+  {
+   "i": 1,
+   "question": "What did you do this morning?",
+   "said": "I wake up at six and I make tea for my family, then I go to shop.",
+   "better": "I woke up at six and made tea for my family, then I went to the shop.",
+   "same": false,
+   "diff": [
+    {
+     "t": "I",
+     "k": "same"
+    },
+    {
+     "t": "wake",
+     "k": "del"
+    },
+    {
+     "t": "woke",
+     "k": "add"
+    },
+    {
+     "t": "up at six and",
+     "k": "same"
+    },
+    {
+     "t": "I make",
+     "k": "del"
+    },
+    {
+     "t": "made",
+     "k": "add"
+    },
+    {
+     "t": "tea for my family, then I",
+     "k": "same"
+    },
+    {
+     "t": "go",
+     "k": "del"
+    },
+    {
+     "t": "went",
+     "k": "add"
+    },
+    {
+     "t": "to",
+     "k": "same"
+    },
+    {
+     "t": "the",
+     "k": "add"
+    },
+    {
+     "t": "shop.",
+     "k": "same"
+    }
+   ],
+   "why": "It already happened this morning, so: wake → woke, make → made, go → went.",
+   "up": "I woke up at six, made tea for the whole family, and then headed to the shop.",
+   "upDiff": [
+    {
+     "t": "I woke up at six,",
+     "k": "same"
+    },
+    {
+     "t": "and",
+     "k": "del"
+    },
+    {
+     "t": "made tea for",
+     "k": "same"
+    },
+    {
+     "t": "my",
+     "k": "del"
+    },
+    {
+     "t": "the whole",
+     "k": "add"
+    },
+    {
+     "t": "family,",
+     "k": "same"
+    },
+    {
+     "t": "and",
+     "k": "add"
+    },
+    {
+     "t": "then",
+     "k": "same"
+    },
+    {
+     "t": "I went",
+     "k": "del"
+    },
+    {
+     "t": "headed",
+     "k": "add"
+    },
+    {
+     "t": "to the shop.",
+     "k": "same"
+    }
+   ],
+   "upAdds": [
+    "richer words",
+    "natural phrase"
+   ]
+  },
+  {
+   "i": 2,
+   "question": "Why do you like your work?",
+   "said": "I like because I meet many peoples and I am talking with them whole day.",
+   "better": "I like it because I meet many people and I talk with them all day.",
+   "same": false,
+   "diff": [
+    {
+     "t": "I like",
+     "k": "same"
+    },
+    {
+     "t": "it",
+     "k": "add"
+    },
+    {
+     "t": "because I meet many",
+     "k": "same"
+    },
+    {
+     "t": "peoples",
+     "k": "del"
+    },
+    {
+     "t": "people",
+     "k": "add"
+    },
+    {
+     "t": "and I",
+     "k": "same"
+    },
+    {
+     "t": "am talking",
+     "k": "del"
+    },
+    {
+     "t": "talk",
+     "k": "add"
+    },
+    {
+     "t": "with them",
+     "k": "same"
+    },
+    {
+     "t": "whole",
+     "k": "del"
+    },
+    {
+     "t": "all",
+     "k": "add"
+    },
+    {
+     "t": "day.",
+     "k": "same"
+    }
+   ],
+   "why": "Say 'people' (never 'peoples'), and 'I talk' for every day.",
+   "up": "I like it because I meet so many people, and I spend the whole day chatting with them. It never gets boring.",
+   "upDiff": [
+    {
+     "t": "I like it because I meet",
+     "k": "same"
+    },
+    {
+     "t": "so",
+     "k": "add"
+    },
+    {
+     "t": "many people, and I",
+     "k": "same"
+    },
+    {
+     "t": "talk",
+     "k": "del"
+    },
+    {
+     "t": "spend the whole day chatting",
+     "k": "add"
+    },
+    {
+     "t": "with them.",
+     "k": "same"
+    },
+    {
+     "t": "all day.",
+     "k": "del"
+    },
+    {
+     "t": "It never gets boring.",
+     "k": "add"
+    }
+   ],
+   "upAdds": [
+    "richer words",
+    "an extra idea"
+   ]
+  },
+  {
+   "i": 3,
+   "question": "What would you do on a free day?",
+   "said": "I will go to my village and meet my mother, because I am not seeing her since two months.",
+   "better": "I will go to my village and meet my mother, because I haven't seen her for two months.",
+   "same": false,
+   "diff": [
+    {
+     "t": "I will go to my village and meet my mother, because I",
+     "k": "same"
+    },
+    {
+     "t": "am not seeing",
+     "k": "del"
+    },
+    {
+     "t": "haven't seen",
+     "k": "add"
+    },
+    {
+     "t": "her",
+     "k": "same"
+    },
+    {
+     "t": "since",
+     "k": "del"
+    },
+    {
+     "t": "for",
+     "k": "add"
+    },
+    {
+     "t": "two months.",
+     "k": "same"
+    }
+   ],
+   "why": "'I haven't seen her for two months' joins the past to now.",
+   "up": "On a free day I'd go back to my village. I haven't seen my mother in two months and I really miss her.",
+   "upDiff": [
+    {
+     "t": "I will",
+     "k": "del"
+    },
+    {
+     "t": "On a free day I'd",
+     "k": "add"
+    },
+    {
+     "t": "go",
+     "k": "same"
+    },
+    {
+     "t": "back",
+     "k": "add"
+    },
+    {
+     "t": "to my village.",
+     "k": "same"
+    },
+    {
+     "t": "and meet my mother, because",
+     "k": "del"
+    },
+    {
+     "t": "I haven't seen",
+     "k": "same"
+    },
+    {
+     "t": "her for",
+     "k": "del"
+    },
+    {
+     "t": "my mother in",
+     "k": "add"
+    },
+    {
+     "t": "two months",
+     "k": "same"
+    },
+    {
+     "t": "and I really miss her.",
+     "k": "add"
+    }
+   ],
+   "upAdds": [
+    "more detail",
+    "natural phrase"
+   ]
+  }
+ ],
+ "best": {
+  "quote": "I will go to my village and meet my mother",
+  "tags": [
+   "talked about the future",
+   "joined two ideas"
+  ],
+  "why": "This is how level 3 speakers talk: two ideas in one sentence."
+ },
+ "ladder": {
+  "you": 3,
+  "rungs": [
+   {
+    "level": 1,
+    "text": "Village. Mother."
+   },
+   {
+    "level": 2,
+    "text": "I go village. I meet my mother."
+   },
+   {
+    "level": 3,
+    "text": "I will go to my village and meet my mother, because I miss her."
+   },
+   {
+    "level": 4,
+    "text": "On a free day I'd go back to my village. I haven't seen my mother in two months and I really miss her."
+   }
+  ]
+ },
+ "habit": {
+  "name": "Using '-ing' where English doesn't",
+  "rule": "For things you do every day, use the simple form: I talk, I work, I go.",
+  "examples": [
+   {
+    "said": "I am talking with them",
+    "better": "I talk with them",
+    "diff": [
+     {
+      "t": "I",
+      "k": "same"
+     },
+     {
+      "t": "am talking",
+      "k": "del"
+     },
+     {
+      "t": "talk",
+      "k": "add"
+     },
+     {
+      "t": "with them",
+      "k": "same"
+     }
+    ]
+   },
+   {
+    "said": "I am not seeing her",
+    "better": "I haven't seen her",
+    "diff": [
+     {
+      "t": "I",
+      "k": "same"
+     },
+     {
+      "t": "am not seeing",
+      "k": "del"
+     },
+     {
+      "t": "haven't seen",
+      "k": "add"
+     },
+     {
+      "t": "her",
+      "k": "same"
+     }
+    ]
+   }
+  ]
+ },
+ "tip": {
+  "title": "'since' or 'for'?",
+  "said": "since two months",
+  "better": "for two months",
+  "rule": "'for' + how long (two months). 'since' + when it started (September).",
+  "hindi": "'for' के बाद कितना समय, 'since' के बाद कब से।"
+ }
+}

@@ -32,16 +32,13 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -74,11 +71,8 @@ import com.sakhi.app.conversation.Message
 import com.sakhi.app.conversation.Phase
 import com.sakhi.app.conversation.SessionState
 import com.sakhi.app.conversation.UiState
-import com.sakhi.app.conversation.resultText
-import com.sakhi.app.net.Result
 import com.sakhi.app.ui.theme.Sakhi
 import kotlinx.coroutines.delay
-import kotlin.math.roundToInt
 
 /** The whole app is one screen: the conversation above, the card, the orb, and the hint. */
 @Composable
@@ -95,6 +89,8 @@ fun SakhiScreen(
     onStartLearning: () -> Unit = {},
     onReport: (String) -> Unit = {},
     onStartOver: () -> Unit = {},
+    onHear: (String) -> Unit = {},
+    onSay: (String) -> Unit = {},
 ) {
     val c = Sakhi.colors
     Box(
@@ -106,7 +102,7 @@ fun SakhiScreen(
             Header(onLogoLongPress, onAccount)
             if (micBlocked) { MicScreen(onAllowMic); return@Column }
             if (state.session == SessionState.RESULT && state.result != null) {
-                ResultView(state.result, onStartLearning, onRestart, onReport, Modifier.weight(1f)); return@Column
+                ResultView(state, ResultActions(onStartLearning, onRestart, onReport, onHear, onSay), Modifier.weight(1f)); return@Column
             }
             Conversation(state.messages, onReport, Modifier.weight(1f))
             AnimatedVisibility(state.card != null) { state.card?.let { TaskCard(it, reducedMotion) } }
@@ -292,68 +288,6 @@ private fun Hint(state: UiState) {
         }
     }
 }
-
-private val SKILLS = listOf("comprehension" to "Understanding", "vocabulary" to "English words", "grammar" to "Making sentences",
-    "fluency" to "Speaking smoothly", "pronunciation" to "Saying words clearly", "coherence" to "Joining ideas")
-private val SKILL_WORDS = listOf("Just starting", "Growing", "Steady", "Strong", "Shining")
-
-@Composable
-private fun ResultView(r: Result, onStartLearning: () -> Unit, onRestart: () -> Unit, onReport: (String) -> Unit, modifier: Modifier) {
-    val c = Sakhi.colors
-    var how by remember { mutableStateOf(false) }
-    Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("YOUR LEVEL · LEVEL ${r.level} OF 4", style = MaterialTheme.typography.labelSmall.copy(color = c.accentDeep))
-        Text(r.name, style = MaterialTheme.typography.headlineLarge)
-        Text(r.blurb, style = MaterialTheme.typography.bodyLarge)
-        r.hindi?.let { Text(it, style = MaterialTheme.typography.bodyMedium.copy(color = c.ink2)) }
-        Button(onStartLearning, Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = c.accentDeep, contentColor = c.onPrimary)) {
-            Text("Start learning · सीखना शुरू करें", style = MaterialTheme.typography.labelLarge.copy(color = c.onPrimary))
-        }
-        TextButton(onRestart, Modifier.fillMaxWidth()) { Text("Take the test again", color = c.ink2) }
-        if (r.doingWell.isNotEmpty() || r.practise.isNotEmpty()) ResultCard {
-            if (r.doingWell.isNotEmpty()) { CardTitle("What went well"); r.doingWell.forEach { Bullet(it) } }
-            if (r.practise.isNotEmpty()) { CardTitle("What we’ll practise next"); r.practise.forEach { Bullet(it) } }
-        }
-        val skills = SKILLS.mapNotNull { (k, label) -> r.dims[k]?.let { label to it.roundToInt().coerceIn(0, 4) } }
-        if (skills.isNotEmpty()) ResultCard {
-            CardTitle("Where you’re growing")
-            skills.forEach { (label, n) ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(label, style = MaterialTheme.typography.bodyMedium)
-                        Text(SKILL_WORDS[n], style = MaterialTheme.typography.bodySmall.copy(color = c.ink2))
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        (1..4).forEach { i -> Box(Modifier.size(22.dp, 8.dp).clip(RoundedCornerShape(4.dp)).background(if (i <= n) c.accent else c.line)) }
-                    }
-                }
-            }
-        }
-        OutlinedButton({ how = !how }) { Text(if (how) "Hide how we decided" else "How we decided", color = c.ink) }
-        AnimatedVisibility(how) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (r.reasons.isEmpty()) Text("Your answers to all the questions, put together.", style = MaterialTheme.typography.bodyMedium)
-                r.reasons.forEach { Bullet(it) }
-                r.answers.filter { !it.transcript.isNullOrBlank() }.forEach {
-                    Text(buildAnnotatedString { withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(it.q.replace('_', ' ')) }; append(": ${it.transcript}") },
-                        style = MaterialTheme.typography.bodySmall.copy(color = c.ink2))
-                }
-            }
-        }
-        TextButton({ onReport(resultText(r)) }, Modifier.fillMaxWidth()) {
-            Text("Report a problem with this feedback", color = c.ink2, style = MaterialTheme.typography.bodySmall)
-        }
-    }
-}
-
-@Composable private fun ResultCard(content: @Composable () -> Unit) {
-    val c = Sakhi.colors
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(c.surface).border(1.dp, c.line, RoundedCornerShape(20.dp)).padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)) { content() }
-}
-@Composable private fun CardTitle(t: String) = Text(t, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
-@Composable private fun Bullet(t: String) = Row { Text("•  ", style = MaterialTheme.typography.bodyMedium); Text(t, style = MaterialTheme.typography.bodyMedium) }
 
 @Composable
 private fun MicScreen(onAllow: () -> Unit) {

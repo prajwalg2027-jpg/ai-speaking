@@ -16,7 +16,7 @@ export const resumeHours = () => settings.get('limits').resumeHours ?? 24;
 // What is only for the server's process: kept out of the saved test.
 // saved/persist: what accounts.js has written; rec: mic audio not yet stored; joined/saying: the voice of a turn
 // in flight; prev: the answer an interruption may be joined to (not across a break); inFlight: a turn being written.
-const TRANSIENT = new Set(['saved', 'persist', 'rec', 'joined', 'saying', 'prev', 'inFlight', 'resultSaved']);
+const TRANSIENT = new Set(['saved', 'persist', 'rec', 'joined', 'saying', 'prev', 'inFlight', 'resultSaved', 'insights']);
 
 /** The test as plain JSON, to save. */
 export function freeze(s) {

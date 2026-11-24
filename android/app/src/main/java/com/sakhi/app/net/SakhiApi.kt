@@ -77,6 +77,14 @@ class SakhiApi(private val client: OkHttpClient, private val baseUrl: () -> Stri
         }
     }
 
+    /** The result screen's detailed feedback. The server may still be writing it: this waits for it (up to about 25 s). */
+    suspend fun insights(sessionId: String): Insights = get("/api/session/insights?id=${enc(sessionId)}")
+    /** How well [text] (a sentence from the feedback) was said back, from a 16 kHz WAV recording. */
+    suspend fun sayBack(sessionId: String, text: String, wav: ByteArray): SayBack =
+        call(request("/api/session/sayback?id=${enc(sessionId)}&text=${enc(text)}").post(wav.toRequestBody("audio/wav".toMediaType())).build())
+
+    private fun enc(s: String) = java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
+
     // The signed-in customer.
     suspend fun me(): Me = get("/api/me")
     suspend fun saveConsents(list: List<Consent>): MissingConsents = post("/api/me/consents", SakhiJson.encodeToString(ConsentsRequest(list)))

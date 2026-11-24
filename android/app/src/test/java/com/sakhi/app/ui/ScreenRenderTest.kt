@@ -74,6 +74,17 @@ class ScreenRenderTest {
         val done = SakhiJson.decodeFromString<Turn>(javaClass.classLoader!!.getResource("turn_done.json")!!.readText()).done!!
         shot("06-result", UiState(SessionState.RESULT, Phase.IDLE, result = done))
     }
+    private val insights by lazy { SakhiJson.decodeFromString<com.sakhi.app.net.Insights>(javaClass.classLoader!!.getResource("insights.json")!!.readText()) }
+    private val done by lazy { SakhiJson.decodeFromString<Turn>(javaClass.classLoader!!.getResource("turn_done.json")!!.readText()).done!! }
+    @Test fun resultWaitingForFeedback() = shot("08-result-loading", UiState(SessionState.RESULT, Phase.IDLE, result = done, insightsLoading = true))
+    @Test fun resultWithFeedback() {
+        val said = insights.answers[0].better
+        val back = com.sakhi.app.net.SayBack(said, 0.86, 13, 15, said.split(" ").mapIndexed { i, w -> com.sakhi.app.net.SaidWord(w, i != 4 && i != 5) })
+        shot("09-result-feedback", UiState(SessionState.RESULT, Phase.IDLE, result = done, insights = insights,
+            sayBack = com.sakhi.app.conversation.SayBackState(results = mapOf(said to back))))
+    }
+    @Test fun resultWithFeedbackDark() = shot("10-result-feedback-dark", UiState(SessionState.RESULT, Phase.IDLE, result = done, insights = insights,
+        sayBack = com.sakhi.app.conversation.SayBackState(text = insights.answers[0].better, phase = com.sakhi.app.conversation.SayPhase.RECORDING)), dark = true)
     @Test fun interrupted() = shot("07-cut-dark", UiState(SessionState.LIVE, Phase.LISTENING,
         listOf(you, Message(6, true, words("Okay. Now listen to"), cut = true), Message(7, false, emptyList(), live = true))), dark = true)
 }

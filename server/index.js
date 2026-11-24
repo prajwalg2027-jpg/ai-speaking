@@ -13,6 +13,7 @@ import { makeTrace } from './trace.js';
 import { startSession, getSession, handleTurn, scriptedLines } from './placement/index.js'; // classic or conversation (Settings)
 import * as resume from './placement/resume.js';
 import * as store from './store.js';
+import { buildInsights, sayable, sayBackScore } from './placement/insights.js';
 import { withLedger, summarize, shared, addSpeechToText, spentToday } from './costs.js';
 import { production, teamTools, LIMITS, isTeamPath, clientIp, sessionStarts, maySpeak } from './guard.js';
 import * as accounts from './accounts.js';
@@ -185,7 +186,49 @@ async function runTurn(req, res, body, s) {
   diag.record(req, [{ name: 'turn', sid: s.id, data: { event: body.event, serverMs: trace.total(), say: (turn.say || []).map((l) => l.text),
     listen: turn.listen || null, done: turn.done ? { level: turn.done.level } : null, steps: trace.list } }]);
   accounts.afterTurn(s, { event: body.event }); // saved after the reply, so it adds no delay
+  if (turn.done) startInsights(s);
   return turn;
+}
+
+// ---- The result screen's detailed feedback (server/placement/insights.js) ----------------------------------
+// GET  /api/session/insights?id=…            → the feedback, once written (waits for it, up to about 25 s)
+// POST /api/session/sayback?id=…&text=…      body: 16 kHz WAV (≤ 30 s) of the learner saying one of its sentences
+//                                            → { heard, score, matched, total, words: [{ t, ok }] }
+// It is written in one AI call that starts as soon as the test ends, while Sakhi says goodbye.
+function startInsights(s) {
+  if (s.insights || !s.result) return;
+  const P = settings.get('placement');
+  s.insights = withLedger(s.ledger, () => buildInsights(s, { config: P.brain, effort: P.finalEffort })).then((ins) => {
+    // Its sentences may be spoken by Sakhi's voice, and said back by the learner.
+    s.sayable = sayable(ins);
+    s.voiceLines = [...(s.voiceLines || []), ...s.sayable].slice(-80);
+    if (ins.meta) console.log(`[insights] ${s.id}: ${ins.meta.provider}/${ins.meta.model} ${ins.meta.ms} ms`);
+    if (ins.fallback) console.warn(`[insights] ${s.id}: ${ins.fallback}`);
+    const { meta, fallback, ...shown } = ins;
+    return shown;
+  });
+}
+
+async function handleInsights(req, res, url) {
+  const { s } = await ownSession(req, url.searchParams.get('id'));
+  if (!s) return send(res, 404, { error: 'session not found (it may have expired)' });
+  if (!s.done) return send(res, 409, { error: 'the test has not finished' });
+  startInsights(s); // a test that ended some other way
+  send(res, 200, await s.insights);
+}
+
+async function handleSayBack(req, res, url) {
+  const { s } = await ownSession(req, url.searchParams.get('id'));
+  if (!s) return send(res, 404, { error: 'session not found (it may have expired)' });
+  const text = String(url.searchParams.get('text') || '');
+  if (!s.sayable?.includes(text)) return send(res, 403, { error: 'not a sentence from your feedback' });
+  if ((s.saybacks = (s.saybacks || 0) + 1) > 40) return send(res, 429, { error: 'too many tries; please start learning to practise more' });
+  if (production && spentToday() >= LIMITS.dailyBudgetInr) return send(res, 503, { error: 'busy', reason: 'Sakhi is very busy today. Please try again tomorrow.' });
+  const wav = await readBody(req, 1_100_000); // 30 s of 16 kHz 16-bit mono, plus the header
+  if (wav.length < 44 + 3200) return send(res, 400, { error: 'the recording is too short' });
+  const r = await sarvam.transcribe(wav);
+  addSpeechToText(s.ledger, (wav.length - 44) / 32000);
+  send(res, 200, sayBackScore(text, r.transcript));
 }
 
 /** GET /api/session/resume → { open, sessionId? }: is there a test left midway (for the app's start screen; nothing is said). */
@@ -361,6 +404,8 @@ export const server = createServer(async (req, res) => {
     if (url.pathname.startsWith('/api/me') || url.pathname === '/api/events') return await handleAccount(req, res, url);
     if (req.method === 'POST' && url.pathname === '/api/session') return await handleSessionStart(req, res);
     if (req.method === 'POST' && url.pathname === '/api/session/turn') return await handleSessionTurn(req, res);
+    if (req.method === 'GET' && url.pathname === '/api/session/insights') return await handleInsights(req, res, url);
+    if (req.method === 'POST' && url.pathname === '/api/session/sayback') return await handleSayBack(req, res, url);
     if (req.method === 'POST' && url.pathname === '/api/session/resume') return await handleSessionResume(req, res);
     if (req.method === 'GET' && url.pathname === '/api/session/resume') return await handleOpenTest(req, res);
     if (req.method === 'GET' && url.pathname === '/api/session/cost') {

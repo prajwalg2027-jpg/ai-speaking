@@ -47,6 +47,7 @@ test('the app runs a whole conversation placement through the same API as the cl
     assert.equal(start.task.id, 'hello');
     assert.equal(start.say.length, 2);
     const chats = () => mock.calls.filter((c) => c.path === '/v1/chat/completions').length;
+    const insightCalls = () => mock.calls.filter((c) => c.path === '/v1/chat/completions' && c.body.includes('You write the result page')).length;
     const before = chats();
     const turn = (transcript) => post('/api/session/turn', { sessionId: start.sessionId, event: 'answer', transcript, speechSec: 5 });
     const voiceCalls = () => mock.calls.filter((c) => c.path === '/text-to-speech/stream').length, voiceBefore = voiceCalls();
@@ -71,7 +72,29 @@ test('the app runs a whole conversation placement through the same API as the cl
     assert.deepEqual([t.done.level, t.done.decidedBy, t.done.mode], [3, 'the AI', 'conversation']);
     assert.match(t.done.practise[0], /I went/);
     assert.match(t.say.map((l) => l.text).join(' '), /Your English is at level 3 of 4, Good\./);
-    assert.equal(chats() - before, 5, 'one AI call per learner turn');
+    assert.equal(chats() - before - insightCalls(), 5, 'one AI call per learner turn');
+    // The result screen's detailed feedback, written once the test has ended (one more AI call).
+    const ins = await get(`/api/session/insights?id=${start.sessionId}`);
+    assert.equal(insightCalls(), 1);
+    assert.deepEqual([ins.status, ins.level, ins.answers.length, ins.counts.answers], ['ready', 3, 2, 2]);
+    assert.equal(ins.answers[0].better, 'In the morning I went to the market and bought some vegetables for my family');
+    assert.deepEqual(ins.answers[0].diff.filter((d) => d.k !== 'same'), [{ t: 'go', k: 'del' }, { t: 'went', k: 'add' }]);
+    assert.deepEqual(ins.answers[0].upAdds, ['more detail'], 'only labels from the list');
+    assert.deepEqual([ins.best.quote, ins.best.tags], ['I like it because the vegetables', ['gave a reason']]);
+    assert.equal(ins.ladder.rungs.length, 4);
+    assert.equal(ins.habit, undefined, 'a habit needs two examples in their own words');
+    assert.deepEqual(ins.counts.joiningWords, ['and', 'because']);
+    assert.equal(ins.meta, undefined, 'the model and its cost stay on the server');
+    // A sentence from it can be heard in Sakhi's voice, and said back.
+    const better = ins.answers[0].better;
+    const heard = await fetch(`${base}/api/tts/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: better, lang: 'en-IN', pace: 1, sessionId: start.sessionId }) });
+    assert.equal(heard.status, 200);
+    const wav = Buffer.alloc(44 + 32000);
+    const sayback = (text) => fetch(`${base}/api/session/sayback?id=${start.sessionId}&text=${encodeURIComponent(text)}`, { method: 'POST', headers: { 'content-type': 'audio/wav' }, body: wav });
+    const sb = await (await sayback(better)).json();
+    assert.equal(sb.total, better.split(' ').length);
+    assert.ok(sb.matched >= 1 && sb.words.every((w) => typeof w.ok === 'boolean'));
+    assert.equal((await sayback('Some other sentence')).status, 403, 'only sentences from their feedback');
     // Every line she said can be spoken (the voice endpoint only speaks her own lines).
     const voice = await fetch(`${base}/api/tts/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: t.say[0].text, lang: t.say[0].lang, pace: t.say[0].pace, sessionId: start.sessionId }) });
     assert.equal(voice.status, 200);

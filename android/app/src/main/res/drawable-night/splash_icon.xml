@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launch screen icon: the launcher orb with a soft halo behind it.
+     Drawn on a 108 grid; Android shows the middle 72. Animated by splash_icon_animated.xml. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <group android:name="haloGroup" android:pivotX="54" android:pivotY="54">
+        <path android:name="halo" android:pathData="M54,19a35,35 0,1 1,0 70a35,35 0,1 1,0 -70z">
+            <aapt:attr name="android:fillColor">
+                <gradient android:type="radial" android:centerX="54" android:centerY="54" android:gradientRadius="35"
+                    android:startColor="#80ED845B" android:centerColor="#33ED845B" android:endColor="#00ED845B" />
+            </aapt:attr>
+        </path>
+    </group>
+    <group android:name="orb" android:pivotX="54" android:pivotY="54">
+        <path android:name="orbBody" android:pathData="M54,30a24,24 0,1 1,0 48a24,24 0,1 1,0 -48z">
+            <aapt:attr name="android:fillColor">
+                <gradient android:type="radial" android:centerX="46" android:centerY="44" android:gradientRadius="34"
+                    android:startColor="#EFB062" android:centerColor="#D87248" android:endColor="#993C25" />
+            </aapt:attr>
+        </path>
+        <path android:name="shine" android:fillColor="#B3FFFFFF" android:pathData="M46,38a7,5 0,1 1,0 10a7,5 0,1 1,0 -10z" />
+    </group>
+</vector>

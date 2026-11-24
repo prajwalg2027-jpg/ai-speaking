@@ -149,3 +149,56 @@ data class AppEvent(
 
 /** The server's error body: { error, reason?, missing? }. */
 @Serializable data class ErrorBody(val error: String = "", val reason: String? = null, val missing: List<String> = emptyList())
+
+// ---- The result screen's detailed feedback (GET /api/session/insights, server/placement/insights.js) ----------
+
+/** A piece of a word-by-word difference: [k] is "same", "del" (what they said, taken out) or "add" (put in). */
+@Serializable data class DiffPart(val t: String, val k: String = "same")
+
+/** One answer: what they said, said the right way ([diff]), why, and the same idea one level up ([up]). */
+@Serializable data class AnswerInsight(
+    val i: Int = 0,
+    val question: String = "",
+    val said: String = "",
+    val better: String = "",
+    val same: Boolean = false,
+    val diff: List<DiffPart> = emptyList(),
+    val why: String? = null,
+    val up: String? = null,
+    val upDiff: List<DiffPart> = emptyList(),
+    val upAdds: List<String> = emptyList(),
+)
+
+@Serializable data class BestSentence(val quote: String, val tags: List<String> = emptyList(), val why: String? = null)
+@Serializable data class Rung(val level: Int, val text: String)
+@Serializable data class Ladder(val you: Int, val rungs: List<Rung> = emptyList())
+@Serializable data class HabitExample(val said: String, val better: String, val diff: List<DiffPart> = emptyList())
+@Serializable data class Habit(val name: String, val rule: String, val examples: List<HabitExample> = emptyList())
+@Serializable data class LocalTip(val title: String, val said: String, val better: String, val rule: String, val hindi: String? = null)
+
+/** Counted by the server from their answers (not the AI). */
+@Serializable data class SpokenCounts(
+    val answers: Int = 0,
+    val englishWords: Int = 0,
+    val longestAnswer: Int = 0,
+    val joiningWords: List<String> = emptyList(),
+    val hindiWords: Int = 0,
+)
+
+/** Every part may be missing: the screen shows what there is. */
+@Serializable data class Insights(
+    val status: String = "ready",
+    val level: Int = 0,
+    val counts: SpokenCounts? = null,
+    val answers: List<AnswerInsight> = emptyList(),
+    val best: BestSentence? = null,
+    val ladder: Ladder? = null,
+    val habit: Habit? = null,
+    val tip: LocalTip? = null,
+) {
+    val isEmpty get() = answers.isEmpty() && best == null && ladder == null && habit == null && tip == null && (counts?.answers ?: 0) == 0
+}
+
+/** A sentence said back (POST /api/session/sayback): each of its words, heard or not. */
+@Serializable data class SaidWord(val t: String, val ok: Boolean = false)
+@Serializable data class SayBack(val heard: String = "", val score: Double = 0.0, val matched: Int = 0, val total: Int = 0, val words: List<SaidWord> = emptyList())

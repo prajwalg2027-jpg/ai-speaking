@@ -80,6 +80,17 @@ export function startMockRest({ transcript = 'my name is ravi i like tea' } = {}
         const { toWire } = await import('../server/placement/brain.js');
         content = JSON.stringify(toWire(o));
       }
+      // The result screen's detailed feedback (server/placement/insights.js).
+      else if (/You write the result page/.test(sys)) {
+        const said = [...user.matchAll(/They said: (.*)/g)].map((m) => m[1]);
+        content = JSON.stringify({
+          answers: said.map((t, k) => ({ i: k + 1, better: t.replace(/\bI go\b/, 'I went'), why: /\bI go\b/.test(t) ? "It already happened, so 'go' becomes 'went'." : null, up: `${t.replace(/\bI go\b/, 'I went')} It was really nice.`, upAdds: ['more detail', 'not a label'] })),
+          best: { i: said.length, quote: said.at(-1).split(' ').slice(0, 6).join(' '), tags: ['gave a reason', 'not a tag'], why: 'You gave a reason.' },
+          ladder: ['Market. Vegetables.', 'I go market.', 'I went to the market because it is fresh.', 'I went to the market, since the vegetables there are always fresh.'],
+          habit: { name: 'The past', rule: "Use the past for things that already happened.", examples: [{ said: 'I go', better: 'I went' }, { said: 'words they never said', better: 'other words' }] },
+          tip: null,
+        });
+      }
       else if (/first short talk with a learner/.test(sys)) content = JSON.stringify({ doingWell: ['You answered every question in English.', 'You talked about your own life.'], practise: ["Say 'I went' instead of 'I go' for yesterday.", 'Next, we will join two ideas with because.'], closing: 'You talked about your life in English. Next, we will practise talking about yesterday.' });
       else if (/examiner/.test(sys)) content = '{"comprehension":3,"vocabulary":3,"grammar":3,"fluency":3,"pronunciation":3,"coherence":3,"relevant":true,"note":"ok"}';
       else if (/You are Sakhi/.test(sys)) {
