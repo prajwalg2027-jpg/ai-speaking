@@ -6,4 +6,3 @@ docs
 test
 .env
 *.md
-public/review

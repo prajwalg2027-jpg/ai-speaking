@@ -1,5 +1,10 @@
 # Voice-only English placement: design
 
+> Written 16 Nov 2026, before the test was built. The **four levels** and **what we measure from voice** (sections
+> 1 and the level table) still hold and the classic test's scoring is built on them. The question list below is the
+> original 4-question plan: the classic test now has five parts (`shared/assessment.js`, `docs/03-conversation.md`),
+> and the conversation test is in `docs/PLACEMENT.md`.
+
 The goal is to place a new user into one of **four levels** in about 3–4 minutes, using
 voice only (plus something on screen to look at), without making a beginner feel tested
 or bored, and without letting a fluent speaker coast through questions that are too easy.

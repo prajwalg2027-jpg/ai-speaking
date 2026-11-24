@@ -1,7 +1,7 @@
 // Production guard: what a public server must refuse. Off in development (npm start on your Mac), on when
 // NODE_ENV=production (the Cloud Run deployment).
 //
-// - Team tools (question review, cut-off editor, STT lab, mic test, per-conversation cost, the scoring
+// - Team tools (cut-off editor, STT lab, mic test, per-conversation cost, the scoring
 //   trace in replies) are for the team and stay off unless SAKHI_TEAM_TOOLS=1.
 // - Anyone who finds the address could spend the Sarvam credit, so: conversations per device address per
 //   hour, turns per conversation, listening time per conversation, and a daily spending cap.
@@ -22,7 +22,7 @@ export const LIMITS = {
   get learnMessagesPerDay() { return settings.get('limits').learnMessagesPerDay; },
 };
 
-const TEAM_PATHS = /^\/(review\.html|review\/|cutoffs\.html|stt-lab\.(html|js)|mic-test\.(html|js)|api\/lab\/|api\/session\/cost)/;
+const TEAM_PATHS = /^\/(cutoffs\.html|stt-lab\.(html|js)|mic-test\.(html|js)|api\/lab\/|api\/session\/cost)/;
 /** A team-only page or endpoint, refused in production. */
 export const isTeamPath = (pathname) => !teamTools && TEAM_PATHS.test(pathname);
 

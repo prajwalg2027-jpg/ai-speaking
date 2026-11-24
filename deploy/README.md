@@ -106,7 +106,7 @@ old instance can finish for up to 10 seconds, so deploy when few learners are on
 
 | | Default | Change with |
 |---|---|---|
-| Team tools (question review, cut-off editor, STT lab, mic test, cost, scoring trace) | Off | `SAKHI_TEAM_TOOLS=1` (keep off in production; use `npm start` on your Mac) |
+| Team tools (cut-off editor, STT lab, mic test, cost, scoring trace) | Off | `SAKHI_TEAM_TOOLS=1` (keep off in production; use `npm start` on your Mac) |
 | New conversations per device address per hour | 30 | `SAKHI_SESSIONS_PER_IP_HOUR` |
 | Turns per conversation | 80 | `SAKHI_TURNS_PER_SESSION` |
 | Listening time per conversation | 20 min | `SAKHI_LISTEN_SEC_PER_SESSION` |
