@@ -14,7 +14,7 @@ Work happens on the branch `tutor-conversation` (the default branch).
 | `android/` | The Kotlin Android app ([android/README.md](android/README.md)) | GitHub Actions builds and tests it; Play bundle via `android/release.sh` |
 | `website/` | adamspeaks.in: landing page, privacy, terms, delete-account, `app-config.json` ([website/README.md](website/README.md)) | Firebase Hosting, by hand |
 | `public/admin/` | The admin console at adamspeaks.in/admin | With the server |
-| `public/` (other files) | Team tools for your own computer: STT lab, mic test, question review, cut-off editor. Off in production | `npm start` locally |
+| `public/` (other files) | Team tools for your own computer: STT lab, mic test, cut-off editor. Off in production | `npm start` locally |
 | `deploy/` | Setup scripts for Google Cloud, login, payments, AI keys ([deploy/README.md](deploy/README.md)) | Run by hand |
 | `docs/` | Design notes and evaluations | |
 | `scripts/` | Claude Code's sync and auto-save hooks, the corrections evaluation | |
@@ -28,9 +28,14 @@ npm test                 # database tests need TEST_DATABASE_URL
 ```
 Node ≥ 20. The server's own address has no learner page; `/` sends visitors to adamspeaks.in.
 
+**Mic test on an Android phone** (phone and Mac on the same Wi-Fi): find the Mac's address with
+`ipconfig getifaddr en0`, then on the phone open `chrome://flags/#unsafely-treat-insecure-origin-as-secure`, add
+`http://<that address>:3000`, relaunch Chrome and open `http://<that address>:3000/mic-test.html`. With a USB cable
+instead: `adb reverse tcp:3000 tcp:3000` and open `http://localhost:3000/mic-test.html`.
+
 ## Design docs
 - [docs/PLACEMENT.md](docs/PLACEMENT.md): the placement test (classic and conversation).
 - [docs/LEARNING.md](docs/LEARNING.md): the learning module and admin console.
-- [docs/03-conversation.md](docs/03-conversation.md), [docs/01-assessment-design.md](docs/01-assessment-design.md),
+- [docs/03-conversation.md](docs/03-conversation.md), [docs/01-assessment-design.md](docs/01-assessment-design.md) (levels and what we measure),
   [docs/02-sarvam-integration.md](docs/02-sarvam-integration.md): how the conversation, the scoring and Sarvam fit together.
 - [docs/VOICES.md](docs/VOICES.md), [docs/LOGIN.md](docs/LOGIN.md), [docs/PAYMENTS.md](docs/PAYMENTS.md).

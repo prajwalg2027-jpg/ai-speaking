@@ -308,7 +308,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // A public server must know who's speaking and keep what they do. SAKHI_ALLOW_NO_LOGIN=1 is for a closed test
   // without accounts (nothing about customers is stored then).
   if (production && process.env.SAKHI_ALLOW_NO_LOGIN !== '1') {
-    const missing = [!loginEnabled() && 'a login (MSG91_AUTHKEY + MSG91_WIDGET_ID + SESSION_SECRET, or FIREBASE_PROJECT_ID)', !pool && 'DATABASE_URL'].filter(Boolean);
+    const missing = [!loginEnabled() && 'a login (MSG91_AUTHKEY + MSG91_WIDGET_ID + SESSION_SECRET)', !pool && 'DATABASE_URL'].filter(Boolean);
     if (missing.length) { console.error(`Refusing to start in production without ${missing.join(' and ')} (or set SAKHI_ALLOW_NO_LOGIN=1 for a closed test).`); process.exit(1); }
   }
   if (pool) {

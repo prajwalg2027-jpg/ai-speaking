@@ -59,7 +59,6 @@ before(async () => {
     TRUECALLER_BASE_URL: msg91Base, TRUECALLER_CLIENT_IDS: 'tc-client-debug,tc-client-release',
     SESSION_SECRET: 'x'.repeat(48), MSG91_TEST_PHONE: '+919999900000', MSG91_TEST_CODE: '123456', ADMIN_PHONES: '+919800000077,+919000000001', DEMO_PHONES: '+919000000001',
   });
-  delete process.env.FIREBASE_PROJECT_ID;
   ({ pool } = await import('../server/db/pool.js'));
   await pool.query('drop schema public cascade; create schema public');
   await (await import('../server/db/migrate.js')).migrate(pool, () => {});
@@ -218,7 +217,7 @@ t('the admin console accepts an OTP session for an admin number, and only that',
   assert.equal((await call('GET', '/api/admin/me', null, bearer(first.token))).status, 403);
   const demo = await signIn('9000000001');
   assert.equal((await call('GET', '/api/admin/me', null, bearer(demo.token))).status, 403, 'a demo number is never an admin, even if listed');
-  assert.deepEqual((await call('GET', '/api/admin/config')).json, { loginRequired: true, login: 'otp', firebase: null });
+  assert.deepEqual((await call('GET', '/api/admin/config')).json, { loginRequired: true, login: 'otp' });
 });
 
 // ---- Truecaller one-tap ----

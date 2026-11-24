@@ -9,7 +9,7 @@
 #   - a PostgreSQL database (Cloud SQL, Mumbai) with daily backups and point-in-time recovery,
 #   - a private Cloud Storage bucket (Mumbai) for voice recordings,
 #   - a service account for the server that can use only these.
-# Phone login uses Firebase in the same project: see deploy/README.md (Firebase console, one-time).
+# Phone login (SMS codes through MSG91) is set up after this, with deploy/msg91-setup.sh.
 set -euo pipefail
 
 PROJECT="${PROJECT:?Set PROJECT to your Google Cloud project ID}"
@@ -28,7 +28,7 @@ step() { echo; echo "› $*"; }
 
 step "Turning on the Google services Adam uses (first run only)"
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com \
-  sqladmin.googleapis.com storage.googleapis.com identitytoolkit.googleapis.com firebase.googleapis.com texttospeech.googleapis.com \
+  sqladmin.googleapis.com storage.googleapis.com firebase.googleapis.com texttospeech.googleapis.com \
   aiplatform.googleapis.com --quiet
 
 if ! gcloud secrets describe sarvam-api-key >/dev/null 2>&1; then
@@ -79,7 +79,6 @@ for s in sarvam-api-key adam-database-url; do
   gcloud secrets add-iam-policy-binding "$s" --member="serviceAccount:${RUNTIME_SA}" --role=roles/secretmanager.secretAccessor --quiet >/dev/null
 done
 gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:${RUNTIME_SA}" --role=roles/cloudsql.client --condition=None --quiet >/dev/null
-gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:${RUNTIME_SA}" --role=roles/firebaseauth.admin --condition=None --quiet >/dev/null
 # Gemini goes through Vertex AI by default (billed to this project, so Google Cloud credits pay): no key, this role.
 gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:${RUNTIME_SA}" --role=roles/aiplatform.user --condition=None --quiet >/dev/null
 gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" --member="serviceAccount:${RUNTIME_SA}" --role=roles/storage.objectAdmin --quiet >/dev/null
@@ -112,7 +111,7 @@ gcloud run deploy "$SERVICE" \
   --no-invoker-iam-check \
   --add-cloudsql-instances "${PROJECT}:${REGION}:${DB_INSTANCE}" \
   --update-secrets "SARVAM_API_KEY=sarvam-api-key:latest,DATABASE_URL=adam-database-url:latest" \
-  --update-env-vars "NODE_ENV=production,FIREBASE_PROJECT_ID=${PROJECT},RECORDINGS_BUCKET=${BUCKET},VOICE_CACHE_BUCKET=${VOICE_BUCKET},SAKHI_DAILY_BUDGET_INR=${BUDGET_INR}" \
+  --update-env-vars "NODE_ENV=production,RECORDINGS_BUCKET=${BUCKET},VOICE_CACHE_BUCKET=${VOICE_BUCKET},SAKHI_DAILY_BUDGET_INR=${BUDGET_INR}" \
   --min-instances 1 --max-instances 1 \
   --concurrency 80 --cpu 1 --memory 1Gi \
   --timeout 3600 --session-affinity --cpu-boost \
@@ -124,5 +123,5 @@ step "Checking ${URL}/api/health"
 curl -fsS "${URL}/api/health" && echo
 echo
 echo "Deployed: ${URL}"
-echo "Next: give this address to the Android release build (GitHub repository variable SAKHI_SERVER_URL),"
-echo "and finish phone login in the Firebase console if you haven't (deploy/README.md)."
+echo "Next: give this address to the Android release build (GitHub repository variable SAKHI_SERVER_URL)"
+echo "and set up phone login if you haven't: deploy/msg91-setup.sh."

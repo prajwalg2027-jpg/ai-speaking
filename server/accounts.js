@@ -2,19 +2,14 @@
 // event log, erasure, and saving each placement test as it happens (server/store.js).
 import * as store from './store.js';
 import * as recordings from './recordings.js';
-import { caller, loginEnabled, firebaseEnabled, projectId } from './auth.js';
-import { deleteFirebaseUser } from './gcp.js';
+import { caller, loginEnabled } from './auth.js';
 import { summarize } from './costs.js';
 import * as sessions from './sessions.js';
 import { CONFIG as SCORING } from './scoring.js';
 
-// Firebase uid → our user id, so a turn doesn't need a database round trip just to know who's speaking.
-const known = new Map();
-const remember = (uid, id) => { known.set(uid, id); if (known.size > 20_000) known.delete(known.keys().next().value); };
-
 /**
- * Who is calling. → { user: { id, uid, phone } | null }. Throws 401 when login is on and the token is
- * missing or bad. The first call from a new phone number creates the customer (and logs user.created).
+ * Who is calling. → { user: { id, uid, phone, sessionId } | null }. Throws 401 when login is on and the token is
+ * missing or bad. (The customer is created when they first sign in: server/login.js.)
  */
 export async function identify(req, { required = loginEnabled() } = {}) {
   const who = await caller(req);
@@ -22,14 +17,7 @@ export async function identify(req, { required = loginEnabled() } = {}) {
     if (required) throw Object.assign(new Error('login required'), { status: 401 });
     return { user: null };
   }
-  if (who.userId) return { user: { id: who.userId, uid: who.uid, phone: who.phone, sessionId: who.sessionId } };
-  let id = known.get(who.uid);
-  if (!id && store.enabled()) {
-    const u = await store.upsertUser({ firebaseUid: who.uid, phone: who.phone });
-    id = u.id; remember(who.uid, id);
-    if (u.created) await store.addEvent({ userId: id, name: 'user.created', properties: {} });
-  }
-  return { user: { id: id || null, uid: who.uid, phone: who.phone } };
+  return { user: { id: who.userId, uid: who.uid, phone: who.phone, sessionId: who.sessionId } };
 }
 
 /** Before a placement test: the customer must have agreed to everything required. → missing purposes */
@@ -78,12 +66,10 @@ export async function saveEvents(user, events) {
   return { saved };
 }
 
-/** Erase everything personal (DPDP Act), including the Firebase login. */
+/** Erase everything personal (DPDP Act). */
 export async function erase(user) {
   await sessions.forgetUser(user.id); // first: the session rows go with the account
   const r = await store.eraseUser(user.id, recordings.remove);
-  known.delete(user.uid);
-  if (firebaseEnabled() && !String(user.uid).startsWith('phone:')) await deleteFirebaseUser(projectId(), user.uid).catch((e) => console.warn('[accounts] Firebase account not deleted:', e.message));
   return { erased: true, recordings: r.recordings };
 }
 

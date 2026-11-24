@@ -21,7 +21,7 @@ export function tokenFor({ userId, sessionId, phone, expiresAt }) {
   return `${head}.${sign(head)}`;
 }
 
-/** Is this one of our tokens (rather than Firebase's)? Only looks at the header. */
+/** Is this one of our tokens? Only looks at the header. */
 export function isOurs(token) {
   try { return JSON.parse(Buffer.from(String(token).split('.')[0], 'base64url').toString()).alg === 'HS256'; } catch { return false; }
 }

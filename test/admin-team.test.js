@@ -1,43 +1,35 @@
 // The admin team and access control (server/admin/team.js), against a real PostgreSQL (TEST_DATABASE_URL; skipped
 // without it): owners from ADMIN_PHONES, adding people with roles, each role's limits enforced on the server,
 // custom roles, pausing and removing, nobody giving out more than they have, and the record of changes.
+import { login, signInAll, SESSION_ENV } from './phone-login.js';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync, createSign } from 'node:crypto';
 import { startMockRest } from './mock-sarvam-rest.js';
 
 const url = process.env.TEST_DATABASE_URL;
-const PROJECT = 'sakhi-test';
-const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 let server, base, pool, mock;
 
 before(async () => {
   if (!url) return;
   mock = await startMockRest();
-  Object.assign(process.env, { SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url, DATABASE_URL: url, FIREBASE_PROJECT_ID: PROJECT, ADMIN_PHONES: '+919800009999', DEMO_PHONES: '+919000000001' });
+  Object.assign(process.env, { ...SESSION_ENV, SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url, DATABASE_URL: url, ADMIN_PHONES: '+919800009999', DEMO_PHONES: '+919000000001' });
   ({ pool } = await import('../server/db/pool.js'));
   await pool.query('drop schema public cascade; create schema public');
   await (await import('../server/db/migrate.js')).migrate(pool, () => {});
-  (await import('../server/auth.js')).setKeyResolver(async () => ({ k1: publicKey }));
   ({ server } = await import('../server/index.js'));
+  await signInAll();
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${server.address().port}`;
 });
 after(async () => { server?.close(); mock?.close(); await pool?.end(); });
 const t = (name, fn) => test(name, { skip: !url && 'set TEST_DATABASE_URL to run' }, fn);
 
-const iat = Math.floor(Date.now() / 1000);
-function login(uid, phone) {
-  const enc = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
-  const head = `${enc({ alg: 'RS256', kid: 'k1' })}.${enc({ aud: PROJECT, iss: `https://securetoken.google.com/${PROJECT}`, sub: uid, iat, exp: iat + 3600, auth_time: iat, phone_number: phone, firebase: { sign_in_provider: 'phone' } })}`;
-  return { authorization: `Bearer ${head}.${createSign('RSA-SHA256').update(head).sign(privateKey).toString('base64url')}` };
-}
 const call = async (method, path, headers = {}, body) => {
   const r = await fetch(`${base}/api/admin${path}`, { method, headers: { 'content-type': 'application/json', ...headers }, body: body && JSON.stringify(body) });
   return { status: r.status, json: await r.json().catch(() => null) };
 };
-const owner = login('u-owner', '+919800009999');
-const priya = login('u-priya', '+919800000021'), arjun = login('u-arjun', '+919800000022'), meera = login('u-meera', '+919800000023');
+const owner = login('+919800009999');
+const priya = login('+919800000021'), arjun = login('+919800000022'), meera = login('+919800000023');
 const add = (who, phone, role, name) => call('POST', '/team/members', who, { phone, role, name });
 
 t('the owner from ADMIN_PHONES sees the team: themselves and the built-in roles', async () => {

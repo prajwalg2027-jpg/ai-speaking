@@ -31,7 +31,7 @@ TTS** through Vertex AI (billed to Google Cloud) by default, Sarvam Bulbul v4 Fl
 | Sakhi's fixed voice lines | bucket `cool-arch-515210-b0-adam-voice` (saves ~₹15 per server start) |
 | Secrets | Secret Manager: `sarvam-api-key`, `adam-database-url` |
 | Server's account | `adam-runtime@cool-arch-515210-b0.iam.gserviceaccount.com` (only these resources) |
-| Phone login | SMS OTP through MSG91, sent and checked by the server, then the server’s own sessions (`server/login.js`, `docs/LOGIN.md`; setup `deploy/msg91-setup.sh`). Firebase logins from older builds are still accepted |
+| Phone login | SMS OTP through MSG91, sent and checked by the server, then the server’s own sessions (`server/login.js`, `docs/LOGIN.md`; setup `deploy/msg91-setup.sh`) |
 | Android apps | `in.adamspeaks.app` (release), `in.adamspeaks.app.dev` (test build; shared signing key `android/app/debug.keystore`) |
 | Website | `adamspeaks.in` on Firebase Hosting, built from branch `tutor-conversation` folder `website/` (DNS at GoDaddy) |
 | App settings file | `https://adamspeaks.in/app-config.json` (server address, minimum app version; the app reads it at start) |
@@ -41,7 +41,7 @@ TTS** through Vertex AI (billed to Google Cloud) by default, Sarvam Bulbul v4 Fl
 - **Release the server from GitHub** (no upload needed; works from a connector or Cloud Shell):
   `gcloud builds submit https://github.com/prajwalg2027-jpg/ai-speaking --git-source-revision=tutor-conversation --config=deploy/cloudbuild.yaml --region=asia-south1 --project=cool-arch-515210-b0`
 - **Full setup / infrastructure changes:** `deploy/cloudrun.sh` (idempotent; see `deploy/README.md`).
-- **Login setup:** `deploy/msg91-setup.sh` (MSG91 widget id, authkey into Secret Manager, admin numbers). Older: `deploy/firebase-setup.sh`.
+- **Login setup:** `deploy/msg91-setup.sh` (MSG91 widget id, authkey into Secret Manager, admin numbers).
 - **Start-up log:** `gcloud run services logs read adam --region=asia-south1 --project=cool-arch-515210-b0 --limit=50`
   (look for `Pre-generated … (124 from the voice store, 0 new)`).
 - **Health:** `GET /api/health` (Cloud Run reserves `/healthz`).
@@ -56,7 +56,7 @@ TTS** through Vertex AI (billed to Google Cloud) by default, Sarvam Bulbul v4 Fl
 
 Phone login required on every request and on the live speech socket; consents (terms, privacy, 18+, recordings)
 before a test; limits per address and per conversation; daily Sarvam spend cap ₹3,000 (`SAKHI_DAILY_BUDGET_INR`);
-team tools (question review, cut-off editor, STT lab) are off in production — use `npm start` locally.
+team tools (cut-off editor, STT lab, mic test) are off in production — use `npm start` locally.
 A shared "team pass" that bypasses login was refused by the safety check; don't build one.
 
 ## Learning module and admin console (Nov 2026)
@@ -103,6 +103,22 @@ record at GoDaddy; what to improve on the result screen; the tutor's final name.
 For Claude: release signing + Play bundle + store listing + data-safety form (after the Play account);
 rewrite Sakhi's AI instructions with example turns (approved, not built); re-tune level-4 cut-offs with real
 results; optionally move the project under the adamspeaks.in organization; load balancer only if needed later.
+
+## Parked ideas (from the old backlog, Nov 2026)
+
+Not started; come back to them with real learners' recordings.
+
+- **Learner's own language**: ask for their most comfortable language (Hindi, Tamil, Bengali…) at the start, use it
+  as Sarvam's `language_code` with `codemix`, and for Sakhi's help prompts (today Hindi only).
+- **Hearing**: give speech-to-text a context hint and key terms (names, places the learner said, never the expected
+  answer); compare `saaras:v4` with `saaras:v3-realtime`; measure hesitation from pauses in the audio, since Sarvam
+  drops most "um"/"uh"; decide whether streaming or one trimmed upload is cheaper (STT lab).
+- **Turn-taking**: barge-in thresholds (4× noise floor, 300 ms) were tuned on test clips; check on real phones on speaker.
+- **Speaking**: stream Sakhi's text into her voice so she starts sooner.
+- **Classic test**: common Hindi ways of saying "repeat" ("एक बार और बोलिए", "मुझे ठीक से सुनाई नहीं दिया") are missed
+  when longer than 4 words; read-aloud flatters learners (familiar sentences are "filled in"), so rewrite items
+  around hard sounds and count only pronunciation and fluency from it; pronunciation is a constant 2 outside read-aloud.
+- **Test set**: 20–40 recordings of real learners across the four levels, with exact transcripts and a teacher's level.
 
 ## Where things are in the code
 

@@ -2,16 +2,16 @@
 // Google Play Developer API and a fake Razorpay: Play purchases checked with Google and tied to the learner,
 // acknowledged, renewals and holds from real-time notifications, cancelling, and user choice billing (a learner
 // picks Razorpay on Play's screen: each Razorpay payment is reported to Google).
+import { login, signInAll, SESSION_ENV } from './phone-login.js';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { createHmac, generateKeyPairSync, createSign } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import { startMockRest } from './mock-sarvam-rest.js';
 
 const url = process.env.TEST_DATABASE_URL;
-const PROJECT = 'sakhi-test', KEY_SECRET = 'rzp-test-secret', HOOK_SECRET = 'hook-secret';
+const KEY_SECRET = 'rzp-test-secret', HOOK_SECRET = 'hook-secret';
 const PKG = 'in.adamspeaks.test', PRODUCT = 'learning_monthly', PLAY_TOKEN = 'play-access-token', RTDN = 'rtdn-secret';
-const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 let server, base, pool, fakePlay, fakeRzp, mock, settings;
 
 const listen = (handler) => new Promise((ok) => { const s = createServer(handler); s.listen(0, '127.0.0.1', () => ok(s)); });
@@ -71,17 +71,17 @@ const playSub = ({ account, state = 'SUBSCRIPTION_STATE_ACTIVE', order = 'GPA.11
 before(async () => {
   if (!url) return;
   fakePlay = await listen(playHandler); fakeRzp = await listen(rzpHandler); mock = await startMockRest();
-  Object.assign(process.env, {
-    SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url, DATABASE_URL: url, FIREBASE_PROJECT_ID: PROJECT, ADMIN_PHONES: '+919800009999',
+  Object.assign(process.env, { ...SESSION_ENV,
+    SARVAM_API_KEY: 'test-key', SARVAM_BASE_URL: mock.url, DATABASE_URL: url, ADMIN_PHONES: '+919800009999',
     RAZORPAY_KEY_ID: 'rzp_test_key', RAZORPAY_KEY_SECRET: KEY_SECRET, RAZORPAY_WEBHOOK_SECRET: HOOK_SECRET, RAZORPAY_BASE_URL: `http://127.0.0.1:${fakeRzp.address().port}`,
     PLAY_PACKAGE_NAME: PKG, PLAY_PRODUCT_ID: PRODUCT, PLAY_ACCESS_TOKEN: PLAY_TOKEN, PLAY_RTDN_TOKEN: RTDN, PLAY_BASE_URL: `http://127.0.0.1:${fakePlay.address().port}`,
   });
   ({ pool } = await import('../server/db/pool.js'));
   await pool.query('drop schema public cascade; create schema public');
   await (await import('../server/db/migrate.js')).migrate(pool, () => {});
-  (await import('../server/auth.js')).setKeyResolver(async () => ({ k1: publicKey }));
   settings = await import('../server/settings.js');
   ({ server } = await import('../server/index.js'));
+  await signInAll();
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${server.address().port}`;
   await settings.set('payments', { enabled: true, priceInr: 299 }, 'test');
@@ -89,12 +89,6 @@ before(async () => {
 after(async () => { if (settings) await settings.reset('payments', 'test'); server?.close(); fakePlay?.close(); fakeRzp?.close(); mock?.close(); await pool?.end(); });
 const t = (name, fn) => test(name, { skip: !url && 'set TEST_DATABASE_URL to run' }, fn);
 
-const iat = now();
-function login(uid, phone) {
-  const enc = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
-  const head = `${enc({ alg: 'RS256', kid: 'k1' })}.${enc({ aud: PROJECT, iss: `https://securetoken.google.com/${PROJECT}`, sub: uid, iat, exp: iat + 3600, auth_time: iat, phone_number: phone, firebase: { sign_in_provider: 'phone' } })}`;
-  return { authorization: `Bearer ${head}.${createSign('RSA-SHA256').update(head).sign(privateKey).toString('base64url')}` };
-}
 const call = async (method, path, headers = {}, body) => {
   const r = await fetch(`${base}${path}`, { method, headers: { 'content-type': 'application/json', ...headers }, body: body && JSON.stringify(body) });
   return { status: r.status, json: await r.json().catch(() => null) };
@@ -104,7 +98,7 @@ const notify = (token, type = 2, messageId = `m${++msgN}`) => call('POST', `/api
   message: { messageId, data: Buffer.from(JSON.stringify({ version: '1.0', packageName: PKG, eventTimeMillis: String(Date.now()), subscriptionNotification: { version: '1.0', notificationType: type, purchaseToken: token } })).toString('base64') },
   subscription: 'projects/x/subscriptions/play',
 });
-const asha = login('u-asha', '+919800000021'), ravi = login('u-ravi', '+919800000022'), meera = login('u-meera', '+919800000023');
+const asha = login('+919800000021'), ravi = login('+919800000022'), meera = login('+919800000023');
 const ids = {};
 const idOf = async (who, h) => (ids[who] ??= (await call('GET', '/api/me', h)).json.id);
 const active = async (h) => (await call('GET', '/api/pay/status', h)).json;
